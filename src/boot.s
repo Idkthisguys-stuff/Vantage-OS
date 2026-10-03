@@ -23,7 +23,7 @@ _start:
     ldr x1, = __bss_start
     ldr w2, = __bss_size
 3:  cbz w2, 4f // Quit loop if zero
-    str zxr, [x1], #8
+    str xzr, [x1], #8
     sub w2, w2, #1
     cbnz w2, 3b // Loop if non-zero
 
