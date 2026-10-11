@@ -16,7 +16,7 @@ _start:
     b 1b
 2: // Main core
     // Set stack below code
-    ldr x1, = _start
+    ldr x1, = 0x800000
     mov sp, x1
 
     // Clean bss
