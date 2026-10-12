@@ -36,6 +36,6 @@ uint32_t touch_read(int* x, int* y) {
     }
 
     *x = lastX;
-    *y = lastY;
+    *y = TOUCH_WIDTH - 1 - lastX;
     return lastDown;
 }

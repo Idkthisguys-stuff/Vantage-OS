@@ -33,7 +33,7 @@ static void hline(int x0, int x1, int y) {
 void canvas_init(uint32_t width, uint32_t height) {
     canvasWidth = width;
     canvasHeight = height;
-    fb_init(width, height);
+    fb_init(800, 480);
 }
 
 void canvas_set_color(uint32_t color) {
