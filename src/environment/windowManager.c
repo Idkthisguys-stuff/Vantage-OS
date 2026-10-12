@@ -1,48 +1,68 @@
 #include "../../includes/environment/windowManager.h"
 
-#define HEADER_ENABLE false
+#define EDGE_ZONE 100
+#define MIN_HEIGHT 200
+#define DRAG_IDLE 0
+#define DRAG_IGNORE 1
+#define DRAG_ACTIVE 2
+
+static uint32_t touchStatus;
 
 void env_Init(uint32_t width, uint32_t height) {
     canvas_init(width, height);
-    uint32_t touchStatus = touch_init();
+    touchStatus = touch_init();
 }
 
 void env_DrawWindow(Window* window) {
-    #if HEADER_ENABLE
-        canvas_set_color(window->titleColor);
-        canvas_fill_rect(window->x, window->y, window->w, 20);
-        canvas_set_color(window->bgColor);
-        canvas_fill_rect(window->x + 1, window->y + 20, window->w - 1, window->h - 20);
-    #else
-        canvas_set_color(window->bgColor);
-        canvas_fill_rect(window->x, window->y, window->w, window->h);
-    #endif
+    canvas_set_color(window->bgColor);
+    canvas_fill_rect(window->x, window->y, window->w, window->h);
 }
 
 void env_ListenTouch(Window* window, int tx, int ty, uint32_t isTouching) {
     if (!isTouching) {
-        window->dragState = 0;
+        if (window->dragState == DRAG_ACTIVE) {
+            window->x = window->fullX;
+            window->y = window->fullY;
+            window->w = window->fullW;
+            window->h = window->fullH;
+        }
+        window->dragState = DRAG_IDLE;
         return;
     }
 
-    if (tx >= window->x && tx <= (window->x + window->w) &&
-        ty >= window->y && ty <= (window->y + window->h)) {
-        if (ty <= window->y + 20) {
-            if (!window->dragState) {
-                window->dragState = 1;
-                window->dragOffsetX = tx - window->x;
-                window->dragOffsetY = ty - window->y;
-            } else {
-                window->x = tx - window->dragOffsetX;
-                window->y = ty - window->dragOffsetY;
-            }
+    if (window->dragState == DRAG_IDLE) {
+        int inside = tx >= window->x && tx < window->x + window->w;
+        int inZone = ty >= window->y + window->h - EDGE_ZONE && ty < window->y + window->h;
+
+        if (inside && inZone) {
+            window->dragState = DRAG_ACTIVE;
+            window->fullX = window->x;
+            window->fullY = window->y;
+            window->fullW = window->w;
+            window->fullH = window->h;
+            window->startTouchY = ty;
+            window->grabX = (tx - window->x) * 1000 / window->w;
+            window->grabY = (ty - window->y) * 1000 / window->h;
         } else {
-            window->dragState = 0;
-            if (window->onTouch) {
-                window->onTouch(window, tx, ty);
-            }
+            window->dragState = DRAG_IGNORE;
         }
-    } else {
-        window->dragState = 0;
+        return;
+    }
+
+    if (window->dragState == DRAG_ACTIVE) {
+        int distance = window->startTouchY - ty;
+        int maxDistance = window->fullH - MIN_HEIGHT;
+
+        if (distance < 0) {
+            distance = 0;
+        }
+        if (distance > maxDistance) {
+            distance = maxDistance;
+        }
+
+        window->h = window->fullH - distance;
+        window->w = window->fullW - distance / 2;
+        window->x = tx - window->grabX * window->w / 1000;
+        window->y = ty - window->grabY * window->h / 1000;
     }
 }

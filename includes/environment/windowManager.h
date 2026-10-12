@@ -16,6 +16,10 @@ struct Window {
     int dragState;
     int dragOffsetX;
     int dragOffsetY;
+
+    int fullX, fullY, fullW, fullH;
+    int startTouchY;
+    int grabX, grabY;
 };
 
 void env_Init(uint32_t width, uint32_t height);
