@@ -18,4 +18,5 @@ uint32_t mbox_call(uint8_t ch);
 uint32_t* fb_init(uint32_t width, uint32_t height);
 void put_pixel(uint32_t x, uint32_t y, uint32_t color);
 void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color);
+void fb_wait_frame(void);
 void fb_swap(void);

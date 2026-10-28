@@ -147,10 +147,12 @@ void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
     }
 }
 
-void fb_swap(void) {
+void fb_wait_frame(void) {
     while (time_us() - lastSwap < FRAME_US);
     lastSwap = time_us();
+}
 
+void fb_swap(void) {
     uintptr_t page = (uintptr_t)fbBase + drawPage * pageHeight * fbPitch;
 
     for (uint32_t y = 0; y < pageHeight; y++) {

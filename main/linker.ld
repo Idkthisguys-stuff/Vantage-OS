@@ -7,6 +7,10 @@ SECTIONS {
     .rodata : {
         *(.rodata .rodata.* .gnu.linkonce.r*)
     }
+    . = ALIGN(0x200000);
+    .data : {
+        *(.data .data.*)
+    }
     .bss (NOLOAD) : {
         . = ALIGN(16);
         __bss_start = .;
