@@ -1,5 +1,5 @@
-#include "../../includes/i2c.h"
-#include "../../includes/display.h"
+#include "../includes/I2C.h"
+#include "../includes/video/display.h"
 
 #define GPIO_BASE 0xFE200000
 #define GPFSEL4 (GPIO_BASE + 0x10)

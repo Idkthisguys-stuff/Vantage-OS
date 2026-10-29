@@ -1,5 +1,5 @@
 #include "../../includes/touch.h"
-#include "../../includes/i2c.h"
+#include "../../includes/I2C.h"
 
 #define TOUCH_POINTS 10
 #define TOUCH_DOWN 0
