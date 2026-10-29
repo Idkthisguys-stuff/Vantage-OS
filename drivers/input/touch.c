@@ -1,4 +1,4 @@
-#include "../../includes/touch.h"
+#include "../../includes/input/touch.h"
 #include "../../includes/I2C.h"
 
 #define TOUCH_POINTS 10

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdint.h"
+#include "../stdint.h"
 
 #define TOUCH_ADDR 0x38
 #define PANEL_ADDR 0x45
