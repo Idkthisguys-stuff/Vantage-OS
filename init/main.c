@@ -1,5 +1,5 @@
-#include "../includes/environment/windowManager.h"
-#include "../includes/environment/user_lib.h"
+#include "../includes/env/windowManager.h"
+#include "../user/include/user_lib.h"
 
 static unsigned char user_stack[4096] __attribute__((aligned(16)));
 void enter_user_space(void (*func)(void), void* stack_top);

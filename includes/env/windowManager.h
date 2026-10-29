@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../graphics.h"
+#include "../video/graphics.h"
 #include "../stdint.h"
 #include "../touch.h"
 

@@ -1,9 +1,9 @@
 #pragma once
-#include "../stdint.h"
+#include "../../includes/stdint.h"
 
-#include "../graphics.h"
-#include "../touch.h"
-#include "../display.h"
+#include "../../includes/video/graphics.h"
+#include "../../includes/touch.h"
+#include "../../includes/video/display.h"
 
 struct circle_args {
     int x;

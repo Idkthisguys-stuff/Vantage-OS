@@ -1,6 +1,6 @@
 // I had AI to assist me since there was lack of documentation and tutorials :/
 
-#include "../../includes/display.h"
+#include "../../includes/video/display.h"
 #include "../../includes/mmu.h"
 
 static volatile uint32_t mbox[36] __attribute__((aligned(64)));

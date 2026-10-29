@@ -1,4 +1,4 @@
-#include "../../includes/environment/windowManager.h"
+#include "../../includes/env/windowManager.h"
 
 #define EDGE_ZONE 100
 #define MIN_HEIGHT 200
