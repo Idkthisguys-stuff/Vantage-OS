@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdint.h"
+#include "../stdint.h"
 
 #define RGB(r, g, b) (((uint32_t)(r) << 16) | ((uint32_t)(g) << 8) | (uint32_t)(b))
 

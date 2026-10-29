@@ -1,0 +1,7 @@
+CompileFlags:
+  Add:
+    - --target=aarch64-none-elf
+    - -ffreestanding
+    - -nostdinc
+    - -Iinclude
+    - -Iuser/include

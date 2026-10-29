@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdint.h"
+#include "../stdint.h"
 
 #define MBOX_BASE 0xFE00B880
 #define MBOX_READ (MBOX_BASE + 0x00)
