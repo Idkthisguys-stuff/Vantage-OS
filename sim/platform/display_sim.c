@@ -37,6 +37,7 @@ static uint32_t canvasH;
 static SDL_Window* window;
 static SDL_Renderer* renderer;
 static SDL_Texture* texture;
+static uint32_t lastFrame;
 
 static int mouseDown;
 static int mouseX;
@@ -82,6 +83,7 @@ uint32_t* fb_init(uint32_t width, uint32_t height) {
     }
 
     backBuffer = (uint32_t*)calloc((size_t)canvasW * canvasH, sizeof(uint32_t));
+    lastFrame = time_us();
     return backBuffer;
 }
 
@@ -126,11 +128,15 @@ static void pump_events(void) {
             case SDL_MOUSEBUTTONDOWN:
                 if (e.button.button == SDL_BUTTON_LEFT) {
                     mouseDown = 1;
+                    mouseX = e.button.x;
+                    mouseY = e.button.y;
                 }
                 break;
             case SDL_MOUSEBUTTONUP:
                 if (e.button.button == SDL_BUTTON_LEFT) {
                     mouseDown = 0;
+                    mouseX = e.button.x;
+                    mouseY = e.button.y;
                 }
                 break;
             case SDL_MOUSEMOTION:
@@ -147,6 +153,15 @@ static void pump_events(void) {
                 break;
         }
     }
+}
+
+void fb_wait_frame(void) {
+    uint32_t elapsed = time_us() - lastFrame;
+
+    if (elapsed < 16667u) {
+        SDL_Delay((16667u - elapsed + 999u) / 1000u);
+    }
+    lastFrame = time_us();
 }
 
 void fb_swap(void) {
@@ -179,6 +194,7 @@ uint32_t touch_init(void) {
 }
 
 uint32_t touch_read(int* x, int* y) {
+    pump_events();
     *x = mouseX;
     *y = mouseY;
     return mouseDown ? 1u : 0u;
