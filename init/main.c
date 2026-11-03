@@ -60,18 +60,9 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     return 0;
 }
 
-struct device_block disk;
-
-char write_buf[512];
-char read_buf[512];
-
 void main() {
     uart_init();
     env_Init(480, 800);
-    ramdisk_init(&disk);
-
-    disk.write(&disk, 0, write_buf);
-    disk.read(&disk, 0, read_buf);
     
     uart_writeText("[OK] Vantage booted!...\n");
 
