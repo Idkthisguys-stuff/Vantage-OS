@@ -1,5 +1,5 @@
 #pragma once
-#include "../../includes/stdint.h"
+#include "../../includes/std.h"
 
 #include "../../includes/video/graphics.h"
 #include "../../includes/input/touch.h"

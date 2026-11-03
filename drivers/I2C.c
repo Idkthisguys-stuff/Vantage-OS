@@ -1,5 +1,6 @@
 #include "../includes/I2C.h"
 #include "../includes/video/display.h"
+#include "../includes/io.h"
 
 #define GPIO_BASE 0xFE200000
 #define GPFSEL4 (GPIO_BASE + 0x10)
@@ -69,6 +70,8 @@ void i2c_init(void) {
     *reg(BSC_DIV) = I2C_DIV;
     *reg(BSC_S) = S_CLKT | S_ERR | S_DONE;
     *reg(BSC_C) = C_I2CEN | C_CLEAR;
+
+    uart_writeText("[OK] Vantage I2C driver...\n");
 }
 
 uint32_t i2c_write(uint8_t addr, const uint8_t* data, uint32_t len) {

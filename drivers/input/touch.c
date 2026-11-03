@@ -1,5 +1,6 @@
 #include "../../includes/input/touch.h"
 #include "../../includes/I2C.h"
+#include "../../includes/io.h"
 
 #define TOUCH_POINTS 10
 #define TOUCH_DOWN 0
@@ -11,6 +12,7 @@ static int lastY;
 
 uint32_t touch_init(void) {
     i2c_init();
+    uart_writeText("[OK] Vantage touch driver...\n");
     return i2c_probe(TOUCH_ADDR);
 }
 

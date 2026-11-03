@@ -1,6 +1,9 @@
 #include "../includes/env/windowManager.h"
 #include "../user/include/user_lib.h"
 
+#include "../includes/io.h"
+#include "../kernel/fs/include/fs.h"
+
 static unsigned char user_stack[4096] __attribute__((aligned(16)));
 void enter_user_space(void (*func)(void), void* stack_top);
 
@@ -57,8 +60,20 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     return 0;
 }
 
+struct device_block disk;
+
+char write_buf[512];
+char read_buf[512];
+
 void main() {
+    uart_init();
     env_Init(480, 800);
+    ramdisk_init(&disk);
+
+    disk.write(&disk, 0, write_buf);
+    disk.read(&disk, 0, read_buf);
+    
+    uart_writeText("[OK] Vantage booted!...\n");
 
     void* stack_top = (void*)&user_stack[4096];
     enter_user_space(user_task, stack_top);

@@ -3,6 +3,8 @@
 #include "../../includes/video/display.h"
 #include "../../includes/mmu.h"
 
+#include "../../includes/io.h"
+
 static volatile uint32_t mbox[36] __attribute__((aligned(64)));
 
 static uint32_t* fbBase;
@@ -120,6 +122,7 @@ uint32_t* fb_init(uint32_t width, uint32_t height) {
 
     mmu_init((uintptr_t)fbBase, pageHeight * PAGE_COUNT * fbPitch);
 
+    uart_writeText("[OK] Vantage display driver...\n");
     return fbBase;
 }
 

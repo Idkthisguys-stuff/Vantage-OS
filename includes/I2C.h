@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdint.h"
+#include "std.h"
 
 void i2c_init(void);
 uint32_t i2c_write(uint8_t addr, const uint8_t* data, uint32_t len);

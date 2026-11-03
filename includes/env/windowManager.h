@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../video/graphics.h"
-#include "../stdint.h"
+#include "../std.h"
 #include "../input/touch.h"
 
 typedef struct Window Window;
