@@ -11,7 +11,7 @@ struct circle_args {
     int r;
 };
 
-uint32_t sys_touch_read(int* buf);
+uint32_t sys_touch_read(TouchEvent* event);
 
 // DISPLAY SYSCALLS
 void sys_canvas_set_color(uint32_t color);

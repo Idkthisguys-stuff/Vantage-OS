@@ -81,4 +81,10 @@ if(BUILD_TESTING)
     ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software"
     TIMEOUT 10
   )
+  add_executable(touch_driver_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/touch_driver.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../drivers/input/touch.c"
+  )
+  target_compile_definitions(touch_driver_test PRIVATE VANTAGE_SIM)
+  add_test(NAME touch_driver COMMAND touch_driver_test)
 endif()

@@ -22,8 +22,8 @@ static inline uint64_t syscall(uint64_t id, uint64_t arg) {
 }
 #endif
 
-uint32_t sys_touch_read(int* buf) {
-    return (uint32_t)syscall(1, (uint64_t)buf);
+uint32_t sys_touch_read(TouchEvent* event) {
+    return (uint32_t)syscall(1, (uint64_t)event);
 }
 
 void sys_canvas_set_color(uint32_t color) {

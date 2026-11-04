@@ -121,43 +121,61 @@ void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
     }
 }
 
-static void pump_events(void) {
+static uint32_t poll_touch_event(TouchEvent* result) {
     SDL_Event e;
 
-    while (SDL_PollEvent(&e)) {
+    result->type = TOUCH_EVENT_NONE;
+    result->x = mouseX;
+    result->y = mouseY;
+    SDL_PumpEvents();
+    while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 0) {
         switch (e.type) {
             case SDL_QUIT:
                 SDL_Quit();
                 exit(0);
                 break;
             case SDL_MOUSEBUTTONDOWN:
-                if (e.button.button == SDL_BUTTON_LEFT) {
+                if (e.button.button == SDL_BUTTON_LEFT && !mouseDown) {
                     mouseDown = 1;
                     mouseX = e.button.x;
                     mouseY = e.button.y;
+                    result->type = TOUCH_EVENT_DOWN;
                 }
                 break;
             case SDL_MOUSEBUTTONUP:
-                if (e.button.button == SDL_BUTTON_LEFT) {
+                if (e.button.button == SDL_BUTTON_LEFT && mouseDown) {
                     mouseDown = 0;
                     mouseX = e.button.x;
                     mouseY = e.button.y;
+                    result->type = TOUCH_EVENT_UP;
                 }
                 break;
             case SDL_MOUSEMOTION:
-                mouseX = e.motion.x;
-                mouseY = e.motion.y;
+                if (mouseDown && (mouseX != e.motion.x || mouseY != e.motion.y)) {
+                    mouseX = e.motion.x;
+                    mouseY = e.motion.y;
+                    result->type = TOUCH_EVENT_MOVE;
+                }
                 break;
             case SDL_WINDOWEVENT:
                 if (e.window.event == SDL_WINDOWEVENT_CLOSE) {
                     SDL_Quit();
                     exit(0);
+                } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST && mouseDown) {
+                    mouseDown = 0;
+                    result->type = TOUCH_EVENT_UP;
                 }
                 break;
             default:
                 break;
         }
+        if (result->type != TOUCH_EVENT_NONE) {
+            result->x = mouseX;
+            result->y = mouseY;
+            return 1;
+        }
     }
+    return 0;
 }
 
 void fb_wait_frame(void) {
@@ -173,8 +191,6 @@ void fb_swap(void) {
     if (!texture) {
         return;
     }
-    pump_events();
-
     SDL_UpdateTexture(texture, NULL, backBuffer,
                       (int)(canvasW * sizeof(uint32_t)));
     SDL_RenderClear(renderer);
@@ -195,12 +211,12 @@ uint32_t time_us(void) {
 }
 
 uint32_t touch_init(void) {
+    mouseDown = 0;
+    mouseX = 0;
+    mouseY = 0;
     return 1;
 }
 
-uint32_t touch_read(int* x, int* y) {
-    pump_events();
-    *x = mouseX;
-    *y = mouseY;
-    return mouseDown ? 1u : 0u;
+uint32_t touch_read(TouchEvent* event) {
+    return poll_touch_event(event);
 }
