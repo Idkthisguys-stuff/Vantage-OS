@@ -1,6 +1,7 @@
 #include "../includes/env/windowManager.h"
 #include "../user/include/user_lib.h"
 
+#ifndef VANTAGE_SIM
 #include "../includes/io.h"
 #include "../kernel/fs/include/fs.h"
 
@@ -8,6 +9,7 @@
 
 static unsigned char user_stack[4096] __attribute__((aligned(16)));
 void enter_user_space(void (*func)(void), void* stack_top);
+#endif
 
 void user_task() {
     int touch_data[2];
@@ -62,6 +64,7 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     return 0;
 }
 
+#ifndef VANTAGE_SIM
 void main() {
     uart_init();
     env_Init(480, 800);
@@ -78,3 +81,4 @@ void main() {
         // IDLE
     }
 }
+#endif
