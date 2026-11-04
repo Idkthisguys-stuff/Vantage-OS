@@ -13,6 +13,7 @@
 #define EMMC_RESP0 (volatile unsigned int*)(EMMC_BASE + 0x10)
 #define EMMC_STATUS (volatile unsigned int*)(EMMC_BASE + 0x24)
 #define EMMC_INTERRUPT (volatile unsigned int*)(EMMC_BASE + 0x30)
+#define EMMC_INTERRUPT_EN (EMMC_BASE + 0x38)
 
 int sd_init(void);
 int sd_read(uint8_t* buf, uint32_t lba, uint32_t num_block);
