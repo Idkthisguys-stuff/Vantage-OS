@@ -1,5 +1,5 @@
 #include "../../includes/video/graphics.h"
-#include "../../includes/video/display.h"
+#include "../../includes/platform.h"
 
 #include "../../includes/io.h"
 

@@ -24,4 +24,4 @@ struct Window {
 
 void env_Init(uint32_t width, uint32_t height);
 void env_DrawWindow(Window* window);
-void env_ListenTouch(Window* window, int tx, int ty, uint32_t isTouching);
+void env_ListenTouch(Window* window, const TouchEvent* event);

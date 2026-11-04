@@ -1,5 +1,13 @@
 #include "../include/user_lib.h"
 
+#ifdef VANTAGE_SIM
+/* Desktop builds use the same dispatcher without an ARM exception. */
+uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0);
+
+static inline uint64_t syscall(uint64_t id, uint64_t arg) {
+    return handle_sys_call(id, arg);
+}
+#else
 #define SIMD_CLOBBERS "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", \
                       "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", \
                       "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
@@ -12,9 +20,10 @@ static inline uint64_t syscall(uint64_t id, uint64_t arg) {
 
     return r0;
 }
+#endif
 
-uint32_t sys_touch_read(int* buf) {
-    return (uint32_t)syscall(1, (uint64_t)buf);
+uint32_t sys_touch_read(TouchEvent* event) {
+    return (uint32_t)syscall(1, (uint64_t)event);
 }
 
 void sys_canvas_set_color(uint32_t color) {

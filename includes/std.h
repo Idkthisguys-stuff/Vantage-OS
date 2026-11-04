@@ -2,6 +2,11 @@
 
 #pragma once
 
+#ifdef VANTAGE_SIM
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#else
 #define NULL ((void*)0)
 
 typedef signed char int8_t;
@@ -33,3 +38,4 @@ inline void* memset(void* s, int c, size_t n) {
     }
     return s;
 }
+#endif

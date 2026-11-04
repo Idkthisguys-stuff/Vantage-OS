@@ -1,6 +1,7 @@
 #include "../includes/env/windowManager.h"
 #include "../user/include/user_lib.h"
 
+#ifndef VANTAGE_SIM
 #include "../includes/io.h"
 #include "../kernel/fs/include/fs.h"
 
@@ -8,15 +9,20 @@
 
 static unsigned char user_stack[4096] __attribute__((aligned(16)));
 void enter_user_space(void (*func)(void), void* stack_top);
+#endif
 
 void user_task() {
-    int touch_data[2];
+    TouchEvent touch;
+    uint32_t touching = 0;
+    int tx = 0;
+    int ty = 0;
 
     while (1) {
-        uint32_t touching = sys_touch_read(touch_data);
-
-        int tx = touch_data[0];
-        int ty = touch_data[1];
+        if (sys_touch_read(&touch)) {
+            tx = touch.x;
+            ty = touch.y;
+            touching = touch.type != TOUCH_EVENT_UP;
+        }
 
         // All rendering goes safely through syscalls now!
         sys_canvas_set_color(RGB(10, 10, 30));
@@ -34,12 +40,7 @@ void user_task() {
 uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     if (syscall_id == 1) {
         fb_wait_frame();
-        int* user_buffer = (int*)arg0;
-        int raw_x = 0, raw_y = 0;   
-        uint32_t touching = touch_read(&raw_x, &raw_y);
-        user_buffer[0] = raw_x;
-        user_buffer[1] = raw_y;
-        return touching;
+        return touch_read((TouchEvent*)arg0);
     }
     else if (syscall_id == 2) {
         // Set Color (arg0 is the color value)
@@ -62,6 +63,7 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     return 0;
 }
 
+#ifndef VANTAGE_SIM
 void main() {
     uart_init();
     env_Init(480, 800);
@@ -78,3 +80,4 @@ void main() {
         // IDLE
     }
 }
+#endif
