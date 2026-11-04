@@ -172,6 +172,12 @@ void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
     }
 }
 
+static int clamp_coordinate(int value, uint32_t size) {
+    if (value < 0 || size == 0) return 0;
+    if ((uint32_t)value >= size) return (int)(size - 1);
+    return value;
+}
+
 static uint32_t poll_touch_event(TouchEvent* result) {
     SDL_Event e;
 
@@ -188,24 +194,28 @@ static uint32_t poll_touch_event(TouchEvent* result) {
             case SDL_MOUSEBUTTONDOWN:
                 if (e.button.button == SDL_BUTTON_LEFT && !mouseDown) {
                     mouseDown = 1;
-                    mouseX = e.button.x;
-                    mouseY = e.button.y;
+                    mouseX = clamp_coordinate(e.button.x, canvasW);
+                    mouseY = clamp_coordinate(e.button.y, canvasH);
                     result->type = TOUCH_EVENT_DOWN;
                 }
                 break;
             case SDL_MOUSEBUTTONUP:
                 if (e.button.button == SDL_BUTTON_LEFT && mouseDown) {
                     mouseDown = 0;
-                    mouseX = e.button.x;
-                    mouseY = e.button.y;
+                    mouseX = clamp_coordinate(e.button.x, canvasW);
+                    mouseY = clamp_coordinate(e.button.y, canvasH);
                     result->type = TOUCH_EVENT_UP;
                 }
                 break;
             case SDL_MOUSEMOTION:
-                if (mouseDown && (mouseX != e.motion.x || mouseY != e.motion.y)) {
-                    mouseX = e.motion.x;
-                    mouseY = e.motion.y;
-                    result->type = TOUCH_EVENT_MOVE;
+                if (mouseDown) {
+                    int x = clamp_coordinate(e.motion.x, canvasW);
+                    int y = clamp_coordinate(e.motion.y, canvasH);
+                    if (mouseX != x || mouseY != y) {
+                        mouseX = x;
+                        mouseY = y;
+                        result->type = TOUCH_EVENT_MOVE;
+                    }
                 }
                 break;
             case SDL_WINDOWEVENT:

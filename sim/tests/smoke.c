@@ -126,6 +126,34 @@ int main(int argc, char* argv[]) {
         !sys_touch_read(&touch) || touch.type != TOUCH_EVENT_DOWN ||
         !sys_touch_read(&touch) || touch.type != TOUCH_EVENT_UP ||
         touch.x != 60 || touch.y != 70) return 1;
+
+    SDL_zero(event);
+    event.type = SDL_MOUSEBUTTONDOWN;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.x = -10;
+    event.button.y = -20;
+    if (SDL_PushEvent(&event) != 1 || !sys_touch_read(&touch) ||
+        touch.type != TOUCH_EVENT_DOWN || touch.x != 0 || touch.y != 0) return 1;
+    SDL_zero(event);
+    event.type = SDL_MOUSEMOTION;
+    event.motion.x = width + 120;
+    event.motion.y = height + 100;
+    if (SDL_PushEvent(&event) != 1 || !sys_touch_read(&touch) ||
+        touch.type != TOUCH_EVENT_MOVE || touch.x != width - 1 ||
+        touch.y != height - 1) return 1;
+    event.motion.x = width + 220;
+    event.motion.y = height + 200;
+    if (SDL_PushEvent(&event) != 1 || sys_touch_read(&touch) ||
+        touch.type != TOUCH_EVENT_NONE || touch.x != width - 1 ||
+        touch.y != height - 1) return 1;
+    SDL_zero(event);
+    event.type = SDL_MOUSEBUTTONUP;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.x = -50;
+    event.button.y = height + 100;
+    if (SDL_PushEvent(&event) != 1 || !sys_touch_read(&touch) ||
+        touch.type != TOUCH_EVENT_UP || touch.x != 0 ||
+        touch.y != height - 1) return 1;
     sys_canvas_set_color(RGB(10, 10, 30));
     sys_canvas_clear();
     sys_canvas_present();
