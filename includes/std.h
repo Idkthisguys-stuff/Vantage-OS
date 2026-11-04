@@ -17,7 +17,7 @@ typedef unsigned long long uintptr_t;
 
 typedef unsigned long size_t;
 
-void* memcpy(void* dest, const void* src, size_t n) {
+inline void* std_memcpy(void* dest, const void* src, size_t n) {
     char* d = (char*)dest;
     const char* s = (const char*)src;
     for (size_t i = 0; i < n; i++) {
