@@ -10,6 +10,7 @@
 #include "SDL2/SDL.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #if defined(_WIN32)
@@ -43,6 +44,56 @@ static uint32_t lastFrame;
 static int mouseDown;
 static int mouseX;
 static int mouseY;
+
+static const uint8_t* coordinate_glyph(char c) {
+    static const uint8_t digits[10][5] = {
+        { 7, 5, 5, 5, 7 }, { 2, 6, 2, 2, 7 },
+        { 7, 1, 7, 4, 7 }, { 7, 1, 7, 1, 7 },
+        { 5, 5, 7, 1, 1 }, { 7, 4, 7, 1, 7 },
+        { 7, 4, 7, 5, 7 }, { 7, 1, 1, 1, 1 },
+        { 7, 5, 7, 5, 7 }, { 7, 5, 7, 1, 7 }
+    };
+    static const uint8_t x[5] = { 5, 5, 2, 5, 5 };
+    static const uint8_t y[5] = { 5, 5, 2, 2, 2 };
+    static const uint8_t colon[5] = { 0, 2, 0, 2, 0 };
+    static const uint8_t minus[5] = { 0, 0, 7, 0, 0 };
+    static const uint8_t blank[5] = { 0, 0, 0, 0, 0 };
+
+    if (c >= '0' && c <= '9') return digits[c - '0'];
+    if (c == 'X') return x;
+    if (c == 'Y') return y;
+    if (c == ':') return colon;
+    if (c == '-') return minus;
+    return blank;
+}
+
+static void draw_coordinates(void) {
+    char text[64];
+    SDL_Rect background;
+    size_t i;
+    int row, col;
+
+    snprintf(text, sizeof(text), "X:%d Y:%d", mouseX, mouseY);
+    background.x = 6;
+    background.y = 6;
+    background.w = (int)strlen(text) * 12 + 12;
+    background.h = 27;
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &background);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    for (i = 0; text[i] != '\0'; i++) {
+        const uint8_t* glyph = coordinate_glyph(text[i]);
+        for (row = 0; row < 5; row++) {
+            for (col = 0; col < 3; col++) {
+                if (glyph[row] & (1 << (2 - col))) {
+                    SDL_Rect pixel = { 12 + (int)i * 12 + col * 3,
+                                       12 + row * 3, 3, 3 };
+                    SDL_RenderFillRect(renderer, &pixel);
+                }
+            }
+        }
+    }
+}
 
 void uart_writeText(const char* buffer) {
     SDL_Log("%s", buffer);
@@ -121,43 +172,71 @@ void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
     }
 }
 
-static void pump_events(void) {
+static int clamp_coordinate(int value, uint32_t size) {
+    if (value < 0 || size == 0) return 0;
+    if ((uint32_t)value >= size) return (int)(size - 1);
+    return value;
+}
+
+static uint32_t poll_touch_event(TouchEvent* result) {
     SDL_Event e;
 
-    while (SDL_PollEvent(&e)) {
+    result->type = TOUCH_EVENT_NONE;
+    result->x = mouseX;
+    result->y = mouseY;
+    SDL_PumpEvents();
+    while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 0) {
         switch (e.type) {
             case SDL_QUIT:
                 SDL_Quit();
                 exit(0);
                 break;
             case SDL_MOUSEBUTTONDOWN:
-                if (e.button.button == SDL_BUTTON_LEFT) {
+                if (e.button.button == SDL_BUTTON_LEFT && !mouseDown) {
                     mouseDown = 1;
-                    mouseX = e.button.x;
-                    mouseY = e.button.y;
+                    mouseX = clamp_coordinate(e.button.x, canvasW);
+                    mouseY = clamp_coordinate(e.button.y, canvasH);
+                    result->type = TOUCH_EVENT_DOWN;
                 }
                 break;
             case SDL_MOUSEBUTTONUP:
-                if (e.button.button == SDL_BUTTON_LEFT) {
+                if (e.button.button == SDL_BUTTON_LEFT && mouseDown) {
                     mouseDown = 0;
-                    mouseX = e.button.x;
-                    mouseY = e.button.y;
+                    mouseX = clamp_coordinate(e.button.x, canvasW);
+                    mouseY = clamp_coordinate(e.button.y, canvasH);
+                    result->type = TOUCH_EVENT_UP;
                 }
                 break;
             case SDL_MOUSEMOTION:
-                mouseX = e.motion.x;
-                mouseY = e.motion.y;
+                if (mouseDown) {
+                    int x = clamp_coordinate(e.motion.x, canvasW);
+                    int y = clamp_coordinate(e.motion.y, canvasH);
+                    if (mouseX != x || mouseY != y) {
+                        mouseX = x;
+                        mouseY = y;
+                        result->type = TOUCH_EVENT_MOVE;
+                    }
+                }
                 break;
             case SDL_WINDOWEVENT:
                 if (e.window.event == SDL_WINDOWEVENT_CLOSE) {
                     SDL_Quit();
                     exit(0);
+                } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST && mouseDown) {
+                    mouseDown = 0;
+                    result->type = TOUCH_EVENT_UP;
                 }
                 break;
             default:
                 break;
         }
+        if (result->type != TOUCH_EVENT_NONE) {
+            result->x = mouseX;
+            result->y = mouseY;
+            return 1;
+        }
     }
+    return 0;
 }
 
 void fb_wait_frame(void) {
@@ -173,12 +252,11 @@ void fb_swap(void) {
     if (!texture) {
         return;
     }
-    pump_events();
-
     SDL_UpdateTexture(texture, NULL, backBuffer,
                       (int)(canvasW * sizeof(uint32_t)));
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
+    draw_coordinates();
     SDL_RenderPresent(renderer);
 }
 
@@ -195,12 +273,12 @@ uint32_t time_us(void) {
 }
 
 uint32_t touch_init(void) {
+    mouseDown = 0;
+    mouseX = 0;
+    mouseY = 0;
     return 1;
 }
 
-uint32_t touch_read(int* x, int* y) {
-    pump_events();
-    *x = mouseX;
-    *y = mouseY;
-    return mouseDown ? 1u : 0u;
+uint32_t touch_read(TouchEvent* event) {
+    return poll_touch_event(event);
 }

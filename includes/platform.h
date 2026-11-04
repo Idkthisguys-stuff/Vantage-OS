@@ -1,6 +1,7 @@
 #pragma once
 
 #include "std.h"
+#include "input/touch.h"
 
 uint32_t* fb_init(uint32_t width, uint32_t height);
 
@@ -11,6 +12,3 @@ void fb_wait_frame(void);
 void fb_swap(void);
 
 uint32_t time_us(void);
-
-uint32_t touch_init(void);
-uint32_t touch_read(int* x, int* y);
