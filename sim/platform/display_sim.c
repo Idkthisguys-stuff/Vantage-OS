@@ -10,6 +10,7 @@
 #include "SDL2/SDL.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #if defined(_WIN32)
@@ -43,6 +44,56 @@ static uint32_t lastFrame;
 static int mouseDown;
 static int mouseX;
 static int mouseY;
+
+static const uint8_t* coordinate_glyph(char c) {
+    static const uint8_t digits[10][5] = {
+        { 7, 5, 5, 5, 7 }, { 2, 6, 2, 2, 7 },
+        { 7, 1, 7, 4, 7 }, { 7, 1, 7, 1, 7 },
+        { 5, 5, 7, 1, 1 }, { 7, 4, 7, 1, 7 },
+        { 7, 4, 7, 5, 7 }, { 7, 1, 1, 1, 1 },
+        { 7, 5, 7, 5, 7 }, { 7, 5, 7, 1, 7 }
+    };
+    static const uint8_t x[5] = { 5, 5, 2, 5, 5 };
+    static const uint8_t y[5] = { 5, 5, 2, 2, 2 };
+    static const uint8_t colon[5] = { 0, 2, 0, 2, 0 };
+    static const uint8_t minus[5] = { 0, 0, 7, 0, 0 };
+    static const uint8_t blank[5] = { 0, 0, 0, 0, 0 };
+
+    if (c >= '0' && c <= '9') return digits[c - '0'];
+    if (c == 'X') return x;
+    if (c == 'Y') return y;
+    if (c == ':') return colon;
+    if (c == '-') return minus;
+    return blank;
+}
+
+static void draw_coordinates(void) {
+    char text[64];
+    SDL_Rect background;
+    size_t i;
+    int row, col;
+
+    snprintf(text, sizeof(text), "X:%d Y:%d", mouseX, mouseY);
+    background.x = 6;
+    background.y = 6;
+    background.w = (int)strlen(text) * 12 + 12;
+    background.h = 27;
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &background);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    for (i = 0; text[i] != '\0'; i++) {
+        const uint8_t* glyph = coordinate_glyph(text[i]);
+        for (row = 0; row < 5; row++) {
+            for (col = 0; col < 3; col++) {
+                if (glyph[row] & (1 << (2 - col))) {
+                    SDL_Rect pixel = { 12 + (int)i * 12 + col * 3,
+                                       12 + row * 3, 3, 3 };
+                    SDL_RenderFillRect(renderer, &pixel);
+                }
+            }
+        }
+    }
+}
 
 void uart_writeText(const char* buffer) {
     SDL_Log("%s", buffer);
@@ -195,6 +246,7 @@ void fb_swap(void) {
                       (int)(canvasW * sizeof(uint32_t)));
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
+    draw_coordinates();
     SDL_RenderPresent(renderer);
 }
 

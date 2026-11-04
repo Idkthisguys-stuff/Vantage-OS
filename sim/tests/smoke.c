@@ -59,7 +59,10 @@ int main(int argc, char* argv[]) {
     sys_canvas_present();
     if (!check_pixel(renderer, 0, 0, RGB(10, 10, 30)) ||
         !check_pixel(renderer, 120, 240, RGB(255, 255, 255)) ||
-        !check_pixel(renderer, 140, 240, RGB(10, 10, 30))) {
+        !check_pixel(renderer, 140, 240, RGB(10, 10, 30)) ||
+        !check_pixel(renderer, 12, 12, RGB(255, 255, 255)) ||
+        !check_pixel(renderer, 36, 12, RGB(0, 0, 0)) ||
+        !check_pixel(renderer, 39, 12, RGB(255, 255, 255))) {
         return 1;
     }
 
@@ -71,6 +74,12 @@ int main(int argc, char* argv[]) {
         SDL_PushEvent(&event) != 1 || sys_touch_read(&touch) != 1 ||
         touch.type != TOUCH_EVENT_MOVE || touch.x != 200 || touch.y != 300) {
         SDL_Log("Move failed: type=%d at %d,%d", touch.type, touch.x, touch.y);
+        return 1;
+    }
+    sys_canvas_present();
+    if (!check_pixel(renderer, 36, 12, RGB(255, 255, 255)) ||
+        !check_pixel(renderer, 108, 21, RGB(0, 0, 0))) {
+        SDL_Log("Coordinate overlay did not update");
         return 1;
     }
 

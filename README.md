@@ -25,6 +25,7 @@ cmake --build sim/build --config Release
 ```
 
 After the first build, use the last two commands to rebuild and run it again.
-Use the left mouse button as touch input.
+Use the left mouse button as touch input. The simulator shows the most recent
+touch coordinates at the top of the window.
 
 For implementation details and tests, see the [developer guide](docs/DEVELOPMENT.md).
