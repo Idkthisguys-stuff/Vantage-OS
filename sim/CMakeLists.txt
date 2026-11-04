@@ -15,7 +15,7 @@ add_library(vantage_sim_core STATIC
   "${CMAKE_CURRENT_SOURCE_DIR}/platform/display_sim.c"
 )
 
-target_compile_definitions(vantage_sim_core PRIVATE VANTAGE_SIM)
+target_compile_definitions(vantage_sim_core PUBLIC VANTAGE_SIM)
 
 add_executable(vantage_sim "${CMAKE_CURRENT_SOURCE_DIR}/main.c")
 target_link_libraries(vantage_sim PRIVATE vantage_sim_core)

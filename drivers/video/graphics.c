@@ -1,6 +1,8 @@
 #include "../../includes/video/graphics.h"
 #include "../../includes/platform.h"
 
+#include "../../includes/io.h"
+
 static uint32_t canvasWidth;
 static uint32_t canvasHeight;
 static uint32_t canvasColor = 0x00FFFFFF;
@@ -34,6 +36,8 @@ void canvas_init(uint32_t width, uint32_t height) {
     canvasWidth = width;
     canvasHeight = height;
     fb_init(800, 480);
+
+    uart_writeText("[OK] Vantage graphics driver...\n");
 }
 
 void canvas_set_color(uint32_t color) {

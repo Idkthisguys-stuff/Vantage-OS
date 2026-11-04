@@ -13,4 +13,4 @@ unsigned int gpio_pull(unsigned int pin_number, unsigned int value);
 unsigned int gpio_function(unsigned int pin_number, unsigned int value);
 
 void uart_init();
-void uart_writeText();
+void uart_writeText(const char* buffer);

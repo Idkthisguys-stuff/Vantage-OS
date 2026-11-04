@@ -5,6 +5,7 @@
  */
 
 #include "../../includes/platform.h"
+#include "../../includes/io.h"
 
 #include "SDL2/SDL.h"
 
@@ -42,6 +43,10 @@ static uint32_t lastFrame;
 static int mouseDown;
 static int mouseX;
 static int mouseY;
+
+void uart_writeText(const char* buffer) {
+    SDL_Log("%s", buffer);
+}
 
 uint32_t* fb_init(uint32_t width, uint32_t height) {
     canvasW = height;

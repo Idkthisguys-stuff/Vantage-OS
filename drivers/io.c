@@ -2,7 +2,7 @@
     https://rpi4os.com/part3-helloworld/
 */
 
-#include "../../includes/io.h"
+#include "../includes/io.h"
 
 enum {
     PERIPHERAL_BASE = 0xFE000000,

@@ -1,8 +1,8 @@
 #pragma once
-#include "../../includes/stdint.h"
+#include "../../includes/std.h"
 
 #include "../../includes/video/graphics.h"
-#include "../../includes/touch.h"
+#include "../../includes/input/touch.h"
 #include "../../includes/video/display.h"
 
 struct circle_args {

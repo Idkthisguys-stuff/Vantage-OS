@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdint.h"
+#include "std.h"
 
 uint32_t* fb_init(uint32_t width, uint32_t height);
 
