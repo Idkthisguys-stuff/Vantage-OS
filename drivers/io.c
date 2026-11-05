@@ -5,10 +5,10 @@
 #include "../includes/io.h"
 
 enum {
-    PERIPHERAL_BASE = 0xFE000000,
-    GPFSEL0 = PERIPHERAL_BASE + 0x200000, // GPIO FUNCTION SELECT 0 is a 32 bit reg to configure GPIO 0 to 9
-    GPSET0 = PERIPHERAL_BASE + 0x20001C, // GPIO PIN OUTPUT SET 0 is used to map the first 32 GPIO pins
-    GPCLR0 = PERIPHERAL_BASE + 0x200028, // GPIO PIN OUTPUT CLEAR 0 is used to turn GPIO pins to 0
+    PERIPHERAL_BASE = MMIO_BASE,
+    IO_GPFSEL0 = PERIPHERAL_BASE + 0x200000, // GPIO FUNCTION SELECT 0 is a 32 bit reg to configure GPIO 0 to 9
+    IO_GPSET0 = PERIPHERAL_BASE + 0x20001C, // GPIO PIN OUTPUT SET 0 is used to map the first 32 GPIO pins
+    IO_GPCLR0 = PERIPHERAL_BASE + 0x200028, // GPIO PIN OUTPUT CLEAR 0 is used to turn GPIO pins to 0
     GPPUPPDN0 = PERIPHERAL_BASE + 0x2000E4, // GPIO PIN PULL UP/DOWN REGISTER 0 (too long to explain)
 };
 
@@ -48,11 +48,11 @@ unsigned int gpio_call(unsigned int pin_number, unsigned int value, unsigned int
 }
 
 unsigned int gpio_set(unsigned int pin_number, unsigned int value) {
-    return gpio_call(pin_number, value, GPSET0, 1, GPIO_MAX_PIN);
+    return gpio_call(pin_number, value, IO_GPSET0, 1, GPIO_MAX_PIN);
 }
 
 unsigned int gpio_clear(unsigned int pin_number, unsigned int value) {
-    return gpio_call(pin_number, value, GPCLR0, 1, GPIO_MAX_PIN); 
+    return gpio_call(pin_number, value, IO_GPCLR0, 1, GPIO_MAX_PIN); 
 
 }
 unsigned int gpio_pull(unsigned int pin_number, unsigned int value) {
@@ -60,7 +60,7 @@ unsigned int gpio_pull(unsigned int pin_number, unsigned int value) {
 }
 
 unsigned int gpio_function(unsigned int pin_number, unsigned int value) {
-    return gpio_call(pin_number, value, GPFSEL0, 3, GPIO_MAX_PIN); 
+    return gpio_call(pin_number, value, IO_GPFSEL0, 3, GPIO_MAX_PIN); 
 }
 
 void gpio_useAsAlt5(unsigned int pin_number) {
