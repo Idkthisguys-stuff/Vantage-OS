@@ -39,6 +39,22 @@ accessing it. Rejected buffers return 0 without reading input or drawing.
 The native `user_memory` test checks page-table permissions and the syscall
 dispatcher with bounded test memory; it does not emulate ARM access faults.
 
+## Pi 4 second core
+
+Before display initialization enables the MMU and data cache, core 0 writes the
+core 1 entry address to the firmware spin-table slot at `0xe0` and sends an
+event. Core 1 checks its ID and execution state, uses a separate 4 KiB stack,
+signals that it reached the entry point, and parks. Only core 0 writes UART
+output. A bounded wait reports an unconfirmed startup without hanging boot.
+Core 1 does not run application work, enable its MMU, or participate in a
+scheduler; cores 2 and 3 are not released.
+
+This expects the normal 64-bit Pi 4 firmware spin-table protocol, with the MMU
+and data cache disabled on both cores during the handshake. It is not a general
+multicore synchronization primitive. Verify on actual Pi 4 hardware by checking
+the serial startup message across repeated cold boots; a successful compile or
+simulator test does not establish that a second core ran.
+
 ## Touch events
 
 `sys_touch_read(&event)` returns 1 when a `TouchEvent` is available, or 0 with

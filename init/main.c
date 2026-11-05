@@ -11,6 +11,7 @@
 static unsigned char user_stack[4096]
     __attribute__((section(".user.bss"), aligned(16)));
 void enter_user_space(void (*func)(void), void* stack_top);
+unsigned int core1_start(void);
 #endif
 
 void user_task() {
@@ -72,6 +73,11 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 #ifndef VANTAGE_SIM
 void main() {
     uart_init();
+    if (core1_start()) {
+        uart_writeText("[OK] Core 1 started and parked\n");
+    } else {
+        uart_writeText("[WARN] Core 1 startup was not confirmed\n");
+    }
     env_Init(480, 800);
 
     /*if (!sd_init()) {
