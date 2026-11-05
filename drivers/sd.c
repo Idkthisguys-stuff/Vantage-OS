@@ -29,7 +29,6 @@
 #include "../kernel/sched/delays/delay.h"
 #include "../includes/io.h"
 
-#ifndef VANTAGE_SD_TEST
 #define EMMC_BASE 0xFE340000
 #define EMMC_ARG2 ((volatile unsigned int*)(EMMC_BASE + 0x00340000))
 #define EMMC_BLKSIZECNT ((volatile unsigned int*)(EMMC_BASE + 0x00340004))
@@ -48,7 +47,6 @@
 #define EMMC_INT_EN ((volatile unsigned int*)(EMMC_BASE + 0x00340038))
 #define EMMC_CTRL2 ((volatile unsigned int*)(EMMC_BASE + 0x0034003C))
 #define EMMC_SLOTISR_VER ((volatile unsigned int*)(EMMC_BASE + 0x003400FC))
-#endif
 
 // command flags
 
@@ -152,9 +150,9 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     if (code & CMD_NEED_APP) {
         r = sd_cmd(CMD_APP_CMD| (sd_rca?CMD_RSPNS_48:0), sd_rca);
 
-        if (sd_err || (sd_rca && !r)) {
+        if (!sd_rca && !r) {
             uart_writeText("[ERR] App failed to send SD APP command\n");
-            if (!sd_err) sd_err = SD_ERROR;
+            sd_err = SD_ERROR;
             return 0;
         }
 
@@ -189,12 +187,8 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     if (code == CMD_GO_IDLE || code == CMD_APP_CMD) {
         return 0;
     } else if (code == (CMD_APP_CMD | CMD_RSPNS_48)) {
-        if (r & CMD_ERRORS_MASK) {
-            sd_err = SD_ERROR;
-            return 0;
-        }
         return r&SR_APP_CMD;
-    } else if (code == (CMD_SEND_OP_COND & ~CMD_NEED_APP)) {
+    } else if (code == CMD_SEND_OP_COND) {
         return r;
     } else if (code == CMD_SEND_IF_COND) {
         return r == arg ? SD_OK : SD_ERROR;
@@ -208,8 +202,9 @@ int sd_cmd(unsigned int code, unsigned int arg) {
         return r&CMD_RCA_MASK;
     }
 
-    sd_err = (r & CMD_ERRORS_MASK) ? SD_ERROR : SD_OK;
-    return sd_err;
+    return r&CMD_RCA_MASK;
+
+    return 0;
 }
 
 int sd_readblock(unsigned int lba, unsigned char *buffer, unsigned int num) {
