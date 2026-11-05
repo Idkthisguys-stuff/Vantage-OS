@@ -9,7 +9,7 @@ int ramdisk_read (struct device_block *dev, unsigned int block_num, void* buf) {
     }
 
     unsigned char* src = ramdisk_mem + (block_num * dev->block_size);
-    std_memcpy(buf, src, dev->total_blocks);
+    std_memcpy(buf, src, dev->block_size);
     return 0;
 }
 
