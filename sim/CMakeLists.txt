@@ -87,4 +87,11 @@ if(BUILD_TESTING)
   )
   target_compile_definitions(touch_driver_test PRIVATE VANTAGE_SIM)
   add_test(NAME touch_driver COMMAND touch_driver_test)
+  add_executable(ramdisk_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ramdisk.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/fs/block.c"
+  )
+  # Use the host memcpy for the bare-metal byte-copy helper in this driver test.
+  target_compile_definitions(ramdisk_test PRIVATE VANTAGE_SIM std_memcpy=memcpy)
+  add_test(NAME ramdisk COMMAND ramdisk_test)
 endif()
