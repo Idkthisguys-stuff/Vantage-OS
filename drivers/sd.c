@@ -48,6 +48,7 @@
 #define EMMC_INT_EN ((volatile unsigned int*)(EMMC_BASE + 0x38))
 #define EMMC_CTRL2 ((volatile unsigned int*)(EMMC_BASE + 0x3C))
 #define EMMC_SLOTISR_VER ((volatile unsigned int*)(EMMC_BASE + 0xFC))
+#endif
 
 // command flags
 
@@ -151,9 +152,9 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     if (code & CMD_NEED_APP) {
         r = sd_cmd(CMD_APP_CMD| (sd_rca?CMD_RSPNS_48:0), sd_rca);
 
-        if (!sd_rca && !r) {
+        if (sd_err || (!sd_rca && !r)) {
             uart_writeText("[ERR] App failed to send SD APP command\n");
-            sd_err = SD_ERROR;
+            if (!sd_err) sd_err = SD_ERROR;
             return 0;
         }
 
@@ -188,8 +189,12 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     if (code == CMD_GO_IDLE || code == CMD_APP_CMD) {
         return 0;
     } else if (code == (CMD_APP_CMD | CMD_RSPNS_48)) {
+        if (r & CMD_ERRORS_MASK) {
+            sd_err = SD_ERROR;
+            return 0;
+        }
         return r&SR_APP_CMD;
-    } else if (code == CMD_SEND_OP_COND) {
+    } else if (code == CMD_SEND_OP_COND & ~CMD_NEED_APP) {
         return r;
     } else if (code == CMD_SEND_IF_COND) {
         sd_err = r == arg ? SD_OK : SD_ERROR;
@@ -203,10 +208,9 @@ int sd_cmd(unsigned int code, unsigned int arg) {
         sd_err = (((r&0x1fff))|((r&0x2000)<<6)|((r&0x4000)<<8)|((r&0x8000)<<8))&CMD_ERRORS_MASK; // "DEAR GOD" - Idkthisguy's last words typing this out ;-;
         return r&CMD_RCA_MASK;
     }
-
-    return r&CMD_RCA_MASK;
-
-    return 0;
+    
+    sd_err (r & CMD_ERRORS_MASK) ? SD_ERROR : SD_OK;
+    return sd_err;
 }
 
 int sd_readblock(unsigned int lba, unsigned char *buffer, unsigned int num) {
