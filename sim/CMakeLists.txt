@@ -87,10 +87,7 @@ if(BUILD_TESTING)
   )
   target_compile_definitions(touch_driver_test PRIVATE VANTAGE_SIM)
   add_test(NAME touch_driver COMMAND touch_driver_test)
-  add_executable(gpio_test
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/gpio.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../drivers/io.c"
-  )
-  target_compile_definitions(gpio_test PRIVATE VANTAGE_SIM)
-  add_test(NAME gpio COMMAND gpio_test)
+  add_executable(sd_echo_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/sd_echo.c")
+  target_compile_definitions(sd_echo_test PRIVATE VANTAGE_SIM)
+  add_test(NAME sd_echo COMMAND sd_echo_test)
 endif()

@@ -29,6 +29,7 @@
 #include "../kernel/sched/delays/delay.h"
 #include "../includes/io.h"
 
+#ifndef VANTAGE_SD_TEST
 #define EMMC_BASE 0xFE340000
 #define EMMC_ARG2 ((volatile unsigned int*)(EMMC_BASE + 0x00))
 #define EMMC_BLKSIZECNT ((volatile unsigned int*)(EMMC_BASE + 0x04))
@@ -191,7 +192,8 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     } else if (code == CMD_SEND_OP_COND) {
         return r;
     } else if (code == CMD_SEND_IF_COND) {
-        return r == arg ? SD_OK : SD_ERROR;
+        sd_err = r == arg ? SD_OK : SD_ERROR;
+        return sd_err;
     } else if (code == CMD_ALL_SEND_CID) {
         r |= *EMMC_RESP3;
         r |= *EMMC_RESP2;
