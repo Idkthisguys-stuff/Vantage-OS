@@ -282,3 +282,8 @@ uint32_t touch_init(void) {
 uint32_t touch_read(TouchEvent* event) {
     return poll_touch_event(event);
 }
+
+uint32_t user_buffer_valid(uintptr_t buffer, size_t size) {
+    /* The desktop process owns its pointers; reject null and wrapped buffers. */
+    return buffer != 0 && size <= (uintptr_t)-1 - buffer;
+}
