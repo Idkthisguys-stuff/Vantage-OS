@@ -38,7 +38,7 @@ el1_entry:
     msr cpacr_el1, x0
     isb
 
-    ldr x1, =0x800000
+    ldr x1, =__kernel_stack_top
     mov sp, x1
 
     ldr x1, =__bss_start
@@ -144,4 +144,3 @@ enter_user_space:
     msr spsr_el1, x2
     msr sp_el0, x1
     eret
-    

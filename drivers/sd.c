@@ -48,6 +48,7 @@
 #define EMMC_INT_EN ((volatile unsigned int*)(EMMC_BASE + 0x38))
 #define EMMC_CTRL2 ((volatile unsigned int*)(EMMC_BASE + 0x3C))
 #define EMMC_SLOTISR_VER ((volatile unsigned int*)(EMMC_BASE + 0xFC))
+#endif
 
 // command flags
 

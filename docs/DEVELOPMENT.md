@@ -27,6 +27,18 @@ touch-driver tests:
 ctest --test-dir sim/build -C Release --output-on-failure
 ```
 
+## Hardware user memory
+
+The linker places the user stack in a separate, 2 MiB-aligned `.user.bss`
+region. Only that data region is writable from EL0. Kernel data, page tables,
+the privileged stack, the framebuffer and peripheral registers are EL1-only.
+The existing shared code region remains read-only and executable in both modes.
+
+Pointer-taking syscalls check alignment and the complete buffer range before
+accessing it. Rejected buffers return 0 without reading input or drawing.
+The native `user_memory` test checks page-table permissions and the syscall
+dispatcher with bounded test memory; it does not emulate ARM access faults.
+
 ## Touch events
 
 `sys_touch_read(&event)` returns 1 when a `TouchEvent` is available, or 0 with

@@ -16,8 +16,18 @@ SECTIONS {
         __bss_start = .;
         *(.bss .bss.*)
         *(COMMON)
-        __bss_end = .;
+        . = ALIGN(16);
+        . += 0x4000; /* Privileged 16 KiB stack, outside user-writable memory. */
+        __kernel_stack_top = .;
     }
+    .user.bss ALIGN(0x200000) (NOLOAD) : {
+        __user_start = .;
+        *(.user.bss .user.bss.*)
+        . = ALIGN(0x200000);
+        __user_end = .;
+    }
+    /* Boot clears kernel BSS, alignment padding and user BSS together. */
+    __bss_end = .;
     _end = .;
 
     /DISCARD/ : {

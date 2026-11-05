@@ -2,19 +2,17 @@
 
 #define MAIR_VALUE 0x44FF00ULL
 #define TCR_VALUE (32ULL | (1ULL << 8) | (1ULL << 10) | (3ULL << 12) | (1ULL << 23) | (2ULL << 32))
-#define ATTR_DEVICE 0
-#define ATTR_NORMAL 1
-#define ATTR_NONCACHED 2
-#define PERIPHERAL_START 0xFC000000ULL
-#define BLOCK_SIZE 0x200000ULL
-#define AP_EL0_RW (1ULL << 6)
-#define AP_READ_ONLY (3ULL << 6)
-#define CODE_BLOCK 0ULL
-#define PXN (1ULL << 53)
-#define UXN (1ULL << 54)
 
 static uint64_t l1[4] __attribute__((aligned(4096)));
 static uint64_t l2[4][512] __attribute__((aligned(4096)));
+
+extern unsigned char __user_start[];
+extern unsigned char __user_end[];
+
+uint32_t user_buffer_valid(uintptr_t buffer, size_t size) {
+    return user_region_contains((uintptr_t)__user_start, (uintptr_t)__user_end,
+                                buffer, size);
+}
 
 void mmu_init(uintptr_t fbStart, uint32_t fbSize) {
     uint64_t el;
@@ -23,27 +21,8 @@ void mmu_init(uintptr_t fbStart, uint32_t fbSize) {
         return;
     }
 
-    uint64_t fbEnd = (uint64_t)fbStart + fbSize;
-
-    for (uint64_t g = 0; g < 4; g++) {
-        for (uint64_t i = 0; i < 512; i++) {
-            uint64_t addr = (g << 30) | (i << 21);
-            uint64_t desc;
-
-            if (addr >= PERIPHERAL_START) {
-                desc = addr | (ATTR_DEVICE << 2) | (2ULL << 8) | (1ULL << 10) | UXN | PXN | 1;
-            } else if (addr + BLOCK_SIZE > fbStart && addr < fbEnd) {
-                desc = addr | (ATTR_NONCACHED << 2) | (2ULL << 8) | (1ULL << 10) | UXN | PXN | 1;
-            } else if (addr == CODE_BLOCK) {
-                desc = addr | (ATTR_NORMAL << 2) | (3ULL << 8) | (1ULL << 10) | AP_READ_ONLY | 1;
-            } else {
-                desc = addr | (ATTR_NORMAL << 2) | (3ULL << 8) | (1ULL << 10) | AP_EL0_RW | UXN | PXN | 1;
-            }
-
-            l2[g][i] = desc;
-        }
-        l1[g] = (uint64_t)(uintptr_t)l2[g] | 3;
-    }
+    mmu_populate_tables(l1, l2, fbStart, fbSize,
+                        (uintptr_t)__user_start, (uintptr_t)__user_end);
 
     uint64_t mair = MAIR_VALUE;
     uint64_t tcr = TCR_VALUE;
