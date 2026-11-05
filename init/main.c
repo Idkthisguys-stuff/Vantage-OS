@@ -68,9 +68,9 @@ void main() {
     uart_init();
     env_Init(480, 800);
 
-    /*if (!sd_init()) {
-        uart_writeText("[OK] SD DRIVER INITIALIZED!\n");
-    }*/
+    if (sd_init() == SD_OK) {
+        uart_writeText("[OK] SD DRIVER INITIALIZED! (main)\n");
+    }
    
     uart_writeText("[OK] Vantage booted!...\n");
 

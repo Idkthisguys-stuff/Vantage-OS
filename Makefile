@@ -11,7 +11,9 @@ C_SOURCES = $(wildcard init/*.c) \
             $(wildcard drivers/*/*.c) \
 			$(wildcard drivers/*.c) \
             $(wildcard user/lib/*.c) \
-            $(wildcard user/env/*.c)
+            $(wildcard user/env/*.c) \
+			$(wildcard kernel/sched/*.c) \
+			$(wildcard kernel/sched/delays/*.c)
 
 S_SOURCES = $(wildcard arch/armv8/*.s)
 

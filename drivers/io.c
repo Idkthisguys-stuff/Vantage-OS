@@ -119,3 +119,12 @@ void uart_writeText(const char *buffer) {
        uart_writeByteBlockingActual(*buffer++);
     }
 }
+
+void uart_writeHex(unsigned int d) {
+    uart_writeText("0x");
+
+    for (int shift = 28; shift >= 0; shift -= 4) {
+        unsigned int n = (d >> shift) & 0xF;
+        uart_writeByteBlockingActual(n < 10 ? '0' + n : 'A' + (n - 10));
+    }
+}

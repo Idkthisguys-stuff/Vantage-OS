@@ -123,7 +123,7 @@ unsigned long sd_scr[2], sd_ocr, sd_rca, sd_err, sd_hv;
 int sd_status(unsigned int mask) {
     int cnt = 50000; while ((*EMMC_STATUS & mask) && !(*EMMC_INTRPT & INT_ERR_MASK) && cnt--) wait_msec(1);
 
-    return (cnt <= 0 || (*EMMC_INTRPT * INT_ERR_MASK)) ? SD_ERROR : SD_OK;
+    return (cnt <= 0 || (*EMMC_INTRPT & INT_ERR_MASK)) ? SD_ERROR : SD_OK;
 }
 
 int sd_int(unsigned int mask) {
@@ -150,9 +150,9 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     sd_err = SD_OK;
 
     if (code & CMD_NEED_APP) {
-        r = sd_cmd(CMD_APP_CMD| (sd_rca?CMD_RSPNS_48:0), sd_rca);
+        r = sd_cmd(CMD_APP_CMD | CMD_RSPNS_48, sd_rca);
 
-        if (sd_err || (!sd_rca && !r)) {
+        if (sd_err || !r) {
             uart_writeText("[ERR] App failed to send SD APP command\n");
             if (!sd_err) sd_err = SD_ERROR;
             return 0;
@@ -179,7 +179,17 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     }
 
     if ((r = sd_int(INT_CMD_DONE))) {
-        uart_writeText("[ERR] Failed to send EMMC command\n");
+        uart_writeText("[ERR] Failed to send EMMC command, code=");
+        uart_writeHex(code);
+        uart_writeText(" INTRPT=");
+        uart_writeHex(*EMMC_INTRPT);
+        uart_writeText(" STATUS=");
+        uart_writeHex(*EMMC_STATUS);
+        uart_writeText(" CTRL0=");
+        uart_writeHex(*EMMC_CTRL0);
+        uart_writeText(" CTRL1=");
+        uart_writeHex(*EMMC_CTRL1);
+        uart_writeText("\n");
         sd_err = r;
         return 0;
     }
@@ -194,7 +204,7 @@ int sd_cmd(unsigned int code, unsigned int arg) {
             return 0;
         }
         return r&SR_APP_CMD;
-    } else if (code == CMD_SEND_OP_COND & ~CMD_NEED_APP) {
+    } else if (code == (CMD_SEND_OP_COND & ~CMD_NEED_APP)) {
         return r;
     } else if (code == CMD_SEND_IF_COND) {
         sd_err = r == arg ? SD_OK : SD_ERROR;
@@ -209,7 +219,7 @@ int sd_cmd(unsigned int code, unsigned int arg) {
         return r&CMD_RCA_MASK;
     }
     
-    sd_err (r & CMD_ERRORS_MASK) ? SD_ERROR : SD_OK;
+    sd_err = (r & CMD_ERRORS_MASK) ? SD_ERROR : SD_OK;
     return sd_err;
 }
 
@@ -335,7 +345,7 @@ int sd_init()
     sd_hv = (*EMMC_SLOTISR_VER & HOST_SPEC_NUM) >> HOST_SPEC_NUM_SHIFT;
     uart_writeText("[OK] EMMC GPIO set up\n");
 
-    *EMMC_CTRL0 = 0; *EMMC_CTRL1 |= C1_SRST_HC;
+    *EMMC_CTRL1 |= C1_SRST_HC;
 
     cnt=10000; do{
         wait_msec(10);
@@ -345,11 +355,17 @@ int sd_init()
         uart_writeText("[ERR] EMMC failed to reset EMMC\n");
         return SD_ERROR;
     }
-    uart_writeText("[OK] EMMC reset OK\n"); *EMMC_CTRL1 |= C1_CLK_INTLEN | C1_TOUNIT_MAX;
 
+    *EMMC_CTRL0 |= 0x0F00;
+    wait_msec(10);
+
+    *EMMC_CTRL1 |= C1_CLK_INTLEN | C1_TOUNIT_MAX;
     wait_msec(10);
 
     if((r=sd_clk(400000))) return r;
+
+    wait_msec(50);
+
     *EMMC_INT_EN   = 0xffffffff;
     *EMMC_INT_MASK = 0xffffffff;
     sd_scr[0]=sd_scr[1]=sd_rca=sd_err=0;
@@ -359,10 +375,12 @@ int sd_init()
 
     sd_cmd(CMD_SEND_IF_COND,0x000001AA);
     if(sd_err) return sd_err;
-    cnt=6; r=0; while(!(r&ACMD41_CMD_COMPLETE) && cnt--) {
+    cnt=100; r=0; while(!(r&ACMD41_CMD_COMPLETE) && cnt--) {
         wait_cycles(400);
         r=sd_cmd(CMD_SEND_OP_COND,ACMD41_ARG_HC);
         uart_writeText("[OK] EMMC CMD_SEND_OP_COND returned ");
+        uart_writeHex(r);
+        uart_writeText("\n");
 
         if(sd_err!=SD_TIMEOUT && sd_err!=SD_OK ) {
             uart_writeText("[ERR] EMMC ACMD41 returned error\n");
