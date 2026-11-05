@@ -74,9 +74,10 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 void main() {
     uart_init();
     if (core1_start()) {
-        uart_writeText("[OK] Core 1 started and parked\n");
+        uart_writeText("[OK] Core 1 entry reached\n");
     } else {
-        uart_writeText("[WARN] Core 1 startup was not confirmed\n");
+        uart_writeText("[ERR] Core 1 startup was not confirmed; boot halted\n");
+        for (;;) __asm__ volatile("wfe");
     }
     env_Init(480, 800);
 

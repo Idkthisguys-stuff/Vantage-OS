@@ -43,9 +43,13 @@ dispatcher with bounded test memory; it does not emulate ARM access faults.
 
 Before display initialization enables the MMU and data cache, core 0 writes the
 core 1 entry address to the firmware spin-table slot at `0xe0` and sends an
-event. Core 1 checks its ID and execution state, uses a separate 4 KiB stack,
-signals that it reached the entry point, and parks. Only core 0 writes UART
-output. A bounded wait reports an unconfirmed startup without hanging boot.
+event. Core 1 checks its ID and execution state, exercises a separate 4 KiB
+stack, signals that it reached the entry point, and then parks. Only core 0
+writes UART output. Core 0 waits up to one second using the Pi system timer,
+with an iteration limit as a fallback. On failure, core 0 reports the error and
+halts before enabling the MMU or data cache: a late core 1 can still reach its
+entry because the firmware may already have read the release slot. The success
+message confirms the entry was reached, not that parking has completed.
 Core 1 does not run application work, enable its MMU, or participate in a
 scheduler; cores 2 and 3 are not released.
 

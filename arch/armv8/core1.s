@@ -1,6 +1,8 @@
 /* Pi 4 firmware spin-table slot for core 1; cores 2 and 3 are to be done soon. */
 .equ CORE1_RELEASE, 0xe0
-.equ CORE1_WAIT_LIMIT, 0x2000000
+.equ SYSTEM_TIMER_LOW, 0xfe003004
+.equ CORE1_TIMEOUT_US, 1000000
+.equ CORE1_WAIT_LIMIT, 0x4000000
 
 .section ".text"
 .global core1_start
@@ -21,10 +23,17 @@ core1_start:
     dsb sy
     sev
 
+    ldr x3, =SYSTEM_TIMER_LOW
+    ldr w4, [x3]
+    ldr w5, =CORE1_TIMEOUT_US
     ldr w2, =CORE1_WAIT_LIMIT
 .Lwait:
     ldr w0, [x1]
     cbnz w0, .Lready
+    ldr w6, [x3]
+    sub w6, w6, w4
+    cmp w6, w5
+    b.hs .Lfailed
     subs w2, w2, #1
     b.ne .Lwait
 .Lfailed:
@@ -58,6 +67,9 @@ core1_entry:
     msr daifset, #0xf
     ldr x0, =__core1_stack_top
     mov sp, x0
+    /* Exercise the reserved stack before reporting that the entry was reached. */
+    stp xzr, xzr, [sp, #-16]!
+    ldp x2, x3, [sp], #16
     ldr x0, =core1_ready
     mov w1, #1
     str w1, [x0]
