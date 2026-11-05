@@ -1,20 +1,38 @@
+/*
+ * Copyright (C) 2018 bzt (bztsrc@github)
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use, copy,
+ * modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ *
+ */
+
+// https://github.com/bztsrc/raspi3-tutorial/blob/master/0B_readsector/sd.h (this code is NOT completely mine)
+
 #pragma once
 
 #include "std.h"
 #include "io.h"
 
-#define MMIO_BASE 0xFE000000
-#define EMMC_BASE (MMIO_BASE + 0x300000)
+#define SD_OK 0
+#define SD_TIMEOUT -1
+#define SD_ERROR -2
 
-#define EMMC_ARG2 (volatile unsigned int*)(EMMC_BASE + 0x00)
-#define EMMC_BLKSIZECNT (volatile unsigned int*)(EMMC_BASE + 0x04)
-#define EMMC_ARG1 (volatile unsigned int*)(EMMC_BASE + 0x08)
-#define EMMC_CMDTM (volatile unsigned int*)(EMMC_BASE + 0x0C)
-#define EMMC_RESP0 (volatile unsigned int*)(EMMC_BASE + 0x10)
-#define EMMC_STATUS (volatile unsigned int*)(EMMC_BASE + 0x24)
-#define EMMC_INTERRUPT (volatile unsigned int*)(EMMC_BASE + 0x30)
-#define EMMC_INTERRUPT_EN (EMMC_BASE + 0x38)
-
-int sd_init(void);
-int sd_read(uint8_t* buf, uint32_t lba, uint32_t num_block);
-int sd_write(const uint8_t* buf, uint32_t lba, uint32_t num_blocks);
+int sd_init();
+int sd_readBlock(unsigned int lba, unsigned char* buf, unsigned int num);
