@@ -31,24 +31,23 @@
 
 #ifndef VANTAGE_SD_TEST
 #define EMMC_BASE 0xFE340000
-#define EMMC_ARG2 ((volatile unsigned int*)(EMMC_BASE + 0x00340000))
-#define EMMC_BLKSIZECNT ((volatile unsigned int*)(EMMC_BASE + 0x00340004))
-#define EMMC_ARG1 ((volatile unsigned int*)(EMMC_BASE + 0x00340008))
-#define EMMC_CMDTM ((volatile unsigned int*)(EMMC_BASE + 0x0034000C))
-#define EMMC_RESP0 ((volatile unsigned int*)(EMMC_BASE + 0x00340010))
-#define EMMC_RESP1 ((volatile unsigned int*)(EMMC_BASE + 0x00340014))
-#define EMMC_RESP2 ((volatile unsigned int*)(EMMC_BASE + 0x00340018))
-#define EMMC_RESP3 ((volatile unsigned int*)(EMMC_BASE + 0x0034001C))
-#define EMMC_DATA ((volatile unsigned int*)(EMMC_BASE + 0x00340020))
-#define EMMC_STATUS ((volatile unsigned int*)(EMMC_BASE + 0x00340024))
-#define EMMC_CTRL0 ((volatile unsigned int*)(EMMC_BASE + 0x00340028))
-#define EMMC_CTRL1 ((volatile unsigned int*)(EMMC_BASE + 0x0034002C))
-#define EMMC_INTRPT ((volatile unsigned int*)(EMMC_BASE + 0x00340030))
-#define EMMC_INT_MASK ((volatile unsigned int*)(EMMC_BASE + 0x00340034))
-#define EMMC_INT_EN ((volatile unsigned int*)(EMMC_BASE + 0x00340038))
-#define EMMC_CTRL2 ((volatile unsigned int*)(EMMC_BASE + 0x0034003C))
-#define EMMC_SLOTISR_VER ((volatile unsigned int*)(EMMC_BASE + 0x003400FC))
-#endif
+#define EMMC_ARG2 ((volatile unsigned int*)(EMMC_BASE + 0x00))
+#define EMMC_BLKSIZECNT ((volatile unsigned int*)(EMMC_BASE + 0x04))
+#define EMMC_ARG1 ((volatile unsigned int*)(EMMC_BASE + 0x08))
+#define EMMC_CMDTM ((volatile unsigned int*)(EMMC_BASE + 0x0C))
+#define EMMC_RESP0 ((volatile unsigned int*)(EMMC_BASE + 0x10))
+#define EMMC_RESP1 ((volatile unsigned int*)(EMMC_BASE + 0x14))
+#define EMMC_RESP2 ((volatile unsigned int*)(EMMC_BASE + 0x18))
+#define EMMC_RESP3 ((volatile unsigned int*)(EMMC_BASE + 0x1C))
+#define EMMC_DATA ((volatile unsigned int*)(EMMC_BASE + 0x20))
+#define EMMC_STATUS ((volatile unsigned int*)(EMMC_BASE + 0x24))
+#define EMMC_CTRL0 ((volatile unsigned int*)(EMMC_BASE + 0x28))
+#define EMMC_CTRL1 ((volatile unsigned int*)(EMMC_BASE + 0x2C))
+#define EMMC_INTRPT ((volatile unsigned int*)(EMMC_BASE + 0x30))
+#define EMMC_INT_MASK ((volatile unsigned int*)(EMMC_BASE + 0x34))
+#define EMMC_INT_EN ((volatile unsigned int*)(EMMC_BASE + 0x38))
+#define EMMC_CTRL2 ((volatile unsigned int*)(EMMC_BASE + 0x3C))
+#define EMMC_SLOTISR_VER ((volatile unsigned int*)(EMMC_BASE + 0xFC))
 
 // command flags
 

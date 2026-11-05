@@ -13,7 +13,7 @@ enum {
 };
 
 enum {
-    GPIO_MAX_PIN = 58,
+    GPIO_MAX_PIN = 57,
     GPIO_FUNC_ALT5 = 2,
 };
 
@@ -21,6 +21,8 @@ enum {
     pull_none = 0,
 };
 
+#ifndef VANTAGE_SIM
+// Host driver tests supply MMIO functions without accessing physical registers.
 void mmio_write(long reg, unsigned int val) {
     *(volatile unsigned int *)reg = val;
 }
@@ -28,11 +30,12 @@ void mmio_write(long reg, unsigned int val) {
 unsigned int mmio_read(long reg) {
     return *(volatile unsigned int *)reg;
 }
+#endif
 
 unsigned int gpio_call(unsigned int pin_number, unsigned int value, unsigned int base, unsigned int field_size, unsigned int field_max) {
     unsigned int field_mask = (1 << field_size) - 1;
 
-    if (pin_number > field_mask) return 0;
+    if (pin_number > field_max) return 0;
     if (value > field_mask) return 0;
 
     unsigned int num_fields = 32 / field_size;
