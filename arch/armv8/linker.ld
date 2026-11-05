@@ -19,6 +19,8 @@ SECTIONS {
         . = ALIGN(16);
         . += 0x4000; /* Privileged 16 KiB stack, outside user-writable memory. */
         __kernel_stack_top = .;
+        . += 0x1000; /* Core 1 has its own privileged 4 KiB stack. */
+        __core1_stack_top = .;
     }
     .user.bss ALIGN(0x200000) (NOLOAD) : {
         __user_start = .;

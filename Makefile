@@ -6,6 +6,7 @@ BUILD_DIR = out
 
 C_SOURCES = $(wildcard init/*.c) \
             $(wildcard kernel/*.c) \
+            $(wildcard kernel/sched/delays/*.c) \
             $(wildcard arch/armv8/*.c) \
             $(wildcard mm/*.c) \
             $(wildcard drivers/*/*.c) \
