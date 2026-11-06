@@ -97,4 +97,23 @@ if(BUILD_TESTING)
   add_executable(sd_echo_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/sd_echo.c")
   target_compile_definitions(sd_echo_test PRIVATE VANTAGE_SIM)
   add_test(NAME sd_echo COMMAND sd_echo_test)
+  add_executable(parallel_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/parallel.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/parallel.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../drivers/video/raster.c"
+  )
+  target_compile_definitions(parallel_test PRIVATE VANTAGE_SIM)
+  target_include_directories(parallel_test PRIVATE ${SDL2_INCLUDE_DIRS} "${CMAKE_BINARY_DIR}/sdl2-compat")
+  target_link_libraries(parallel_test PRIVATE ${SDL2_LIBRARIES})
+  if(SDL2_DLL)
+    add_custom_command(TARGET parallel_test POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${SDL2_DLL}" "$<TARGET_FILE_DIR:parallel_test>"
+    )
+  endif()
+  add_test(NAME parallel_batches COMMAND parallel_test)
+  add_test(NAME parallel_missing_worker COMMAND parallel_test --missing)
+  add_test(NAME parallel_completion_timeout COMMAND parallel_test --timeout)
+  set_tests_properties(parallel_batches parallel_missing_worker parallel_completion_timeout
+    PROPERTIES TIMEOUT 20)
 endif()

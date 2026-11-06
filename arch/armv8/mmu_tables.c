@@ -12,7 +12,8 @@
 
 void mmu_populate_tables(uint64_t level1[4], uint64_t level2[4][512],
                          uintptr_t fbStart, uint32_t fbSize,
-                         uintptr_t userStart, uintptr_t userEnd) {
+                         uintptr_t userStart, uintptr_t userEnd,
+                         uintptr_t bootStart) {
     uint64_t fbEnd = (uint64_t)fbStart + fbSize;
     uint64_t g, i;
 
@@ -21,7 +22,7 @@ void mmu_populate_tables(uint64_t level1[4], uint64_t level2[4][512],
             uint64_t addr = (g << 30) | (i << 21);
             uint64_t desc = addr | (1ULL << 10) | UXN | PXN | 1;
 
-            if (addr >= PERIPHERAL_START) {
+            if (addr == bootStart || addr >= PERIPHERAL_START) {
                 desc |= (ATTR_DEVICE << 2) | (2ULL << 8);
             } else if (addr + BLOCK_SIZE > fbStart && addr < fbEnd) {
                 desc |= (ATTR_NONCACHED << 2) | (2ULL << 8);

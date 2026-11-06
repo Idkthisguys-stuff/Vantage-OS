@@ -63,6 +63,7 @@ el1_entry:
 .endm
 
 .balign 0x800
+.global vector_table
 vector_table:
     vector default_handler
     vector default_handler

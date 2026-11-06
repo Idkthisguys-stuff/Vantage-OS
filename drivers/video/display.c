@@ -6,6 +6,7 @@
 
 #include "../../includes/video/display.h"
 #include "../../includes/mmu.h"
+#include "../../includes/video/raster.h"
 
 #include "../../includes/io.h"
 
@@ -144,14 +145,12 @@ void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
     uint32_t pw = h;
     uint32_t ph = w;
 
-    volatile uint32_t* row = (volatile uint32_t*)((uintptr_t)drawBase + py * backPitch) + px;
-
-    for (uint32_t j = 0; j < ph; j++) {
-        for (uint32_t i = 0; i < pw; i++) {
-            row[i] = color;
-        }
-        row = (volatile uint32_t*)((uintptr_t)row + backPitch);
-    }
+    RasterFill fill = { drawBase, backPitch / 4, px, py, pw, ph, color };
+    /* Keep tiny spans local; full-canvas clears use all four cores. */
+    if (ph >= PARALLEL_CORES && (uint64_t)pw * ph >= 4096) {
+        if (!parallel_run(raster_fill_rows, &fill))
+            parallel_halt("[ERR] Parallel fill submission failed; system halted\n");
+    } else raster_fill_rows(0, 1, &fill);
 }
 
 void fb_wait_frame(void) {
@@ -162,14 +161,10 @@ void fb_wait_frame(void) {
 void fb_swap(void) {
     uintptr_t page = (uintptr_t)fbBase + drawPage * pageHeight * fbPitch;
 
-    for (uint32_t y = 0; y < pageHeight; y++) {
-        const uint64_t* src = (const uint64_t*)((uintptr_t)backBuffer + y * backPitch);
-        volatile uint64_t* dst = (volatile uint64_t*)(page + y * fbPitch);
-
-        for (uint32_t i = 0; i < fbWidth / 2; i++) {
-            dst[i] = src[i];
-        }
-    }
+    RasterCopy copy = { backBuffer, (volatile uint32_t*)page,
+                        backPitch / 4, fbPitch / 4, fbWidth, pageHeight };
+    if (!parallel_run(raster_copy_rows, &copy))
+        parallel_halt("[ERR] Parallel frame copy failed; system halted\n");
 
     __asm__ volatile("dsb sy" ::: "memory");
 

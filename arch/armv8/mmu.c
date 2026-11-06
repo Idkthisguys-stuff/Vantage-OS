@@ -8,10 +8,18 @@ static uint64_t l2[4][512] __attribute__((aligned(4096)));
 
 extern unsigned char __user_start[];
 extern unsigned char __user_end[];
+extern unsigned char __smp_boot_start[];
+extern volatile uint32_t secondary_mmu_ready;
 
 uint32_t user_buffer_valid(uintptr_t buffer, size_t size) {
     return user_region_contains((uintptr_t)__user_start, (uintptr_t)__user_end,
                                 buffer, size);
+}
+
+uint32_t mmu_is_enabled(void) {
+    uint64_t control;
+    __asm__ volatile("mrs %0, sctlr_el1" : "=r"(control));
+    return (control & 5) == 5;
 }
 
 void mmu_init(uintptr_t fbStart, uint32_t fbSize) {
@@ -20,10 +28,23 @@ void mmu_init(uintptr_t fbStart, uint32_t fbSize) {
     if (((el >> 2) & 3) != 1) {
         return;
     }
+    uint64_t control;
+    __asm__ volatile("mrs %0, sctlr_el1" : "=r"(control));
+    if (control & 5) return; /* Never rebuild tables live on any core. */
 
     mmu_populate_tables(l1, l2, fbStart, fbSize,
-                        (uintptr_t)__user_start, (uintptr_t)__user_end);
+                        (uintptr_t)__user_start, (uintptr_t)__user_end,
+                        (uintptr_t)__smp_boot_start);
+    /* The tables are populated with caches off and remain immutable. */
+    __asm__ volatile("dsb sy" ::: "memory");
+    mmu_enable_shared();
 
+    /* This block is Device memory on both sides of the MMU transition. */
+    secondary_mmu_ready = 1;
+    __asm__ volatile("dsb sy\nsev" ::: "memory");
+}
+
+void mmu_enable_shared(void) {
     uint64_t mair = MAIR_VALUE;
     uint64_t tcr = TCR_VALUE;
     uint64_t ttbr = (uint64_t)(uintptr_t)l1;
