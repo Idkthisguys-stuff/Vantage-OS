@@ -87,6 +87,13 @@ if(BUILD_TESTING)
   )
   target_compile_definitions(touch_driver_test PRIVATE VANTAGE_SIM)
   add_test(NAME touch_driver COMMAND touch_driver_test)
+  add_executable(user_memory_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/user_memory.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../arch/armv8/mmu_tables.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../init/main.c"
+  )
+  target_compile_definitions(user_memory_test PRIVATE VANTAGE_SIM)
+  add_test(NAME user_memory COMMAND user_memory_test)
   add_executable(sd_echo_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/sd_echo.c")
   target_compile_definitions(sd_echo_test PRIVATE VANTAGE_SIM)
   add_test(NAME sd_echo COMMAND sd_echo_test)

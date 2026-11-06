@@ -12,3 +12,6 @@ void fb_wait_frame(void);
 void fb_swap(void);
 
 uint32_t time_us(void);
+
+/* Validate a complete user buffer before a syscall dereferences it. */
+uint32_t user_buffer_valid(uintptr_t buffer, size_t size);

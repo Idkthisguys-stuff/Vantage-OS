@@ -27,6 +27,38 @@ touch-driver tests:
 ctest --test-dir sim/build -C Release --output-on-failure
 ```
 
+## Hardware user memory
+
+The linker places the user stack in a separate, 2 MiB-aligned `.user.bss`
+region. Only that data region is writable from EL0. Kernel data, page tables,
+the privileged stack, the framebuffer and peripheral registers are EL1-only.
+The existing shared code region remains read-only and executable in both modes.
+
+Pointer-taking syscalls check alignment and the complete buffer range before
+accessing it. Rejected buffers return 0 without reading input or drawing.
+The native `user_memory` test checks page-table permissions and the syscall
+dispatcher with bounded test memory; it does not emulate ARM access faults.
+
+## Pi 4 second core
+
+Before display initialization enables the MMU and data cache, core 0 writes the
+core 1 entry address to the firmware spin-table slot at `0xe0` and sends an
+event. Core 1 checks its ID and execution state, exercises a separate 4 KiB
+stack, signals that it reached the entry point, and then parks. Only core 0
+writes UART output. Core 0 waits up to one second using the Pi system timer,
+with an iteration limit as a fallback. On failure, core 0 reports the error and
+halts before enabling the MMU or data cache: a late core 1 can still reach its
+entry because the firmware may already have read the release slot. The success
+message confirms the entry was reached, not that parking has completed.
+Core 1 does not run application work, enable its MMU, or participate in a
+scheduler; cores 2 and 3 are not released.
+
+This expects the normal 64-bit Pi 4 firmware spin-table protocol, with the MMU
+and data cache disabled on both cores during the handshake. It is not a general
+multicore synchronization primitive. Verify on actual Pi 4 hardware by checking
+the serial startup message across repeated cold boots; a successful compile or
+simulator test does not establish that a second core ran.
+
 ## Touch events
 
 `sys_touch_read(&event)` returns 1 when a `TouchEvent` is available, or 0 with

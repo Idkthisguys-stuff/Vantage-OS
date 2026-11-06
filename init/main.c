@@ -1,5 +1,6 @@
 #include "../includes/env/windowManager.h"
 #include "../user/include/user_lib.h"
+#include "../includes/platform.h"
 
 #ifndef VANTAGE_SIM
 #include "../includes/io.h"
@@ -7,8 +8,10 @@
 
 #include "../includes/sd.h"
 
-static unsigned char user_stack[4096] __attribute__((aligned(16)));
+static unsigned char user_stack[4096]
+    __attribute__((section(".user.bss"), aligned(16)));
 void enter_user_space(void (*func)(void), void* stack_top);
+unsigned int core1_start(void);
 #endif
 
 void user_task() {
@@ -39,6 +42,8 @@ void user_task() {
 
 uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     if (syscall_id == 1) {
+        if (arg0 % sizeof(uint32_t) ||
+            !user_buffer_valid((uintptr_t)arg0, sizeof(TouchEvent))) return 0;
         fb_wait_frame();
         return touch_read((TouchEvent*)arg0);
     }
@@ -52,8 +57,10 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     }
     else if (syscall_id == 4) {
         // Fill Circle (arg0 is pointer to struct circle_args)
-        struct circle_args* args = (struct circle_args*)arg0;
-        canvas_fill_circle(args->x, args->y, args->r);
+        if (arg0 % sizeof(uint32_t) ||
+            !user_buffer_valid((uintptr_t)arg0, sizeof(struct circle_args))) return 0;
+        const struct circle_args args = *(const struct circle_args*)arg0;
+        canvas_fill_circle(args.x, args.y, args.r);
     }
     else if (syscall_id == 5) {
         // Present Canvas
@@ -66,6 +73,12 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 #ifndef VANTAGE_SIM
 void main() {
     uart_init();
+    if (core1_start()) {
+        uart_writeText("[OK] Core 1 entry reached\n");
+    } else {
+        uart_writeText("[ERR] Core 1 startup was not confirmed; boot halted\n");
+        for (;;) __asm__ volatile("wfe");
+    }
     env_Init(480, 800);
 
     if (sd_init() == SD_OK) {
