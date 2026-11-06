@@ -7,11 +7,13 @@
 #include "../kernel/fs/include/fs.h"
 
 #include "../includes/sd.h"
+#include "../includes/mmu.h"
+#include "../includes/parallel.h"
 
 static unsigned char user_stack[4096]
     __attribute__((section(".user.bss"), aligned(16)));
 void enter_user_space(void (*func)(void), void* stack_top);
-unsigned int core1_start(void);
+unsigned int secondary_core_start(unsigned int core_id);
 #endif
 
 void user_task() {
@@ -73,13 +75,22 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 #ifndef VANTAGE_SIM
 void main() {
     uart_init();
-    if (core1_start()) {
-        uart_writeText("[OK] Core 1 entry reached\n");
-    } else {
-        uart_writeText("[ERR] Core 1 startup was not confirmed; boot halted\n");
-        for (;;) __asm__ volatile("wfe");
+    for (unsigned int core = 1; core < 4; core++) {
+        if (secondary_core_start(core)) {
+            if (core == 1) uart_writeText("[OK] Core 1 entry reached\n");
+            if (core == 2) uart_writeText("[OK] Core 2 entry reached\n");
+            if (core == 3) uart_writeText("[OK] Core 3 entry reached\n");
+        } else {
+            if (core == 1) uart_writeText("[ERR] Core 1 startup unconfirmed; boot halted\n");
+            if (core == 2) uart_writeText("[ERR] Core 2 startup unconfirmed; boot halted\n");
+            if (core == 3) uart_writeText("[ERR] Core 3 startup unconfirmed; boot halted\n");
+            for (;;) __asm__ volatile("wfe");
+        }
     }
     env_Init(480, 800);
+    if (!mmu_is_enabled() || !parallel_init() || !parallel_self_test())
+        parallel_halt("[ERR] Four-core parallel initialization failed; boot halted\n");
+    uart_writeText("[OK] Four-core parallel self-test passed\n");
 
     /*if (!sd_init()) {
         uart_writeText("[OK] SD DRIVER INITIALIZED!\n");
