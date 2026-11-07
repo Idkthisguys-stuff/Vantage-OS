@@ -10,8 +10,8 @@ it:
 | HDMI framebuffer + I2C touch | `drivers/video/display.c`, `drivers/input/touch.c`, `drivers/I2C.c` | `make` → `kernel8.img` |
 | SDL2 window + mouse | `sim/platform/display_sim.c` | `sim/CMakeLists.txt` → `vantage_sim.exe` |
 
-`init/main.c`, `drivers/video/graphics.c`, `user/env/windowManager.c` and
-`user/lib/user_lib.c` are shared by both targets. The simulator defines
+`init/main.c`, `drivers/video/graphics.c`, `user/env/windowManager.c`,
+`user/env/terminal*.c` and `user/lib/user_lib.c` are shared by both targets. The simulator defines
 `VANTAGE_SIM` to skip ARM user-mode startup and route syscall wrappers directly
 to the same `handle_sys_call` dispatcher. `sim/main.c` starts the shared
 `user_task` on desktop. This simulates the application, not ARM privilege levels
@@ -167,9 +167,18 @@ queued mouse transitions across reads.
 ## Drawing UI
 
 `includes/video/graphics.h` is the drawing API and is portable across both
-builds. It draws shapes only, so a bitmap font baked into a C array and a
-`canvas_draw_text` blitter are needed before anything can be labelled.
+builds. Its bounded `canvas_text_row` API draws 8x16 ASCII cells using a
+JetBrains Mono bitmap font (SIL Open Font License). The terminal app accesses it through a validated
+fixed-size syscall payload, rather than drawing directly from EL0.
 
 `Window` in `includes/env/windowManager.h` already carries `title[32]`,
 `titleColor` and an `onTouch` callback, but nothing reads them yet. That is where
 UI behaviour attaches.
+
+## Terminal
+
+The default built-in EL0 app is now a terminal with a small command shell. See
+[`TERMINAL.md`](TERMINAL.md) for keyboard/serial input, syscall contracts,
+memory-statistics labels and regression tests. Touch events retain their
+independent simulator queue, and the coordinate overlay is disabled only by the
+terminal simulator entry point.
