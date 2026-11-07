@@ -4,9 +4,9 @@
 
 #ifndef VANTAGE_SIM
 #include "../includes/io.h"
-#include "../kernel/fs/include/fs.h"
+#include "../kernel/fs/include/fat.h"
 
-#include "../includes/sd.h"
+#include "../includes/sd.h" 
 #include "../includes/mmu.h"
 #include "../includes/parallel.h"
 
@@ -97,23 +97,10 @@ void main() {
     if (sd_init() == SD_OK) {
         uart_writeText("[OK] SD DRIVER INITIALIZED! (main)\n");
 
-        if (sd_readBlock(0, &_end, 1)) {
-            uart_writeText("[INFO] _end = ");
-            uart_writeHex((unsigned int)(uintptr_t)&_end);
-            uart_writeText("\n");
-            uart_writeText("\n"); // Double to seperate simplified and detailed
-
-            unsigned char* buf = &_end;
-            uart_writeText("[INFO] sector 0 @ ");
-            uart_writeHex((unsigned int)(uintptr_t)buf);
-            uart_writeText(":\n");
-
-            for (int i = 0; i < 16; i++) {
-                uart_writeHex(buf[i]);
-                uart_writeText(" ");
-            }
-
-            uart_writeText("\n");
+        if (fat_getPartition()) {
+            fat_listDirectory();
+        } else {
+            uart_writeText("[ERR] FAT partition is not found?? \n");
         }
     }
    
