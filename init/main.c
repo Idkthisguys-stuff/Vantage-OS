@@ -77,6 +77,7 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 
 #ifndef VANTAGE_SIM
 void main(uintptr_t dtb) {
+    unsigned int cluster;
     uart_init();
     if (!mm_prepare(dtb, (uintptr_t)_end))
         mm_halt("[ERR] Firmware memory discovery failed; boot halted\n");
@@ -103,12 +104,21 @@ void main(uintptr_t dtb) {
 
         if (fat_getPartition()) {
             fat_listDirectory();
+
+            cluster = fat_getCluster("CONFIG  TXT");
+            if (cluster) {
+                uart_writeText(fat_readFile(cluster));
+            }
+            cluster = fat_getCluster("KERNEL8 IMG");
+            if (cluster) {
+                uart_writeText(fat_readFile(cluster));
+            }
         } else {
             uart_writeText("[ERR] FAT partition is not found?? \n");
         }
     }
    
-    uart_writeText("[OK] Vantage booted!...\n");
+    uart_writeText("\n[OK] Vantage booted!...\n");
 
     void* stack_top = (void*)&user_stack[4096];
     enter_user_space(user_task, stack_top);
