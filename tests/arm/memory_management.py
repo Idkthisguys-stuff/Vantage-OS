@@ -44,7 +44,9 @@ class Image:
         return self.data[section[4]:section[4] + section[5]]
 
 
-def fixture(no_map=0x2000000, bad_magic=False, dynamic=False):
+def fixture(no_map=0x2000000, bad_magic=False, dynamic=False,
+            initrd=None, initrd_cells=1, reservation=(0x1800123, 0x1000),
+            ram_size=0x8000000):
     tree, strings = bytearray(), bytearray()
 
     def word(n): tree.extend(struct.pack('>I', n))
@@ -65,8 +67,14 @@ def fixture(no_map=0x2000000, bad_magic=False, dynamic=False):
     cell('#size-cells', 1)
     begin('memory@0')
     prop('device_type', b'memory\0')
-    prop('reg', struct.pack('>II', 0, 0x8000000))
+    prop('reg', struct.pack('>II', 0, ram_size))
     word(2)
+    if initrd is not None:
+        begin('chosen')
+        for name, value in zip(('linux,initrd-start', 'linux,initrd-end'), initrd):
+            if value is not None:
+                prop(name, struct.pack('>I' if initrd_cells == 1 else '>Q', value))
+        word(2)
     begin('reserved-memory')
     cell('#address-cells', 1)
     cell('#size-cells', 1)
@@ -90,7 +98,7 @@ def fixture(no_map=0x2000000, bad_magic=False, dynamic=False):
     header = struct.pack('>10I', 0 if bad_magic else 0xd00dfeed,
                          strings_start + len(strings), structure, strings_start, 40,
                          17, 16, 0, len(strings), len(tree))
-    reservations = struct.pack('>QQQQ', 0x1800123, 0x1000, 0, 0)
+    reservations = struct.pack('>QQQQ', *reservation, 0, 0)
     return header + reservations + tree + strings
 
 
@@ -368,12 +376,116 @@ class MemoryTests(unittest.TestCase):
             m = Machine(self.image)
             m.level, m.stop_at_main = level, True
             start, end = self.image.symbols['__bss_start'], self.image.symbols['__bss_end']
+            boot_bottom = self.image.symbols['__boot_stack_bottom']
+            boot_top = self.image.symbols['__boot_stack_top']
+            boot_writes = []
+            m.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, access, a, s, v, _: boot_writes.append(a),
+                          begin=boot_bottom, end=boot_top - 1)
+            m.uc.mem_write(boot_bottom, b'\xe9' * 64)
             m.uc.mem_write(start, b'\xaa' * (end - start))
+            data = fixture(initrd=(end, end + 4096), dynamic=True)
+            m.uc.mem_write(DTB, data)
+            m.uc.mem_write(end, b'\xc3' * 4096)
             m.uc.reg_write(regs.UC_ARM64_REG_X0, DTB)
             m.uc.emu_start(self.image.symbols['_start'], RETURN, timeout=30000000, count=80000000)
             self.assertIsNone(m.failure)
             self.assertEqual(m.main_argument, DTB)
             self.assertEqual(m.uc.mem_read(start, end - start), b'\0' * (end - start))
+            self.assertEqual(m.uc.mem_read(DTB, len(data)), data)
+            self.assertEqual(m.uc.mem_read(end, 4096), b'\xc3' * 4096)
+            self.assertEqual(m.uc.mem_read(boot_bottom, 64), b'\xe9' * 64)
+            self.assertTrue(boot_writes)
+            self.assertGreaterEqual(min(boot_writes), boot_bottom + 64)
+
+    def test_bootstrap_stack_is_part_of_loaded_image(self):
+        section = self.image.named['.boot.stack']
+        bottom, top = self.image.symbols['__boot_stack_bottom'], self.image.symbols['__boot_stack_top']
+        self.assertEqual(section[1], 1)  # PROGBITS, not NOLOAD/NOBITS.
+        self.assertEqual(section[2] & 3, 3)  # Writable and allocated.
+        self.assertEqual(section[3], bottom)
+        self.assertEqual(section[5], top - bottom)
+        self.assertEqual(len(self.image.section_bytes(section)), 32768)
+        self.assertEqual(bottom % 16, 0)
+        self.assertLessEqual(top, self.image.symbols['__kernel_file_end'])
+        self.assertLessEqual(self.image.symbols['__kernel_file_end'], self.image.symbols['__bss_start'])
+
+    def rejected_boot(self, pointer=DTB, data=None, payload=None, level=4):
+        m = Machine(self.image)
+        m.level, m.stop_at_main = level, True
+        start, end = self.image.symbols['__bss_start'], self.image.symbols['__bss_end']
+        m.uc.mem_write(start, b'\xa5' * (end - start))
+        if data is not None:
+            m.uc.mem_write(pointer, bytes(data))
+        if payload is not None:
+            payload_address, contents = payload
+            m.uc.mem_write(payload_address, contents)
+        before = bytes(m.uc.mem_read(start, end - start))
+        writes, rejected = [], []
+        m.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, access, a, s, v, _: writes.append((a, s)))
+
+        def rejection(uc, address, size, _):
+            rejected.append(True)
+            uc.emu_stop()
+
+        # On the old image this hook is absent: reaching main demonstrates the bug.
+        address = self.image.symbols.get('boot_memory_rejected')
+        if address is not None:
+            m.uc.hook_add(UC_HOOK_CODE, rejection, begin=address, end=address)
+        m.uc.reg_write(regs.UC_ARM64_REG_X0, pointer)
+        m.uc.emu_start(self.image.symbols['_start'], RETURN, timeout=30000000, count=80000000)
+        self.assertIsNone(m.main_argument, 'unsafe firmware data reached main after BSS clearing')
+        self.assertTrue(rejected)
+        boot_bottom = self.image.symbols['__boot_stack_bottom']
+        boot_top = self.image.symbols['__boot_stack_top']
+        self.assertTrue(all(boot_bottom <= a and a + size <= boot_top for a, size in writes),
+                        'rejection wrote outside the file-backed bootstrap stack')
+        if pointer < end:
+            self.assertEqual(writes, [], 'overlapping DTB must be rejected before any stores')
+        self.assertEqual(m.uc.mem_read(start, end - start), before)
+        if data is not None:
+            self.assertEqual(m.uc.mem_read(pointer, len(data)), data)
+        if payload is not None:
+            self.assertEqual(m.uc.mem_read(payload_address, len(contents)), contents)
+        return m
+
+    def test_boot_rejects_overlapping_dtb_without_writes(self):
+        start, end = self.image.symbols['__bss_start'], self.image.symbols['_end']
+        for level in (4, 8):
+            for address in (self.image.symbols['__boot_stack_bottom'], start,
+                            self.image.symbols['__kernel_stack_top'] - 256,
+                            self.image.symbols['__user_start'],
+                            self.image.symbols['__smp_boot_start'], end - 16):
+                with self.subTest(level=level, address=hex(address)):
+                    self.rejected_boot(address, fixture(), level=level)
+
+    def test_boot_rejects_initrd_conflicts_before_clear(self):
+        start, end = self.image.symbols['__bss_start'], self.image.symbols['_end']
+        for level in (4, 8):
+            for cells in (1, 2):
+                for address in (start, self.image.symbols['__kernel_stack_top'] - 128,
+                                self.image.symbols['__user_start'],
+                                self.image.symbols['__smp_boot_start'], end - 64):
+                    with self.subTest(level=level, cells=cells, address=hex(address)):
+                        self.rejected_boot(data=fixture(initrd=(address, address + 64),
+                                                       initrd_cells=cells),
+                                           payload=(address, b'\xc7' * 64), level=level)
+
+    def test_boot_rejects_reserved_payload_conflicts_before_clear(self):
+        start = self.image.symbols['__bss_start']
+        for options in ({'reservation': (start - 16, 32)}, {'no_map': start}):
+            with self.subTest(options=options):
+                self.rejected_boot(data=fixture(**options), payload=(start, b'\x93' * 64))
+
+    def test_boot_rejects_bad_firmware_before_clear(self):
+        for pointer in (0, 4095, DTB + 1, 0xfc000000 - 32, 0xfffffffffffffff8):
+            with self.subTest(pointer=hex(pointer)):
+                self.rejected_boot(pointer)
+        for data in (fixture(bad_magic=True), fixture(initrd=(0x5000000, None)),
+                     fixture(initrd=(0x5001000, 0x5000000)), fixture(ram_size=0x200000)):
+            self.rejected_boot(data=data)
+        data = bytearray(fixture())
+        struct.pack_into('>I', data, 4, 0x200001)
+        self.rejected_boot(data=data)
 
 
 if __name__ == '__main__':

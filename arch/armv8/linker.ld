@@ -13,6 +13,15 @@ SECTIONS {
     .data : {
         *(.data .data.*)
     }
+    /* File-backed scratch space is already part of the firmware-loaded image.
+     * It must not come from the as-yet-unvalidated NOLOAD zero-fill tail. */
+    .boot.stack ALIGN(16) : {
+        __boot_stack_bottom = .;
+        BYTE(0)
+        . += 0x8000 - 1;
+        __boot_stack_top = .;
+    }
+    __kernel_file_end = .;
     .bss (NOLOAD) : {
         . = ALIGN(16);
         __bss_start = .;

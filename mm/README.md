@@ -13,8 +13,15 @@ GPU buffers.
 
 ## Boot order
 
-1. `boot.s` preserves the firmware's DTB pointer in `x0`, masks exceptions, clears
-   BSS and passes the pointer to `main`.
+1. `boot.s` preserves the firmware's DTB pointer in `x0` and masks exceptions.
+   Before any memory writes, assembly rejects a DTB overlapping the kernel's
+   complete runtime footprint and checks its alignment, magic, size and numeric
+   bounds. On a 32 KiB file-backed bootstrap stack, `mm_boot_validate` reuses the
+   bounded C parser to check RAM coverage and reject reservation-map, static
+   reserved-memory and initrd ranges overlapping the BSS clearing interval. It
+   uses stack-local metadata, not uninitialized globals. Only after this succeeds
+   does boot select the primary BSS stack, clear BSS and enter `main`. Early
+   rejection parks the core without initializing UART or writing BSS.
 2. `mm_prepare` parses a bounded DTB and records RAM, its reservation map,
    `/reserved-memory` and `/chosen` initrd ranges. Low memory through `_end`
    (including metadata, stacks, user data and the secondary-core boot gate), and
@@ -38,8 +45,12 @@ GPU buffers.
 
 Discovery/finalization failures are terminal for that boot. Missing or unsupported
 firmware descriptions are not replaced with guessed RAM sizes. Firmware must
-place the kernel, its BSS and DTB in valid nonconflicting RAM and provide a readable
-DTB. Numerical pointer checks cannot prove physical readability. Preserve
+load the file-backed kernel image (including the bootstrap stack) without
+overlapping other firmware assets and provide a readable, immutable DTB. Boot
+cannot recover data already overwritten by the firmware's image load. The early
+check protects assets from the kernel's subsequent BSS clearing and stack writes;
+reservations over that zero-fill tail fail closed. Numerical pointer checks cannot
+prove physical readability. Preserve
 `-mstrict-align`: discovery runs before the MMU, where unaligned multi-byte Device
 accesses can fault.
 
@@ -85,7 +96,9 @@ successful allocation does not require new metadata.
 - The heap retains an 8 MiB run for kernel lifetime and 1,024-entry free/live
   metadata arrays. Fragmentation or metadata pressure can exhaust it before its
   byte capacity. First-fit searches have no constant-time or speedup guarantee.
-- Page metadata consumes roughly 4 MiB of BSS; the primary stack is 64 KiB.
+- Page metadata consumes roughly 4 MiB of BSS; the primary stack is 64 KiB. The
+  32 KiB bootstrap stack is included in the loaded image and retained for kernel
+  lifetime. Discovery runs twice, before BSS clearing and during MM preparation.
 - Nonempty reserved-memory translations and `linux,usable-memory*` crash-kernel
   restrictions are rejected, rather than silently ignored.
 - Existing shared code is still executable at EL0 and EL1. This subsystem does
@@ -133,6 +146,10 @@ publication. Renderer checks use the dispatcher's serial fallback; the desktop
 thread tests separately exercise the real dispatcher and raster callbacks.
 Privileged registers, firmware, timers and event behavior are mocked. These
 checks do not establish real MMU/cache behavior or Pi hardware compatibility.
+Startup regressions place DTBs and initrd/reserved payload sentinels in BSS,
+the primary stack, user memory and the secondary gate. They require rejection
+without writes outside the file-backed bootstrap stack, preservation of the
+original payload bytes, and no stores at all for DTBs overlapping kernel memory.
 
 On Pi 4, record the commit/image hashes, board/firmware details and serial log.
 Repeat cold boots and look for:

@@ -32,7 +32,10 @@ ctest --test-dir sim/build -C Release --output-on-failure
 The C subsystem in [`mm/`](../mm/README.md) discovers firmware RAM/reservations,
 manages physical pages, and supplies the renderer's kernel heap. It runs discovery
 before secondary release, finalizes reservations before MMU enablement, and keeps
-the shared tables immutable. Whole RAM holes and blocks overlapping `no-map` are
+the shared tables immutable. Before clearing BSS, a file-backed bootstrap stack
+supports read-only firmware discovery with stack-local metadata, rejecting boot
+assets that would be overwritten by zeroing. DTB bounds are checked before any
+stack writes. Whole RAM holes and blocks overlapping `no-map` are
 left invalid; allocation excludes all reservations. Allocator calls are restricted
 to masked EL1 execution on core 0, with workers using caller-owned buffers.
 

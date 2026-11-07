@@ -53,6 +53,10 @@ int mm_dtb_size(const uint8_t* header, size_t length, size_t* result);
 int mm_discover(const uint8_t* blob, size_t length, MmDiscovery* info);
 int mm_discovery_finish(MmDiscovery* info, MmRanges* available);
 
+/* Before BSS initialization. Uses only the caller's validated, file-backed
+ * bootstrap stack and read-only DTB/image data; no runtime globals. */
+uint32_t mm_boot_validate(uintptr_t dtb, uintptr_t clear_start, uintptr_t clear_end);
+
 typedef struct {
     MmRanges free;
     MmRange* live;

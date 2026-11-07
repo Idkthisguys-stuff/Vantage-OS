@@ -5,7 +5,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 
 if(BUILD_TESTING)
-  add_library(mm_test_core STATIC ranges.c pages.c heap.c fdt.c)
+  add_library(mm_test_core STATIC ranges.c pages.c heap.c fdt.c boot.c)
   target_compile_definitions(mm_test_core PUBLIC VANTAGE_SIM)
   foreach(test_name pages allocators fdt)
     add_executable(mm_${test_name}_test "../sim/tests/mm_${test_name}.c")

@@ -13,7 +13,8 @@ typedef struct {
     uint64_t heap_used_bytes;
 } MemoryStats;
 
-/* Boot-only and one shot. Failure must halt boot. Firmware must supply a readable,
+/* Boot-only and one shot, after boot.s validates assets before BSS clearing.
+ * Failure must halt boot. Firmware must supply a readable,
  * immutable DTB. Numeric bounds cannot establish physical pointer readability. */
 uint32_t mm_prepare(uintptr_t dtb, uintptr_t kernel_end);
 uint32_t mm_finalize_framebuffer(uintptr_t address, uint64_t size);
