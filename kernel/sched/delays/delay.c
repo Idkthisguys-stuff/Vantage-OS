@@ -60,7 +60,7 @@ unsigned long get_sys_timer() {
         l=*SYSTMR_LO;
     }
 
-    return ((unsigned long) h << 32) | 1;
+    return ((unsigned long) h << 32) | l;
 }
 
 void wait_msec_st(unsigned int n) {

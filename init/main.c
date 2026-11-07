@@ -16,6 +16,8 @@ void enter_user_space(void (*func)(void), void* stack_top);
 unsigned int secondary_core_start(unsigned int core_id);
 #endif
 
+extern unsigned char _end;
+
 void user_task() {
     TouchEvent touch;
     uint32_t touching = 0;
@@ -94,6 +96,25 @@ void main() {
 
     if (sd_init() == SD_OK) {
         uart_writeText("[OK] SD DRIVER INITIALIZED! (main)\n");
+
+        if (sd_readBlock(0, &_end, 1)) {
+            uart_writeText("[INFO] _end = ");
+            uart_writeHex((unsigned int)(uintptr_t)&_end);
+            uart_writeText("\n");
+            uart_writeText("\n"); // Double to seperate simplified and detailed
+
+            unsigned char* buf = &_end;
+            uart_writeText("[INFO] sector 0 @ ");
+            uart_writeHex((unsigned int)(uintptr_t)buf);
+            uart_writeText(":\n");
+
+            for (int i = 0; i < 16; i++) {
+                uart_writeHex(buf[i]);
+                uart_writeText(" ");
+            }
+
+            uart_writeText("\n");
+        }
     }
    
     uart_writeText("[OK] Vantage booted!...\n");

@@ -223,7 +223,7 @@ int sd_cmd(unsigned int code, unsigned int arg) {
     return sd_err;
 }
 
-int sd_readblock(unsigned int lba, unsigned char *buffer, unsigned int num) {
+int sd_readBlock(unsigned int lba, unsigned char *buffer, unsigned int num) {
     int r,c=0,d;
 
     if (num<1) num=1;
@@ -325,8 +325,7 @@ int sd_clk(unsigned int f) {
     return SD_OK;
 }
 
-int sd_init()
-{
+int sd_init() {
     long r,cnt,ccs=0;
 
     r=*GPFSEL4; r&=~(7<<(7*3)); 
