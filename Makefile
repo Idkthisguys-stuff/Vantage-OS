@@ -22,8 +22,12 @@ S_SOURCES = $(wildcard arch/armv8/*.s)
 
 OBJECTS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(C_SOURCES))
 OBJECTS += $(patsubst %.s, $(BUILD_DIR)/%.o, $(S_SOURCES))
+MM_OBJECTS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(wildcard mm/*.c))
 
 CFLAGS = -Wall -O2 -ffreestanding -nostdinc -Iinclude -Iuser/include
+# Firmware discovery runs with the MMU off: unaligned Device accesses can fault.
+CFLAGS += -mstrict-align -MMD -MP
+$(MM_OBJECTS): CFLAGS += -Wextra -Werror
 
 all: $(BUILD_DIR)/prod/kernel8.img
 
@@ -42,3 +46,5 @@ $(BUILD_DIR)/prod/kernel8.img: $(OBJECTS) arch/armv8/linker.ld
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+-include $(OBJECTS:.o=.d)
