@@ -1,0 +1,31 @@
+name: Memory management
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  memory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install AArch64 tools and test harness
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          python -m pip install unicorn==2.1.4 capstone==5.0.7
+      - name: Build and test native allocation/discovery with sanitizers
+        run: |
+          cmake -S mm -B "$RUNNER_TEMP/mm-host" -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build "$RUNNER_TEMP/mm-host" --parallel
+          ctest --test-dir "$RUNNER_TEMP/mm-host" --output-on-failure
+      - name: Build kernel and test linked ARM memory/startup paths
+        run: |
+          make BUILD_DIR="$RUNNER_TEMP/mm-arm" -j2
+          python tests/arm/memory_management.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+          python tests/arm/secondary_startup.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v

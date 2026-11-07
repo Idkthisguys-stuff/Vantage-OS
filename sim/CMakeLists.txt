@@ -68,6 +68,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../mm" "${CMAKE_BINARY_DIR}/mm")
   add_executable(vantage_sim_smoke "${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke.c")
   target_link_libraries(vantage_sim_smoke PRIVATE vantage_sim_core)
   if(SDL2_DLL)

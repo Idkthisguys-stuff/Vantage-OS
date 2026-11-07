@@ -9,6 +9,9 @@
 #include "../includes/sd.h"
 #include "../includes/mmu.h"
 #include "../includes/parallel.h"
+#include "../includes/memory.h"
+
+extern unsigned char _end[];
 
 static unsigned char user_stack[4096]
     __attribute__((section(".user.bss"), aligned(16)));
@@ -73,8 +76,11 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 }
 
 #ifndef VANTAGE_SIM
-void main() {
+void main(uintptr_t dtb) {
     uart_init();
+    if (!mm_prepare(dtb, (uintptr_t)_end))
+        mm_halt("[ERR] Firmware memory discovery failed; boot halted\n");
+    uart_writeText("[OK] Firmware RAM and reservations discovered\n");
     for (unsigned int core = 1; core < 4; core++) {
         if (secondary_core_start(core)) {
             if (core == 1) uart_writeText("[OK] Core 1 entry reached\n");
