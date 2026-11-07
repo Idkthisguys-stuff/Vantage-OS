@@ -8,6 +8,11 @@ static uint64_t level2[4][512];
 static uint32_t user_words[64];
 static unsigned int reads, circles;
 
+uint32_t mm_block_mapped(uint64_t address) {
+    /* Independent synthetic hole and no-map block, away from test user data. */
+    return address != 0x10000000 && address != 0x10200000;
+}
+
 uint64_t handle_sys_call(uint64_t id, uint64_t arg);
 
 uint32_t user_buffer_valid(uintptr_t buffer, size_t size) {
@@ -46,6 +51,11 @@ int main(void) {
     for (g = 0; g < 4; g++) {
         if (level1[g] != ((uint64_t)(uintptr_t)level2[g] | 3)) return 1;
         for (i = 0; i < 512; i++) {
+            uint64_t address = ((uint64_t)g << 30) | ((uint64_t)i << 21);
+            if (!mm_block_mapped(address)) {
+                if (level2[g][i]) return 1;
+                continue;
+            }
             unsigned int ap = (unsigned int)((level2[g][i] >> 6) & 3);
             unsigned int expected = g == 0 && i == 0 ? 3 : g == 0 && i == 2 ? 1 : 0;
             if (ap != expected) return 1;

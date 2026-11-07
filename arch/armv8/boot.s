@@ -16,6 +16,9 @@ _start:
     b 1b
 
 2:
+    // Preserve the firmware DTB pointer across EL setup and BSS clearing.
+    mov x20, x0
+    msr daifset, #0xf
     mrs x0, CurrentEL
     lsr x0, x0, #2
     cmp x0, #2
@@ -34,6 +37,7 @@ _start:
     eret
 
 el1_entry:
+    msr spsel, #1
     mov x0, #(3 << 20)
     msr cpacr_el1, x0
     isb
@@ -54,6 +58,7 @@ el1_entry:
     msr vbar_el1, x0
     isb
 
+    mov x0, x20
     bl main
     b 1b
 

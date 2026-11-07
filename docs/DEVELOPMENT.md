@@ -29,6 +29,13 @@ ctest --test-dir sim/build -C Release --output-on-failure
 
 ## Hardware user memory
 
+The C subsystem in [`mm/`](../mm/README.md) discovers firmware RAM/reservations,
+manages physical pages, and supplies the renderer's kernel heap. It runs discovery
+before secondary release, finalizes reservations before MMU enablement, and keeps
+the shared tables immutable. Whole RAM holes and blocks overlapping `no-map` are
+left invalid; allocation excludes all reservations. Allocator calls are restricted
+to masked EL1 execution on core 0, with workers using caller-owned buffers.
+
 The linker places the user stack in a separate, 2 MiB-aligned `.user.bss`
 region. Only that data region is writable from EL0. Kernel data, page tables,
 the privileged stack, the framebuffer and peripheral registers are EL1-only.
