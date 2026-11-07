@@ -128,3 +128,11 @@ void uart_writeHex(unsigned int d) {
         uart_writeByteBlockingActual(n < 10 ? '0' + n : 'A' + (n - 10));
     }
 }
+
+char* uart_convertHexToString(unsigned int hex) {
+    static char buf[2];
+    buf[0] = hex;
+    buf[1] = '\0';
+
+    return buf;
+}

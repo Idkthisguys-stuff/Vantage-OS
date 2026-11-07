@@ -116,12 +116,12 @@ void fat_listDirectory(void) {
         for (;dir->name[0] != 0; dir++) {
             if (dir->name[0] == 0xE5 || dir->attr[0] == 0xF) continue;
 
-            uart_writeHex(dir->attr[0] & 1 ? 'R' : '.'); // read-only
-            uart_writeHex(dir->attr[0] & 2 ?'H' : '.'); // hidden
-            uart_writeHex(dir->attr[0] & 4 ?'S' : '.'); // system
-            uart_writeHex(dir->attr[0] & 8 ? 'L' : '.'); // volume label
-            uart_writeHex(dir->attr[0] & 16 ? 'D' : '.'); // directory
-            uart_writeHex(dir->attr[0] & 32 ? 'A' : '.'); // archive
+            uart_writeText(uart_convertHexToString(dir->attr[0] & 1 ? 'R' : '.')); // read-only
+            uart_writeText(uart_convertHexToString(dir->attr[0] & 2 ?'H' : '.')); // hidden
+            uart_writeText(uart_convertHexToString(dir->attr[0] & 4 ?'S' : '.')); // system
+            uart_writeText(uart_convertHexToString(dir->attr[0] & 8 ? 'L' : '.')); // volume label
+            uart_writeText(uart_convertHexToString(dir->attr[0] & 16 ? 'D' : '.')); // directory
+            uart_writeText(uart_convertHexToString(dir->attr[0] & 32 ? 'A' : '.')); // archive
 
             uart_writeText(" ");
 
