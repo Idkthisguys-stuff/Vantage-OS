@@ -19,8 +19,6 @@ void enter_user_space(void (*func)(void), void* stack_top);
 unsigned int secondary_core_start(unsigned int core_id);
 #endif
 
-extern unsigned char _end;
-
 void user_task() {
     TouchEvent touch;
     uint32_t touching = 0;
