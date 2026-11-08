@@ -167,6 +167,21 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(self.m.call('task_init'), INVALID)
         self.assertEqual(self.m.call('task_run'), OK)
 
+    def test_terminal_frame_wait_yields_even_without_a_redraw(self):
+        def device_return(uc, address, size, _):
+            uc.reg_write(regs.UC_ARM64_REG_X0, 0)
+            uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
+
+        for name in ('fb_wait_frame', 'pi4_drivers_poll'):
+            address = self.image.symbols[name]
+            self.m.uc.hook_add(UC_HOOK_CODE, device_return, begin=address, end=address)
+        app = self.m.create([('sys_frame_wait', ()), ('sys_task_exit', (0,))], user=True)
+        peer = self.m.create([('task_exit', (0,))])
+        self.assertEqual(self.m.call('task_run'), OK)
+        self.assertEqual(self.m.events, [(app['key'], 'sys_frame_wait'),
+                                        (peer['key'], 'task_exit'),
+                                        (app['key'], 'sys_task_exit')])
+
     def test_round_robin_and_actual_stack_register_switching(self):
         a = self.m.create([('task_yield', ())] * 4 + [('task_exit', (31,))])
         b = self.m.create([('task_yield', ())] * 4 + [('task_exit', (-9,))])

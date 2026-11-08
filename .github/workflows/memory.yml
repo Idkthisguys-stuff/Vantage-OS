@@ -41,6 +41,7 @@ jobs:
           make BUILD_DIR="$RUNNER_TEMP/mm-arm" -j2
           python tests/arm/memory_management.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/secondary_startup.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+          python tests/arm/terminal.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/tasks.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/task_smp.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/files.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
@@ -60,3 +61,18 @@ jobs:
           cp "$RUNNER_TEMP/mm-arm/kernel8.elf" "$RUNNER_TEMP/default-kernel8.elf"
           make BUILD_DIR="$RUNNER_TEMP/mm-arm" STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=100000000 STORAGE_PARTITION=1 -j2
           python tests/arm/storage_boot.py "$RUNNER_TEMP/default-kernel8.elf" "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+
+  desktop:
+    name: Desktop terminal and simulator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+      - name: Build and test simulator
+        run: |
+          cmake -S sim -B "$RUNNER_TEMP/sim" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/sim" --parallel
+          ctest --test-dir "$RUNNER_TEMP/sim" --output-on-failure

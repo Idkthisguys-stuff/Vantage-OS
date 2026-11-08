@@ -51,6 +51,35 @@ class FileTests(unittest.TestCase):
         self.assertEqual((cursor, size, path.rstrip(b'\0')), (1, 5, b'/ram/hello'))
         self.assertEqual(self.m.uc.mem_read(bottom, 64), b'\xa7' * 64)
 
+    def test_terminal_editor_saves_from_el0_through_file_syscalls(self):
+        terminal = self.image.symbols['terminal']
+        bottom = self.image.symbols['user_stack']
+        self.m.uc.mem_write(bottom, b'\xa7' * 64)
+        steps = [('terminal_init', (terminal, 60, 33, 0, 0, 0))]
+
+        def event(kind, character):
+            def prepare():
+                self.m.uc.mem_write(self.entry, struct.pack('<II', kind, character))
+                return self.entry
+            return prepare
+
+        for line in ('edit hello', 'written by terminal', '.save', '.quit'):
+            for character in line:
+                steps.append(('terminal_key', (terminal, event(1, ord(character)))))
+            steps.append(('terminal_key', (terminal, event(2, 0))))
+        open_index = len(steps)
+        program = None
+        handle = lambda: program['results'][open_index]
+        steps += [('sys_file_open', (self.path, 1)),
+                  ('sys_file_read', (handle, self.output, 64)),
+                  ('sys_file_close', (handle,)), ('sys_task_exit', (0,))]
+        program = self.m.create(steps, user=True)
+        self.assertEqual(self.m.call('task_run'), OK)
+        self.assertGreater(program['results'][open_index], 0)
+        self.assertEqual(program['results'][open_index + 1:], [20, 0])
+        self.assertEqual(self.m.uc.mem_read(self.output, 20), b'written by terminal\n')
+        self.assertEqual(self.m.uc.mem_read(bottom, 64), b'\xa7' * 64)
+
     def test_task_ownership_and_automatic_exit_cleanup(self):
         program = None
         program = self.m.create([
