@@ -22,14 +22,14 @@ cmake --build sim/build --config Release
 .\sim\build\Release\vantage_sim.exe
 ```
 
-Type `help` to get started, using your keyboard or the on-screen keys.
-
-For implementation details and tests, see the [developer guide](docs/DEVELOPMENT.md).
+Type `help` to get started, using your keyboard or the on-screen keys. With a
+storage image mounted, `edit`, `cat`, `ls` and `rm` read and write persistent
+files. See the [terminal guide](docs/TERMINAL.md) for usage.
 
 Experimental persistent SD files and the physical Pi validation gate are
 documented in [the storage guide](docs/STORAGE.md).
 
 Four-core cooperative task scheduling, affinity and hardware acceptance are
 documented in [the scheduler guide](docs/SCHEDULER.md).
-See the [terminal guide](docs/TERMINAL.md) for usage and the
-[developer guide](docs/DEVELOPMENT.md) for implementation and tests.
+
+For implementation details and tests, see the [developer guide](docs/DEVELOPMENT.md).

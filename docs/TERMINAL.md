@@ -30,8 +30,8 @@ statistics on Pi.
 ## Scope
 
 Input is printable ASCII, limited to 127 characters per command. Overlong input is
-discarded. The terminal does not yet run programs, and has no
-command history or physical USB keyboard driver.
+discarded. The terminal does not yet run programs, and has no command history or
+physical USB keyboard driver.
 
 Physical Pi touch, serial and display validation is pending. Desktop and mocked
 ARM tests are described in the [developer guide](DEVELOPMENT.md#terminal).
