@@ -101,9 +101,30 @@ if(BUILD_TESTING)
   )
   target_compile_definitions(user_memory_test PRIVATE VANTAGE_SIM)
   add_test(NAME user_memory COMMAND user_memory_test)
-  add_executable(sd_echo_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/sd_echo.c")
-  target_compile_definitions(sd_echo_test PRIVATE VANTAGE_SIM)
-  add_test(NAME sd_echo COMMAND sd_echo_test)
+  add_executable(sd_controller_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/sd_controller.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../drivers/sd.c"
+  )
+  target_compile_definitions(sd_controller_test PRIVATE VANTAGE_SIM)
+  if(MSVC)
+    target_compile_options(sd_controller_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(sd_controller_test PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME sd_controller COMMAND sd_controller_test)
+
+  add_executable(delays_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/delays.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/sched/delays/delay.c"
+  )
+  target_compile_definitions(delays_test PRIVATE VANTAGE_SIM)
+  if(MSVC)
+    target_compile_options(delays_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(delays_test PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME delays COMMAND delays_test)
+  set_tests_properties(sd_controller delays PROPERTIES TIMEOUT 15)
   add_executable(parallel_test
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/parallel.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/parallel.c"

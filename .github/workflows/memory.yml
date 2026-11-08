@@ -38,6 +38,7 @@ jobs:
           python tests/arm/tasks.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/files.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/pi4_drivers.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+          python tests/arm/storage.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
       - name: Test driver protocol models with sanitizers
         run: |
           cmake -S drivers -B "$RUNNER_TEMP/drivers-host" -DCMAKE_BUILD_TYPE=Debug \

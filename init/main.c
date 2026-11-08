@@ -131,9 +131,9 @@ void main(uintptr_t dtb) {
         mm_halt("[ERR] Cooperative task self-test failed; boot halted\n");
     uart_writeText("[OK] Cooperative task self-test passed\n");
 
-    /*if (!sd_init()) {
-        uart_writeText("[OK] SD DRIVER INITIALIZED!\n");
-    }*/
+    /* SD stays off the boot path until the EMMC2 handoff and reads are
+     * validated on hardware. Call sd_init(base_clock_hz) from core 0, EL1,
+     * with exceptions masked, then sd_read_blocks(). See docs/SD.md. */
    
     uart_writeText("[OK] Vantage booted!...\n");
 
