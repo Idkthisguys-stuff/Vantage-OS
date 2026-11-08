@@ -19,9 +19,9 @@ regular disk image through `VANTAGE_STORAGE_IMAGE`.
 The previous tutorial-derived SD implementation and timer helpers were replaced,
 not renamed or reformatted. The new engine uses explicit controller callbacks,
 per-card state, checked capacities and a different single-sector transfer path.
-Historical attribution is preserved in Git history and
-[`licenses/bzt-legacy-MIT.txt`](licenses/bzt-legacy-MIT.txt). This replacement does
-not change the provenance of other project components or third-party assets.
+The removed implementation and its notice remain in Git history. The current
+driver follows the project's GPL-3.0 license. Other project components and
+third-party assets retain their applicable licenses.
 
 ## Layout and interfaces
 
