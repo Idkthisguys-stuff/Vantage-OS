@@ -6,7 +6,8 @@ endif()
 
 if(BUILD_TESTING)
   add_executable(hardware_test ../sim/tests/drivers/hardware.c hw/wait.c hw/property.c)
-  foreach(target hardware_test)
+  add_executable(v3d_test ../sim/tests/drivers/v3d.c video/v3d.c hw/wait.c)
+  foreach(target hardware_test v3d_test)
     target_compile_definitions(${target} PRIVATE VANTAGE_SIM)
     set_target_properties(${target} PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES)
     if(MSVC)
@@ -16,6 +17,7 @@ if(BUILD_TESTING)
     endif()
   endforeach()
   add_test(NAME hardware_mailbox COMMAND hardware_test)
-  set_tests_properties(hardware_mailbox
+  add_test(NAME v3d_commands_and_mmu COMMAND v3d_test)
+  set_tests_properties(hardware_mailbox v3d_commands_and_mmu
     PROPERTIES TIMEOUT 30)
 endif()
