@@ -294,6 +294,11 @@ queued mouse transitions across reads.
 
 ## Drawing UI
 
+Optional Pi 4 V3D clear/copy and CYW43455 Ethernet transport are documented in
+[the hardware driver guide](HARDWARE.md). Both are experimental and disabled at
+boot by default. The V3D option accelerates full-canvas clears only after its
+pixel self-test; normal shapes and presentation still use the CPU path.
+
 `includes/video/graphics.h` is the drawing API and is portable across both
 builds. It draws shapes only, so a bitmap font baked into a C array and a
 `canvas_draw_text` blitter are needed before anything can be labelled.

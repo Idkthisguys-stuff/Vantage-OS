@@ -31,6 +31,11 @@ must be labelled separately from hardware results.
 
 ## GPU: existing display versus acceleration
 
+An experimental V3D 4.2 clear/copy driver now provides private GPU mappings,
+bounded command submission and an opt-in pixel self-test. See the
+[hardware driver guide](HARDWARE.md). Physical Pi validation remains pending;
+the default renderer still runs on the CPU.
+
 `drivers/video/display.c` already requests a framebuffer and virtual-offset
 changes from VideoCore firmware through the property mailbox. Drawing and
 framebuffer copying run on the ARM CPU. VideoCore-backed display output does

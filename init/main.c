@@ -13,6 +13,7 @@
 #include "../includes/parallel.h"
 #include "../includes/memory.h"
 #include "../includes/task.h"
+#include "../includes/pi4_drivers.h"
 
 extern unsigned char _end[];
 
@@ -82,6 +83,7 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
         // Present Canvas
         canvas_present();
 #ifndef VANTAGE_SIM
+        pi4_drivers_poll();
         task_yield();
 #endif
     }
@@ -124,6 +126,7 @@ void main(uintptr_t dtb) {
     if (!mmu_is_enabled() || !parallel_init() || !parallel_self_test())
         parallel_halt("[ERR] Four-core parallel initialization failed; boot halted\n");
     uart_writeText("[OK] Four-core parallel self-test passed\n");
+    pi4_drivers_start();
     if (task_init() != TASK_OK || !task_self_test())
         mm_halt("[ERR] Cooperative task self-test failed; boot halted\n");
     uart_writeText("[OK] Cooperative task self-test passed\n");

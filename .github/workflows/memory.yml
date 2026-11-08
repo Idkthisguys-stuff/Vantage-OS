@@ -37,3 +37,13 @@ jobs:
           python tests/arm/secondary_startup.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/tasks.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/files.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+          python tests/arm/pi4_drivers.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+      - name: Test driver protocol models with sanitizers
+        run: |
+          cmake -S drivers -B "$RUNNER_TEMP/drivers-host" -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build "$RUNNER_TEMP/drivers-host" --parallel
+          ctest --test-dir "$RUNNER_TEMP/drivers-host" --output-on-failure
+          python -m unittest discover -s tests/tools -v
+      - name: Build opt-in GPU path
+        run: make BUILD_DIR="$RUNNER_TEMP/v3d-arm" V3D=1 -j2
