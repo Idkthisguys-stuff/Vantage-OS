@@ -1,4 +1,5 @@
 #include "../../includes/task_internal.h"
+#include "../../includes/files_internal.h"
 
 #define ID_BITS 4U
 #define ID_MASK 15U
@@ -98,6 +99,7 @@ void task_exit(int status) {
     if (!owned() || !current)
         task_port_halt("[ERR] Task exit outside scheduler; halted\n");
     current->status = status;
+    files_release(current->id);
     current->state = TASK_EXITED;
     Task* waiter = lookup(current->waiter);
     if (waiter && waiter->state == TASK_BLOCKED && waiter->waiting_for == current->id)

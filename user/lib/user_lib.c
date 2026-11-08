@@ -35,6 +35,61 @@ uint32_t sys_task_exit(int status) {
     return (uint32_t)syscall(SYS_TASK_EXIT, (uint32_t)status);
 }
 
+static int copy_path(char dest[FILE_PATH_MAX], const char* path) {
+    if (!path) return 0;
+    for (unsigned int i = 0; i < FILE_PATH_MAX; i++) {
+        dest[i] = path[i];
+        if (!path[i]) return 1;
+    }
+    return 0;
+}
+
+int64_t sys_file_open(const char* path, uint32_t flags) {
+    FileOpen request = {0};
+    if (!copy_path(request.path, path)) return FILE_BAD;
+    request.flags = flags;
+    return (int64_t)syscall(SYS_FILE_OPEN, (uintptr_t)&request);
+}
+
+int sys_file_read(uint64_t handle, void* data, uint32_t length) {
+    FileIo request = {0};
+    if (length > FILE_IO_MAX || (length && !data)) return FILE_BAD;
+    request.handle = handle;
+    request.length = length;
+    int result = (int)syscall(SYS_FILE_READ, (uintptr_t)&request);
+    if (result > (int)length) return FILE_BAD;
+    for (int i = 0; i < result; i++) ((unsigned char*)data)[i] = request.data[i];
+    return result;
+}
+
+int sys_file_write(uint64_t handle, const void* data, uint32_t length) {
+    FileIo request = {0};
+    if (length > FILE_IO_MAX || (length && !data)) return FILE_BAD;
+    request.handle = handle;
+    request.length = length;
+    for (unsigned int i = 0; i < length; i++) request.data[i] = ((const unsigned char*)data)[i];
+    return (int)syscall(SYS_FILE_WRITE, (uintptr_t)&request);
+}
+
+int sys_file_seek(uint64_t handle, uint32_t offset) {
+    FileSeek request = {handle, offset, 0};
+    return (int)syscall(SYS_FILE_SEEK, (uintptr_t)&request);
+}
+
+int sys_file_close(uint64_t handle) {
+    return (int)syscall(SYS_FILE_CLOSE, handle);
+}
+
+int sys_file_list(FileEntry* entry) {
+    return (int)syscall(SYS_FILE_LIST, (uintptr_t)entry);
+}
+
+int sys_file_remove(const char* path) {
+    FilePath request = {{0}};
+    if (!copy_path(request.path, path)) return FILE_BAD;
+    return (int)syscall(SYS_FILE_REMOVE, (uintptr_t)&request);
+}
+
 uint32_t sys_touch_read(TouchEvent* event) {
     return (uint32_t)syscall(1, (uint64_t)event);
 }

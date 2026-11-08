@@ -9,6 +9,8 @@ find_package(SDL2 REQUIRED)
 # ARM startup, MMIO drivers and the svc instruction are replaced on desktop.
 add_library(vantage_sim_core STATIC
   "${CMAKE_CURRENT_SOURCE_DIR}/../init/main.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/fs/files.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/fs/file_syscall.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/../drivers/video/graphics.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/../user/env/windowManager.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/../user/lib/user_lib.c"
@@ -68,6 +70,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../kernel/fs" "${CMAKE_BINARY_DIR}/files")
   add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../mm" "${CMAKE_BINARY_DIR}/mm")
   add_executable(vantage_sim_smoke "${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke.c")
   target_link_libraries(vantage_sim_smoke PRIVATE vantage_sim_core)
@@ -92,6 +95,8 @@ if(BUILD_TESTING)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/user_memory.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../arch/armv8/mmu_tables.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../init/main.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/fs/files.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../kernel/fs/file_syscall.c"
   )
   target_compile_definitions(user_memory_test PRIVATE VANTAGE_SIM)
   add_test(NAME user_memory COMMAND user_memory_test)

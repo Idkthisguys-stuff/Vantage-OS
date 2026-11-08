@@ -1,5 +1,15 @@
 #pragma once
 #include "../../includes/std.h"
+#include "../../includes/files.h"
+
+/* Volatile /ram files. Transfers are bounded to FILE_IO_MAX bytes per call. */
+int64_t sys_file_open(const char* path, uint32_t flags);
+int sys_file_read(uint64_t handle, void* data, uint32_t length);
+int sys_file_write(uint64_t handle, const void* data, uint32_t length);
+int sys_file_seek(uint64_t handle, uint32_t offset);
+int sys_file_close(uint64_t handle);
+int sys_file_list(FileEntry* entry);
+int sys_file_remove(const char* path);
 
 uint64_t sys_task_id(void);
 uint32_t sys_task_yield(void);

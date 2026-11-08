@@ -24,9 +24,16 @@ jobs:
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build "$RUNNER_TEMP/mm-host" --parallel
           ctest --test-dir "$RUNNER_TEMP/mm-host" --output-on-failure
-      - name: Build kernel and test linked ARM memory/startup paths
+      - name: Build and test RAM file operations with sanitizers
+        run: |
+          cmake -S kernel/fs -B "$RUNNER_TEMP/files-host" -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build "$RUNNER_TEMP/files-host" --parallel
+          ctest --test-dir "$RUNNER_TEMP/files-host" --output-on-failure
+      - name: Build kernel and test linked ARM paths
         run: |
           make BUILD_DIR="$RUNNER_TEMP/mm-arm" -j2
           python tests/arm/memory_management.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/secondary_startup.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/tasks.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+          python tests/arm/files.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v

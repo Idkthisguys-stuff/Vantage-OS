@@ -2,6 +2,7 @@
 #include "../user/include/user_lib.h"
 #include "../includes/platform.h"
 #include "../includes/task_api.h"
+#include "../includes/files_internal.h"
 
 #ifndef VANTAGE_SIM
 #include "../includes/io.h"
@@ -48,6 +49,14 @@ void user_task() {
 }
 
 uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
+    if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_REMOVE) {
+#ifdef VANTAGE_SIM
+        const uint64_t owner = 1; /* One host app, without emulated task contexts. */
+#else
+        const uint64_t owner = task_current();
+#endif
+        return (uint64_t)handle_file_call(syscall_id, (uintptr_t)arg0, owner);
+    }
     if (syscall_id == 1) {
         if (arg0 % sizeof(uint32_t) ||
             !user_buffer_valid((uintptr_t)arg0, sizeof(TouchEvent))) return 0;

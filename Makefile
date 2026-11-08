@@ -7,6 +7,7 @@ BUILD_DIR = out
 C_SOURCES = $(wildcard init/*.c) \
             $(wildcard kernel/*.c) \
             $(wildcard kernel/sched/*.c) \
+            kernel/fs/files.c kernel/fs/file_syscall.c \
             $(wildcard kernel/sched/delays/*.c) \
             $(wildcard arch/armv8/*.c) \
             $(wildcard mm/*.c) \
@@ -27,6 +28,7 @@ CFLAGS += -mstrict-align -MMD -MP
 $(MM_OBJECTS): CFLAGS += -Wextra -Werror
 $(BUILD_DIR)/kernel/memory.o: CFLAGS += -fno-tree-loop-distribute-patterns
 $(patsubst %.c, $(BUILD_DIR)/%.o, $(wildcard kernel/sched/*.c) arch/armv8/task_port.c): CFLAGS += -Wextra -Werror
+$(BUILD_DIR)/kernel/fs/files.o $(BUILD_DIR)/kernel/fs/file_syscall.o: CFLAGS += -Wextra -Werror
 
 all: $(BUILD_DIR)/prod/kernel8.img
 

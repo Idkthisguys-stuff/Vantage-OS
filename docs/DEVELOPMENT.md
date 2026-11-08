@@ -212,6 +212,75 @@ cold boots. Expect `[OK] Cooperative task self-test passed` before app entry.
 Exercise sustained touch/rendering and a disposable two-task yield/exit build;
 do not infer hardware compatibility from mocked tests.
 
+## Application files
+
+Apps can access a small **volatile RAM filesystem** through `sys_file_*` in
+`user/include/user_lib.h`. It does not access SD or survive reboot. The legacy
+block-device RAM disk is separate; these files use kernel-owned bounded storage.
+
+Paths are `/ram/<name>` with 1–31 ASCII letters, digits, `.`, `_` or `-`.
+`.` and `..` are rejected. There are no subdirectories or relative paths. Limits
+are 16 files, 4096 bytes per file, 16 open handles and 256 bytes per I/O syscall.
+
+| Operation | ID | Payload alignment | Result |
+|---|---|---|---|
+| Open | 32 | `FileOpen`, 4 bytes | Positive handle |
+| Read/write | 33/34 | `FileIo`, 8 bytes | Bytes transferred; zero at read EOF |
+| Seek | 35 | `FileSeek`, 8 bytes | Zero on success |
+| Close | 36 | Scalar handle | Zero on success |
+| List | 37 | `FileEntry`, 4 bytes | One entry, or zero at end |
+| Remove | 38 | `FilePath`, 1 byte | Zero on success |
+
+Failures are negative `FileError` values. Open requires `FILE_READ` and/or
+`FILE_WRITE`; `FILE_CREATE` and `FILE_TRUNCATE` require write access. Open checks
+handle capacity before creating/truncating a file. A write exceeding capacity
+fails without changing data or position. Seek accepts offsets through current
+EOF; no sparse files are supported. Truncation leaves other handles' positions
+unchanged: reads past EOF return zero, and writes there require a seek first.
+
+Handles include a non-wrapping generation and belong to the current task. Exit
+closes that task's handles but retains named files. Remove rejects files with
+any open handles. The simulator uses one host-app owner. Files share a namespace;
+this ownership check is not user-account permission or process memory isolation.
+
+Requests have no nested pointers. The dispatcher validates the full range and
+alignment, snapshots input on the kernel stack, checks reserved fields and
+lengths, then copies successful output back. Read clears unused payload bytes.
+Operations do not yield, preserving the scheduler's single-owner rules.
+
+```c
+int64_t handle = sys_file_open("/ram/note", FILE_READ | FILE_WRITE | FILE_CREATE);
+if (handle > 0) {
+    char text[8];
+    sys_file_write((uint64_t)handle, "hello", 5);
+    sys_file_seek((uint64_t)handle, 0);
+    int count = sys_file_read((uint64_t)handle, text, sizeof(text));
+    /* count is a byte count; file contents are not automatically terminated. */
+    (void)count;
+    sys_file_close((uint64_t)handle);
+}
+```
+
+For listing, start with `FileEntry entry = {0}` and call `sys_file_list(&entry)`
+until it returns zero. Entries include a full path, byte size and next cursor.
+Listing is not a snapshot across concurrent file creation/removal. Calls after
+an error should inspect the error rather than treating it as EOF.
+
+Native tests cover paths, permissions, capacity, stale handles, syscall buffers
+and 5000 deterministic read/write/seek operations against a byte-array oracle.
+They can run without SDL:
+
+```sh
+cmake -S kernel/fs -B out/files-host
+cmake --build out/files-host
+ctest --test-dir out/files-host --output-on-failure
+python tests/arm/files.py /path/to/fresh/kernel8.elf -v
+```
+
+The linked tests exercise the real EL0 wrappers, syscall handler, automatic
+task-exit cleanup and malformed buffers, using modeled exception delivery.
+Persistent storage remains a separate change after the SD driver is ready.
+
 ## Touch events
 
 `sys_touch_read(&event)` returns 1 when a `TouchEvent` is available, or 0 with
