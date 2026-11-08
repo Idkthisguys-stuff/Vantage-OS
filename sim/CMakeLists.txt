@@ -70,6 +70,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../drivers" "${CMAKE_BINARY_DIR}/drivers")
   add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../kernel/fs" "${CMAKE_BINARY_DIR}/files")
   add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../mm" "${CMAKE_BINARY_DIR}/mm")
   add_executable(vantage_sim_smoke "${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke.c")

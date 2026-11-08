@@ -34,4 +34,5 @@ inline void* std_memcpy(void* dest, const void* src, size_t n) {
 /* The freestanding ABI may emit these calls for large structure copies/zeros. */
 void* memcpy(void* dest, const void* src, size_t n);
 void* memset(void* dest, int value, size_t n);
+int memcmp(const void* a, const void* b, size_t n);
 #endif
