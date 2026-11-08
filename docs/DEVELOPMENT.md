@@ -153,6 +153,169 @@ delivery are mocked; it does not test firmware, cache coherence or concurrent ha
 For remaining worker validation, GPU and process-management stages, see the
 [parallelism roadmap](PARALLELISM.md).
 
+## Cooperative tasks
+
+`kernel/sched/` implements cooperative EL1 tasks across all four Pi 4 cores.
+Each core has an independent dispatcher context; a locked runnable table supplies
+eligible tasks in round-robin order. Boot checks two-task progress and simultaneous
+four-core execution, then starts the built-in EL0 app pinned to core 0.
+
+`task_init` is one-shot. `task_create` takes a trusted kernel entry and argument;
+the caller keeps the argument alive until exit. It preserves core-0 affinity for
+existing device clients. `task_create_affinity(entry, argument, mask)` allows a
+task on any selected available cores: `TASK_ALL_CORES` uses all four, and `1U << n`
+pins to core n. Affinity is immutable; a movable task can change cores when it
+yields or blocks. Thirty-two fixed slots each have a
+16 KiB privileged stack with a 64-byte diagnostic guard. Task IDs include a
+generation; reaped IDs cannot address a reused slot. Generation exhaustion
+permanently retires the slot rather than wrapping.
+
+Tasks move through runnable, running, blocked and exited states. Yield returns
+to that core's dispatcher. Returning from an entry exits with status zero.
+`task_join` blocks a running task, rejects self/cyclic waits and reserves the
+target for one waiter. `task_reap` is nonblocking and also works from boot; it
+rejects running or waiter-owned targets. Exited stacks remain reserved until
+reaped, after execution has switched away. Join/reap status pointers are trusted
+kernel pointers, not syscall payloads. Core 0 coordinates `task_run`, which waits
+for global quiescence, including remote running/runnable tasks. Blocked-only state
+returns `TASK_PENDING`. `task_info` snapshots state, affinity, current core and
+dispatch count under the scheduler lock. IDs remain opaque; their encoding has
+expanded to accommodate the larger table.
+
+Scheduler lifecycle calls work from masked EL1 on any participating core;
+initialization and dispatch coordination belong to core 0. Drivers and parallel
+jobs must finish before yielding; there is no preemption, timer wakeup or
+interrupt-safe locking. The context switch saves the AAPCS64 callee-saved
+integer registers, SP, lower halves of v8–v15, FPCR/FPSR and the pending
+ELR_EL1/SPSR_EL1/SP_EL0. This is a cooperative call-boundary context, not a full
+interrupt frame. Stack guards detect some corruption; they are not guard pages.
+The scheduler lock stays held across a task-to-dispatcher switch, until the old
+context/stack is fully saved. This prevents early migration and stack reclamation.
+Task data outside the scheduler needs its own synchronization. See
+[the multicore contract](SCHEDULER.md) for examples and acceptance requirements.
+
+Existing file/display/input services are restricted to boot or core-0-pinned
+tasks; movable tasks cannot use them even while temporarily on core 0. File
+syscalls reject unsupported callers with `FILE_UNAVAILABLE`. Synchronous CPU
+raster jobs reserve idle secondary workers against task dispatch and retain
+four-way rendering. If any secondary is occupied by a task, the renderer uses
+its serial fallback on core 0 instead of waiting on a non-yielding task. No
+rendering speedup is claimed.
+
+| Syscall | ID | Result |
+|---|---|---|
+| `sys_task_id()` | 16 | Current task ID; zero when unavailable |
+| `sys_task_yield()` | 17 | One after resuming; zero when unavailable |
+| `sys_task_exit(status)` | 18 | Does not return on success; zero when unavailable |
+
+IDs 6–15 are reserved for console extensions. Presentation also yields, after
+the renderer and parallel jobs finish. EL0 return exits through SVC; interrupt
+masks stay set because interrupt delivery is not configured. Task creation and
+join are kernel-only. The desktop app does not emulate scheduling and returns
+zero for these three syscalls.
+
+The shared code and single writable user region are unchanged. These tasks are
+not isolated processes: there are no independent address spaces, user account
+permissions, executable loading or user-fault recovery.
+
+```sh
+python tests/arm/tasks.py /path/to/fresh/kernel8.elf -v
+python tests/arm/task_smp.py /path/to/fresh/kernel8.elf -v
+```
+
+This executes the linked scheduler, context-switch assembly and SVC wrappers,
+with scripted task bodies and modeled exception delivery. It checks register and
+stack preservation, round-robin progress, cross-core join/exit/reaping and
+migration, stale IDs, ownership checks, damaged guards and return to EL0 after a
+yield. Four CPU contexts share modeled RAM, with explicit per-core exclusive
+reservations. These tests do not validate Pi caches, GIC interrupts or ARM
+memory-permission enforcement. A separate native test uses four OS threads and
+host fibers/ucontext to exercise real host concurrency.
+
+Before hardware acceptance, record image/commit hashes and serial output across
+cold boots. Expect `[OK] Cooperative task self-test passed` and
+`[OK] Tasks executed concurrently on cores 0, 1, 2 and 3` before app entry.
+Exercise sustained touch/rendering, four-core compute, migration and cross-core
+joins; do not infer hardware compatibility from modeled or host-thread tests.
+
+## Application files
+
+Apps access a small **persistent snapshot filesystem** through `sys_file_*` in
+`user/include/user_lib.h` after an explicit successful storage mount. Normal Pi
+boot keeps SD disabled pending physical validation, so files are unavailable
+there. The simulator can mount a regular image through `VANTAGE_STORAGE_IMAGE`.
+The legacy block-device RAM disk is separate. Provisioning, crash recovery,
+limits and the hardware acceptance gate are documented in [STORAGE.md](STORAGE.md).
+
+Paths are `/ram/<name>` with 1–31 ASCII letters, digits, `.`, `_` or `-`.
+`.` and `..` are rejected. There are no subdirectories or relative paths. Limits
+are 16 files, 4096 bytes per file, 16 open handles and 256 bytes per I/O syscall.
+
+| Operation | ID | Payload alignment | Result |
+|---|---|---|---|
+| Open | 32 | `FileOpen`, 4 bytes | Positive handle |
+| Read/write | 33/34 | `FileIo`, 8 bytes | Bytes transferred; zero at read EOF |
+| Seek | 35 | `FileSeek`, 8 bytes | Zero on success |
+| Close | 36 | Scalar handle | Zero on success |
+| List | 37 | `FileEntry`, 4 bytes | One entry, or zero at end |
+| Remove | 38 | `FilePath`, 1 byte | Zero on success |
+
+Failures are negative `FileError` values. Open requires `FILE_READ` and/or
+`FILE_WRITE`; `FILE_CREATE` and `FILE_TRUNCATE` require write access. Open checks
+handle capacity before creating/truncating a file. A write exceeding capacity
+fails without changing data or position. Seek accepts offsets through current
+EOF; no sparse files are supported. Truncation leaves other handles' positions
+unchanged: reads past EOF return zero, and writes there require a seek first.
+The `/ram/` spelling is retained for ABI compatibility, not volatile storage.
+Successful mutations commit synchronously. I/O failures quarantine the mount
+until handles are released and storage is remounted; they are not guaranteed
+to have left the disk unchanged. Corruption and I/O errors are reported explicitly.
+
+Handles include a non-wrapping generation and belong to the current task. Exit
+closes that task's handles but retains named files. Remove rejects files with
+any open handles. The simulator uses one host-app owner. Files share a namespace;
+this ownership check is not user-account permission or process memory isolation.
+
+Requests have no nested pointers. The dispatcher validates the full range and
+alignment, snapshots input on the kernel stack, checks reserved fields and
+lengths, then copies successful output back. Read clears unused payload bytes.
+Operations do not yield and only core-0-pinned tasks can access them, preserving
+the filesystem's single-owner rules.
+
+```c
+int64_t handle = sys_file_open("/ram/note", FILE_READ | FILE_WRITE | FILE_CREATE);
+if (handle > 0) {
+    char text[8];
+    sys_file_write((uint64_t)handle, "hello", 5);
+    sys_file_seek((uint64_t)handle, 0);
+    int count = sys_file_read((uint64_t)handle, text, sizeof(text));
+    /* count is a byte count; file contents are not automatically terminated. */
+    (void)count;
+    sys_file_close((uint64_t)handle);
+}
+```
+
+For listing, start with `FileEntry entry = {0}` and call `sys_file_list(&entry)`
+until it returns zero. Entries include a full path, byte size and next cursor.
+Listing is not a snapshot across concurrent file creation/removal. Calls after
+an error should inspect the error rather than treating it as EOF.
+
+Native tests cover paths, permissions, capacity, stale handles, syscall buffers,
+5000 deterministic read/write/seek operations against a byte-array oracle,
+fresh-process persistence and interrupted snapshot commits.
+They can run without SDL:
+
+```sh
+cmake -S kernel/fs -B out/files-host
+cmake --build out/files-host
+ctest --test-dir out/files-host --output-on-failure
+python tests/arm/files.py /path/to/fresh/kernel8.elf -v
+```
+
+The linked tests exercise the real EL0 wrappers, syscall handler, automatic
+task-exit cleanup and malformed buffers, using modeled exception delivery.
+Physical SD read/write/erase and reboot-persistence acceptance remain pending.
+
 ## Touch events
 
 `sys_touch_read(&event)` returns 1 when a `TouchEvent` is available, or 0 with
@@ -165,6 +328,11 @@ detect transitions observed when polled. The desktop simulator preserves
 queued mouse transitions across reads.
 
 ## Drawing UI
+
+Optional Pi 4 V3D clear/copy and CYW43455 Ethernet transport are documented in
+[the hardware driver guide](HARDWARE.md). Both are experimental and disabled at
+boot by default. The V3D option accelerates full-canvas clears only after its
+pixel self-test; normal shapes and presentation still use the CPU path.
 
 `includes/video/graphics.h` is the drawing API and is portable across both
 builds. Its bounded `canvas_text_row` API draws 8x16 ASCII cells using a
@@ -183,7 +351,12 @@ See [the terminal guide](TERMINAL.md) for commands and input setup.
 
 - `user/env/terminal.c` owns the bounded screen model and command editing.
   Commands have a 127-character limit, reduced on smaller screens; overflow
-  discards the command. It has no SDL or kernel-global dependencies.
+  discards the command. Its file editor uses the existing `SYS_FILE_*` wrappers,
+  keeps a 4096-byte buffer in the terminal's user-owned state, and requires a
+  mounted filesystem. Its touch-first full-screen view supports in-place
+  insertion, line navigation/deletion and unsaved-exit confirmation without a
+  visible cursor. The disk format and file ABI are unchanged. See
+  [the editor contract](TERMINAL.md#persistent-text-files).
 - `user/env/terminal_app.c` stores mutable state in `.user.bss` on Pi. It polls
   at most 64 keyboard and 64 touch events per step and redraws only dirty content.
   On the 480x800 canvas, the keyboard uses 272 pixels, leaving 33 text rows.
@@ -199,9 +372,21 @@ See [the terminal guide](TERMINAL.md) for commands and input setup.
   affected by receive overruns. Serial output mirrors terminal text. Bulk pastes
   have no flow control.
 
-The terminal accepts printable ASCII and has no history, scrollback, cursor
-navigation, Unicode, quoting, pipelines or executable loading. Its static cursor
-and single-app interface do not provide PTYs or process isolation.
+The shell accepts printable ASCII and has no history, scrollback, cursor
+navigation, Unicode, quoting, pipelines or executable loading. The editor has
+separate touch navigation. The single-app interface provides neither PTYs nor
+process isolation.
+
+`terminal_storage_reboot` exercises create/read/replace/delete using the terminal,
+production syscall wrappers and a disk image across fresh processes. It also
+checks exact-capacity saves, literal dot commands, discard-without-save,
+unmounted-storage errors and buffer retention after a failed save. Linked ARM
+file tests run the editor in a scheduled EL0 task through real SVC wrappers and
+check the user-stack guard. These are software tests, not physical SD acceptance.
+`editor_touch` drives SDL touch events through the application to exercise line
+selection, on-screen text input, Save, New/Drop, drag cancellation, exit
+confirmation and persistence after remount. Model tests exercise editor bounds
+at both minimum and normal view sizes.
 
 ### Syscalls and rendering
 

@@ -1,16 +1,23 @@
 #include "../includes/env/windowManager.h"
 #include "../user/include/user_lib.h"
 #include "../includes/platform.h"
+#include "../includes/task_api.h"
+#include "../includes/files_internal.h"
 #include "../includes/console.h"
 
 #ifndef VANTAGE_SIM
 #include "../includes/io.h"
-#include "../kernel/fs/include/fs.h"
 
 #include "../includes/sd.h"
 #include "../includes/mmu.h"
 #include "../includes/parallel.h"
 #include "../includes/memory.h"
+#include "../includes/task.h"
+#include "../includes/pi4_drivers.h"
+
+#if VANTAGE_STORAGE_VALIDATION && (SD_BASE_CLOCK_HZ < 400000 || SD_BASE_CLOCK_HZ > 818400000 || STORAGE_PARTITION > 3 || STORAGE_PARTITION < 0)
+#error Invalid storage validation clock or primary partition
+#endif
 
 extern unsigned char _end[];
 
@@ -23,6 +30,29 @@ unsigned int secondary_core_start(unsigned int core_id);
 void user_task(void);
 
 uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
+#ifndef VANTAGE_SIM
+    /* Scheduling syscalls are available on all cores. Existing device/file
+     * services remain exclusive to boot or immutable core-0-pinned tasks. */
+    if (syscall_id == SYS_TASK_ID) return task_current();
+    if (syscall_id == SYS_TASK_YIELD) return task_yield();
+    if (syscall_id == SYS_TASK_EXIT) {
+        if (task_current()) task_exit((int)(uint32_t)arg0);
+        return 0;
+    }
+    if (!task_services_allowed()) {
+        if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_REMOVE)
+            return (uint64_t)(int64_t)FILE_UNAVAILABLE;
+        return 0;
+    }
+#endif
+    if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_REMOVE) {
+#ifdef VANTAGE_SIM
+        const uint64_t owner = 1; /* One host app, without emulated task contexts. */
+#else
+        const uint64_t owner = task_current();
+#endif
+        return (uint64_t)handle_file_call(syscall_id, (uintptr_t)arg0, owner);
+    }
     if (syscall_id == 1) {
         if (arg0 % sizeof(uint32_t) ||
             !user_buffer_valid((uintptr_t)arg0, sizeof(TouchEvent))) return 0;
@@ -47,6 +77,10 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     else if (syscall_id == 5) {
         // Present Canvas
         canvas_present();
+#ifndef VANTAGE_SIM
+        pi4_drivers_poll();
+        task_yield();
+#endif
     }
     else if (syscall_id == 6) {
         if (arg0 % sizeof(uint32_t) || !user_buffer_valid((uintptr_t)arg0, sizeof(KeyEvent))) return 0;
@@ -71,7 +105,13 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
         *(ConsoleInfo*)(uintptr_t)arg0 = info;
         return 1;
     }
-    else if (syscall_id == 9) fb_wait_frame();
+    else if (syscall_id == 9) {
+        fb_wait_frame();
+#ifndef VANTAGE_SIM
+        pi4_drivers_poll();
+        task_yield();
+#endif
+    }
     else if (syscall_id == 10) {
         if (arg0 % sizeof(uint32_t) || !user_buffer_valid((uintptr_t)arg0, sizeof(ConsoleWrite))) return 0;
         const ConsoleWrite request = *(const ConsoleWrite*)(uintptr_t)arg0;
@@ -93,6 +133,11 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 }
 
 #ifndef VANTAGE_SIM
+static void user_entry(void* argument) {
+    (void)argument;
+    enter_user_space(user_task, &user_stack[sizeof(user_stack)]);
+}
+
 void main(uintptr_t dtb) {
     uart_init();
     if (!mm_prepare(dtb, (uintptr_t)_end))
@@ -114,18 +159,38 @@ void main(uintptr_t dtb) {
     if (!mmu_is_enabled() || !parallel_init() || !parallel_self_test())
         parallel_halt("[ERR] Four-core parallel initialization failed; boot halted\n");
     uart_writeText("[OK] Four-core parallel self-test passed\n");
+    pi4_drivers_start();
+    if (task_init() != TASK_OK || !task_self_test())
+        mm_halt("[ERR] Cooperative task self-test failed; boot halted\n");
+    uart_writeText("[OK] Cooperative task self-test passed\n");
+    if (!task_multicore_self_test())
+        mm_halt("[ERR] Four-core task scheduling self-test failed; boot halted\n");
+    uart_writeText("[OK] Tasks executed concurrently on cores 0, 1, 2 and 3\n");
 
-    /*if (!sd_init()) {
-        uart_writeText("[OK] SD DRIVER INITIALIZED!\n");
-    }*/
+#if VANTAGE_STORAGE_VALIDATION
+    /* Disposable hardware-validation image only. No automatic format or
+     * destructive erase test: mount a deliberately provisioned data partition. */
+    int storage_result = storage_start(SD_BASE_CLOCK_HZ, STORAGE_PARTITION);
+    if (storage_result < 0) mm_halt("[ERR] Persistent storage mount failed; validation boot halted\n");
+    if (storage_result == STORE_MOUNT_RECOVERED)
+        uart_writeText("[WARN] Storage recovered one valid snapshot; inspect card and validation logs\n");
+    uart_writeText("[OK] Persistent storage mounted in hardware-validation image\n");
+    int probe = storage_reboot_probe();
+    if (probe < 0) mm_halt("[ERR] Storage reboot probe failed; validation boot halted\n");
+    if (probe) uart_writeText("[TEST] Stored reboot probe matched; retain separate cold-boot logs\n");
+    else uart_writeText("[TEST] Storage reboot probe written; power-cycle this validation image to check persistence\n");
+#else
+    uart_writeText("[INFO] SD storage disabled pending physical read/write validation\n");
+#endif
    
     uart_writeText("[OK] Vantage booted!...\n");
 
-    void* stack_top = (void*)&user_stack[4096];
-    enter_user_space(user_task, stack_top);
+    TaskId app = task_create(user_entry, NULL);
+    if (!app || task_run() != TASK_OK || task_reap(app, NULL) != TASK_OK)
+        mm_halt("[ERR] Application scheduling failed; boot halted\n");
 
     while (1) {
-        // IDLE
+        __asm__ volatile("wfe");
     }
 }
 #endif

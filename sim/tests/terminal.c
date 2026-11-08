@@ -10,6 +10,11 @@ static char transcript[32768];
 static size_t written;
 static uint32_t info_kind = CONSOLE_MEMORY_KERNEL;
 
+uint64_t handle_sys_call(uint64_t id, uint64_t argument) {
+    (void)id; (void)argument;
+    return (uint64_t)(int64_t)FILE_UNAVAILABLE;
+}
+
 static void output(void* context, char c) {
     CHECK(context == &guarded);
     if (written + 1 < sizeof(transcript)) {
@@ -82,6 +87,7 @@ int main(void) {
     CHECK(strstr(transcript, "\nhello terminal  \n"));
     command("unknown"); CHECK(strstr(transcript, "Unknown command"));
     command("about"); CHECK(strstr(transcript, "built-in shell"));
+    command("edit notes"); CHECK(!t->editing && strstr(transcript, "Storage unavailable"));
     command("clear");
     CHECK(!t->row && t->column == 2 && t->cells[0][0] == '>');
     for (i = 2; i < t->columns; i++) CHECK(t->cells[0][i] == ' ');
@@ -116,6 +122,26 @@ int main(void) {
           else key(KEY_TEXT, 'a' + seed % 26);
           guards();
       }
+    }
+    /* Exercise editor geometry and bounds at both minimum and normal sizes. */
+    for (uint32_t size = 0; size < 2; size++) {
+        reset(size ? 60 : 40, size ? 33 : 12);
+        t->editing = 1;
+        t->edit_position = t->edit_top = t->edit_left = t->edit_modified = t->edit_confirm = 0;
+        t->edit_status = "Test"; t->edit_touch = ~0U;
+        uint32_t seed = 71;
+        for (i = 0; i < 4000; i++) {
+            seed = seed * 1664525U + 1013904223U;
+            if (seed % 5 == 0) terminal_editor_action(t, EDIT_UP + seed % 6);
+            else if (seed % 7 == 0) key(KEY_BACKSPACE, 0);
+            else if (seed % 11 == 0) key(KEY_ENTER, 0);
+            else key(KEY_TEXT, 'a' + seed % 26);
+            TouchEvent touch = {0};
+            touch.type = TOUCH_EVENT_DOWN; touch.x = -1; touch.y = -1;
+            terminal_touch(t, &touch); touch.type = TOUCH_EVENT_UP; terminal_touch(t, &touch);
+            CHECK(t->edit_position <= t->document_size && t->document_size <= FILE_CAPACITY);
+            guards();
+        }
     }
     puts("PASS: shell commands, memory source labels, editing, wrapping, scrolling and input bounds");
     return 0;
