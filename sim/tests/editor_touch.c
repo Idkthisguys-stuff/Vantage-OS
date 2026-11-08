@@ -41,7 +41,10 @@ static void touch(int x, int y, int drag) {
 }
 
 static void button(uint32_t action, int drag) {
-    touch((int)(action % 4) * 120 + 60, (27 + (int)(action / 4) * 3) * 16 + 24, drag);
+    static const uint32_t positions[] = {0, 1, 4, 5, 6, 7, 2, 3};
+    CHECK(action < sizeof(positions) / sizeof(positions[0]));
+    uint32_t position = positions[action];
+    touch((int)(position % 4) * 120 + 60, (27 + (int)(position / 4) * 3) * 16 + 24, drag);
 }
 
 static void contents(const char* expected) {
@@ -72,9 +75,13 @@ int main(int argc, char** argv) {
     button(EDIT_DOWN, 0); button(EDIT_NEW, 0); text("third line");
     button(EDIT_SAVE, 0); contents("hfirst line\nsecond line\nthird line");
     button(EDIT_DROP, 0); button(EDIT_SAVE, 0); contents("hfirst line\nsecond line");
+    /* The second row contains Up, Down, Left and Right in that order. */
+    button(EDIT_UP, 0); button(EDIT_RIGHT, 0); button(EDIT_LEFT, 0);
+    text("!"); button(EDIT_SAVE, 0); contents("hfirst line!\nsecond line");
+    button(EDIT_DOWN, 0);
     text("unsaved"); button(EDIT_EXIT, 0);
     /* First Exit must leave the editor open; Save keeps the buffer. */
-    button(EDIT_SAVE, 0); contents("hfirst line\nsecond lineunsaved");
+    button(EDIT_SAVE, 0); contents("hfirst line!\nsecond lineunsaved");
     if (argc == 2) {
         SDL_Window* window = SDL_GetWindowFromID(1);
         SDL_Renderer* renderer = window ? SDL_GetRenderer(window) : NULL;
@@ -86,7 +93,7 @@ int main(int argc, char** argv) {
     }
     button(EDIT_EXIT, 0);
     CHECK(files_unmount() == 0 && files_mount(&device, 0) == 0);
-    contents("hfirst line\nsecond lineunsaved");
+    contents("hfirst line!\nsecond lineunsaved");
     CHECK(files_unmount() == 0);
     SDL_Quit();
     puts("PASS: touch line selection, keyboard edits, save, drag cancellation, new/drop and exit confirmation");

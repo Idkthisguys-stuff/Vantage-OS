@@ -125,6 +125,10 @@ static void list_files(Terminal* t) {
 }
 
 static void editor_draw(Terminal* t);
+static const uint32_t editor_controls[] = {
+    EDIT_SAVE, EDIT_EXIT, EDIT_NEW, EDIT_DROP,
+    EDIT_UP, EDIT_DOWN, EDIT_LEFT, EDIT_RIGHT
+};
 
 static void open_text(Terminal* t, const char* path, int edit) {
     if (edit && (t->columns < 40 || t->rows < 12)) {
@@ -210,7 +214,7 @@ uint32_t terminal_editor_selected(const Terminal* t, uint32_t row) {
 }
 
 static void editor_draw(Terminal* t) {
-    static const char* labels[] = {"Save", "Exit", "Up", "Down", "Left", "Right", "New", "Drop"};
+    static const char* labels[] = {"Save", "Exit", "New", "Drop", "Up", "Down", "Left", "Right"};
     uint32_t selected = line_number(t, t->edit_position), height = (t->rows - 10) / 2;
     uint32_t column = t->edit_position - line_start(t, t->edit_position), width = t->columns - 6;
     if (selected < t->edit_top) t->edit_top = selected;
@@ -241,7 +245,7 @@ static void editor_draw(Terminal* t) {
     editor_label(t, t->rows - 8, 0, t->edit_status);
     for (uint32_t i = 0; i < 8; i++) {
         uint32_t row = t->rows - 6 + (i / 4) * 3, left = (i % 4) * t->columns / 4;
-        editor_label(t, row + 1, left + 1, t->edit_confirm && i == EDIT_EXIT ? "Discard" : labels[i]);
+        editor_label(t, row + 1, left + 1, t->edit_confirm && editor_controls[i] == EDIT_EXIT ? "Discard" : labels[i]);
     }
 }
 
@@ -342,7 +346,7 @@ void terminal_touch(Terminal* t, const TouchEvent* event) {
         uint32_t pressed = t->edit_touch;
         t->edit_touch = ~0U;
         if (hit == ~0U || hit != pressed) return;
-        if (hit < 8) { terminal_editor_action(t, hit); return; }
+        if (hit < 8) { terminal_editor_action(t, editor_controls[hit]); return; }
         uint32_t index = t->edit_top + hit - 8;
         if (index > line_number(t, t->document_size)) return;
         uint32_t start = line_at(t, index), end = line_end(t, start);
