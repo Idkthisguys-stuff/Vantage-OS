@@ -94,10 +94,12 @@ class FileTests(unittest.TestCase):
                 return self.entry
             return prepare
 
-        for line in ('edit hello', 'written by terminal', '.save', '.quit'):
+        for line in ('edit hello', 'written by terminal'):
             for character in line:
                 steps.append(('terminal_key', (terminal, event(1, ord(character)))))
             steps.append(('terminal_key', (terminal, event(2, 0))))
+        steps += [('terminal_editor_action', (terminal, 0)),
+                  ('terminal_editor_action', (terminal, 1))]
         open_index = len(steps)
         program = None
         handle = lambda: program['results'][open_index]

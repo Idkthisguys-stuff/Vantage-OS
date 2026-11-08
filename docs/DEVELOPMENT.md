@@ -353,7 +353,10 @@ See [the terminal guide](TERMINAL.md) for commands and input setup.
   Commands have a 127-character limit, reduced on smaller screens; overflow
   discards the command. Its file editor uses the existing `SYS_FILE_*` wrappers,
   keeps a 4096-byte buffer in the terminal's user-owned state, and requires a
-  mounted filesystem. See [the editor contract](TERMINAL.md#persistent-text-files).
+  mounted filesystem. Its touch-first full-screen view supports in-place
+  insertion, line navigation/deletion and unsaved-exit confirmation without a
+  visible cursor. The disk format and file ABI are unchanged. See
+  [the editor contract](TERMINAL.md#persistent-text-files).
 - `user/env/terminal_app.c` stores mutable state in `.user.bss` on Pi. It polls
   at most 64 keyboard and 64 touch events per step and redraws only dirty content.
   On the 480x800 canvas, the keyboard uses 272 pixels, leaving 33 text rows.
@@ -369,16 +372,21 @@ See [the terminal guide](TERMINAL.md) for commands and input setup.
   affected by receive overruns. Serial output mirrors terminal text. Bulk pastes
   have no flow control.
 
-The terminal accepts printable ASCII and has no history, scrollback, cursor
-navigation, Unicode, quoting, pipelines or executable loading. Its static cursor
-and single-app interface do not provide PTYs or process isolation.
+The shell accepts printable ASCII and has no history, scrollback, cursor
+navigation, Unicode, quoting, pipelines or executable loading. The editor has
+separate touch navigation. The single-app interface provides neither PTYs nor
+process isolation.
 
 `terminal_storage_reboot` exercises create/read/replace/delete using the terminal,
 production syscall wrappers and a disk image across fresh processes. It also
-checks exact-capacity saves, escaped dot commands, discard-without-save,
+checks exact-capacity saves, literal dot commands, discard-without-save,
 unmounted-storage errors and buffer retention after a failed save. Linked ARM
 file tests run the editor in a scheduled EL0 task through real SVC wrappers and
 check the user-stack guard. These are software tests, not physical SD acceptance.
+`editor_touch` drives SDL touch events through the application to exercise line
+selection, on-screen text input, Save, New/Drop, drag cancellation, exit
+confirmation and persistence after remount. Model tests exercise editor bounds
+at both minimum and normal view sizes.
 
 ### Syscalls and rendering
 

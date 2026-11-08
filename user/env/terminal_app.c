@@ -168,7 +168,10 @@ void terminal_app_step(void) {
     TouchEvent touch;
     uint32_t count, row, col, changed = 0;
     for (count = 0; count < 64 && sys_key_read(&key); count++) terminal_key(&terminal, &key);
-    for (count = 0; count < 64 && sys_touch_read(&touch); count++) keyboard_touch(&touch);
+    for (count = 0; count < 64 && sys_touch_read(&touch); count++) {
+        terminal_touch(&terminal, &touch);
+        keyboard_touch(&touch);
+    }
     if (keyboard_pressed == 37) {
         uint32_t now = sys_time_us();
         if (now - keyboard_repeat_time >= keyboard_repeat_delay) {
@@ -186,7 +189,11 @@ void terminal_app_step(void) {
         text.length = terminal.columns;
         text.foreground = RGB(220, 230, 238);
         text.background = RGB(16, 20, 28);
-        text.cursor = row == terminal.row && terminal.column < terminal.columns ? terminal.column : TEXT_NO_CURSOR;
+        if (terminal.editing) {
+            if (terminal_editor_selected(&terminal, row)) text.background = RGB(35, 63, 91);
+            else if (row >= terminal.rows - 6) text.background = RGB(49, 61, 80);
+        }
+        text.cursor = !terminal.editing && row == terminal.row && terminal.column < terminal.columns ? terminal.column : TEXT_NO_CURSOR;
         for (col = 0; col < TEXT_MAX_COLUMNS; col++) text.text[col] = col < terminal.columns ? terminal.cells[row][col] : ' ';
         if (sys_canvas_text_row(&text)) {
             terminal.dirty[row] = 0;

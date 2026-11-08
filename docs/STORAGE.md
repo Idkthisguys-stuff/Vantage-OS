@@ -111,8 +111,8 @@ prints an image SHA-256 for validation records. It does not repartition images.
 The simulator mounts partition 0 of an existing image when
 `VANTAGE_STORAGE_IMAGE` is set to its path. Its regular-file adapter uses
 `fflush` and `_commit`/`fsync`; it never formats a missing or invalid volume.
-The current touch-demo app does not provide file commands; file APIs and the
-headless round-trip tests exercise the storage backend.
+The terminal provides file commands and a touch-first text editor; see
+[TERMINAL.md](TERMINAL.md). Fresh-process round-trip tests exercise persistence.
 
 ## Hardware-validation image and acceptance
 

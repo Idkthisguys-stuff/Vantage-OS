@@ -45,25 +45,40 @@ included bitmap; regeneration is documented in the developer guide.
 ## Persistent text files
 
 With storage mounted, use `ls`, `cat notes`, `rm notes`, or `edit notes`.
-Short names refer to `/ram/`; full `/ram/name` paths also work. The editor is a
-bounded ASCII line editor, not a full-screen cursor editor:
+Short names refer to `/ram/`; full `/ram/name` paths also work. `edit notes` opens
+a compact, full-screen, touch-first ASCII editor above the keyboard. Existing
+files load into memory; missing files start empty and are created only on Save.
 
-```text
-edit notes
-My first line
-Another line
-.save
-.quit
-cat notes
-rm notes
-```
+Tap a line where you want to insert text, then type with the on-screen keyboard
+or desktop keyboard. The selected line is highlighted; there is no pointer or
+blinking text cursor. The header shows the insertion line/column, byte count and
+an asterisk for unsaved changes. Backspace removes the preceding character;
+Enter splits the line. Text that looks like a shell or dot command is literal
+document content while the editor is open.
 
-Existing text is loaded when entering `edit`. New lines append to the buffer.
-Use `.show` to display it, `.clear` to replace its contents, `.save` to write it,
-`.delete` to remove the file and exit, or `.quit` to discard unsaved changes.
-Start a line with `..` to store a literal leading dot. Commands use dots so they
-can also be entered on the graphical keyboard. Files hold at most 4096 bytes;
-input lines hold at most 127 characters. Binary files are rejected by the editor.
+| Touch control | Action |
+|---|---|
+| Save | Write the whole buffer to the current filename |
+| Exit | Return to the shell; with unsaved changes, tap Discard again to confirm |
+| Up / Down | Select the adjacent line; scroll when it leaves the view |
+| Left / Right | Move the insertion point one character, including across lines |
+| New | Insert a newline at the end of the selected line |
+| Drop | Remove the selected line |
+
+To cancel a pending discard, select text, edit, or use another control. Saving
+also cancels the discard confirmation. The on-screen Cancel key (or Ctrl+C) acts
+like Exit. Dragging away from a control before release cancels that touch.
+Long lines scroll horizontally to keep the insertion position in view; `<` at
+the left of the text means its beginning is off-screen. Each line has a two-row
+touch target. The editor needs at least 40 columns and 12 text rows.
+
+Files still hold at most 4096 bytes, independently of SD/FAT cluster sizes.
+Editor lines are not subject to the shell's 127-character command limit. An edit
+that would exceed capacity is rejected without discarding the buffer. Binary
+files are rejected; existing tabs and carriage returns display as spaces and
+are preserved unless edited. Use `rm name` at the shell to delete a saved file.
+The graphical display is required for editor navigation and Save; the serial
+console can supply text but does not mirror the full-screen editor view.
 
 Saving truncates the file and writes it in 256-byte chunks through `SYS_FILE_*`.
 Each chunk is durable separately: a power loss during save can leave an empty or

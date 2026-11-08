@@ -141,7 +141,17 @@ if(BUILD_TESTING)
   add_test(NAME terminal_smoke COMMAND terminal_smoke)
   set_tests_properties(terminal_smoke PROPERTIES
     ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 15)
-  foreach(target terminal_test terminal_storage_test serial_input_test terminal_smoke)
+  add_executable(editor_touch "${CMAKE_CURRENT_SOURCE_DIR}/tests/editor_touch.c")
+  target_link_libraries(editor_touch PRIVATE vantage_sim_core)
+  if(SDL2_DLL)
+    add_custom_command(TARGET editor_touch POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${SDL2_DLL}" "$<TARGET_FILE_DIR:editor_touch>")
+  endif()
+  add_test(NAME editor_touch COMMAND editor_touch)
+  set_tests_properties(editor_touch PROPERTIES
+    ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 15)
+  foreach(target terminal_test terminal_storage_test serial_input_test terminal_smoke editor_touch)
     if(MSVC)
       target_compile_options(${target} PRIVATE /W4 /WX)
     else()
