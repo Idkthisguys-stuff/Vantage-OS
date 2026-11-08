@@ -24,6 +24,7 @@ CFLAGS = -Wall -O2 -ffreestanding -nostdinc -Iinclude -Iuser/include
 # Firmware discovery runs with the MMU off: unaligned Device accesses can fault.
 CFLAGS += -mstrict-align -MMD -MP
 $(MM_OBJECTS): CFLAGS += -Wextra -Werror
+$(BUILD_DIR)/kernel/memory.o: CFLAGS += -fno-tree-loop-distribute-patterns
 
 all: $(BUILD_DIR)/prod/kernel8.img
 

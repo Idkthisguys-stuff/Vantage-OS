@@ -10,8 +10,8 @@ it:
 | HDMI framebuffer + I2C touch | `drivers/video/display.c`, `drivers/input/touch.c`, `drivers/I2C.c` | `make` → `kernel8.img` |
 | SDL2 window + mouse | `sim/platform/display_sim.c` | `sim/CMakeLists.txt` → `vantage_sim.exe` |
 
-`init/main.c`, `drivers/video/graphics.c`, `user/env/windowManager.c` and
-`user/lib/user_lib.c` are shared by both targets. The simulator defines
+`init/main.c`, `drivers/video/graphics.c`, `user/env/windowManager.c`,
+`user/env/terminal*.c` and `user/lib/user_lib.c` are shared by both targets. The simulator defines
 `VANTAGE_SIM` to skip ARM user-mode startup and route syscall wrappers directly
 to the same `handle_sys_call` dispatcher. `sim/main.c` starts the shared
 `user_task` on desktop. This simulates the application, not ARM privilege levels
@@ -167,9 +167,92 @@ queued mouse transitions across reads.
 ## Drawing UI
 
 `includes/video/graphics.h` is the drawing API and is portable across both
-builds. It draws shapes only, so a bitmap font baked into a C array and a
-`canvas_draw_text` blitter are needed before anything can be labelled.
+builds. Its bounded `canvas_text_row` API draws 8x16 ASCII cells using a
+JetBrains Mono bitmap font (SIL Open Font License). The terminal app accesses it through a validated
+fixed-size syscall payload, rather than drawing directly from EL0.
 
 `Window` in `includes/env/windowManager.h` already carries `title[32]`,
 `titleColor` and an `onTouch` callback, but nothing reads them yet. That is where
 UI behaviour attaches.
+
+## Terminal
+
+See [the terminal guide](TERMINAL.md) for commands and input setup.
+
+### Application and input
+
+- `user/env/terminal.c` owns the bounded screen model and command editing.
+  Commands have a 127-character limit, reduced on smaller screens; overflow
+  discards the command. It has no SDL or kernel-global dependencies.
+- `user/env/terminal_app.c` stores mutable state in `.user.bss` on Pi. It polls
+  at most 64 keyboard and 64 touch events per step and redraws only dirty content.
+  On the 480x800 canvas, the keyboard uses 272 pixels, leaving 33 text rows.
+- Keyboard rendering and hit testing share geometry. Ordinary taps commit on
+  release; dragging off cancels them. Del acts on press and repeats after 400 ms,
+  then every 70 ms. Unsigned clock subtraction handles rollover; overdue repeats
+  are dropped rather than replayed in a burst.
+- The simulator keeps keyboard and touch queues separate. Keyboard overflow
+  cancels the affected command; touch overflow resets the gesture. The terminal
+  entry point disables the touch-coordinate overlay.
+- `drivers/input/key.c` converts nonblocking UART input into key events. It
+  accepts CR/LF/CRLF, filters unsupported ANSI navigation, and discards commands
+  affected by receive overruns. Serial output mirrors terminal text. Bulk pastes
+  have no flow control.
+
+The terminal accepts printable ASCII and has no history, scrollback, cursor
+navigation, Unicode, quoting, pipelines or executable loading. Its static cursor
+and single-app interface do not provide PTYs or process isolation.
+
+### Syscalls and rendering
+
+| ID | Operation | Payload alignment |
+|---|---|---|
+| 6 | Poll key input (`KeyEvent`) | 4 bytes |
+| 7 | Draw text row (`TextRow`) | 4 bytes |
+| 8 | Read geometry/memory (`ConsoleInfo`) | 8 bytes |
+| 9 | Wait for frame pacing | None |
+| 10 | Write bounded serial bytes (`ConsoleWrite`) | 4 bytes |
+| 11 | Draw rounded button (`CanvasButton`) | 4 bytes |
+| 12 | Read wrapping 32-bit microsecond clock | None |
+
+Payloads contain no nested pointers. The dispatcher validates full user-buffer
+ranges and alignment, snapshots drawing inputs on the kernel stack, and writes
+only validated outputs. Existing touch and shape syscalls remain available.
+
+The renderer checks row, cursor, pixel bounds, radius and label size while
+preserving canvas color. Button labels hold seven characters plus a terminator;
+text scale is native for 0/1 and doubled for 2. `kernel/memory.c` provides the
+freestanding copy/zero routines needed by compiler-generated structure operations;
+its Makefile flag prevents recursive library-call optimization.
+
+Pi memory statistics come from the core-0 EL1 allocator, not per-process
+accounting. The simulator reports host display allocation and does not emulate
+the kernel allocator.
+
+### Tests
+
+CTest covers the terminal model, serial parsing, syscall buffer bounds and
+SDL input-to-pixel rendering, including key feedback, scaled glyphs and drag
+cancellation. Model tests also run 20,000 deterministic mixed input events.
+
+With Unicorn/Capstone installed and a fresh AArch64 build:
+
+```sh
+python tests/arm/terminal.py /path/to/kernel8.elf -v
+```
+
+The linked tests cover user-stack guards, syscall validation, memory statistics,
+copy/zero routines and Del repeat timing, including rollover and empty input.
+Exceptions and devices are mocked. Validate touch coordinates, serial/display
+output, scrolling and memory counters on a physical Pi before claiming hardware
+compatibility.
+
+### Font regeneration
+
+Retain `drivers/video/OFL.txt` when distributing the JetBrains Mono bitmap.
+Pillow is needed only to regenerate the checked-in header:
+
+```sh
+python -m pip install pillow
+python drivers/video/gen_font8x16.py --ttf /path/to/JetBrainsMono-Regular.ttf
+```
