@@ -12,6 +12,9 @@ typedef struct {
 } TaskContext;
 
 int task_port_owned(void);
+unsigned int task_port_core(void);
+void task_port_lock(uint32_t* lock);
+void task_port_unlock(uint32_t* lock);
 void task_context_init(TaskContext* context, void* stack, size_t size,
                        void (*entry)(void));
 void task_context_dispose(TaskContext* context);

@@ -1,4 +1,5 @@
 #include "../includes/sd.h"
+#include "../includes/task.h"
 #include "../kernel/sched/delays/delay.h"
 
 #define EMMC2_BASE 0xfe340000ULL
@@ -10,7 +11,8 @@ static int owner(void) {
     __asm__ volatile("mrs %0, mpidr_el1" : "=r"(core));
     __asm__ volatile("mrs %0, CurrentEL" : "=r"(level));
     __asm__ volatile("mrs %0, daif" : "=r"(masks));
-    return !(core & 0x000000ff00ffffffULL) && level == 4 && (masks & 0x3c0) == 0x3c0;
+    return !(core & 0x000000ff00ffffffULL) && level == 4 &&
+           (masks & 0x3c0) == 0x3c0 && task_services_allowed();
 }
 
 static uint32_t host_read(void* context, uint32_t offset) {

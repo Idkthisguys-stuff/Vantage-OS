@@ -1,5 +1,6 @@
 #include "../../includes/files_internal.h"
 #include "../../includes/sd.h"
+#include "../../includes/task.h"
 
 static int read_sector(void* context, uint64_t lba, void* data) {
     (void)context;
@@ -12,13 +13,14 @@ static int write_sector(void* context, uint64_t lba, const void* data) {
 static int sync_device(void* context) { (void)context; return sd_sync(); }
 
 int storage_start(uint32_t base_clock_hz, unsigned int partition) {
+    if (!task_services_allowed()) return FILE_UNAVAILABLE;
     if (sd_init(base_clock_hz) != SD_OK) return FILE_IO_ERROR;
     SectorDevice device = {NULL, sd_sector_count(), read_sector, write_sector, sync_device};
     return files_mount(&device, partition);
 }
 
 int storage_reboot_probe(void) {
-    /* Low ID bits 15 cannot identify any scheduler slot. Never retain handles. */
+    /* Low ID bits 63 cannot identify any scheduler slot. Never retain handles. */
     const uint64_t owner = ~(uint64_t)0;
     unsigned char expected[256], actual[256];
     for (unsigned int i = 0; i < sizeof(expected); i++) expected[i] = (unsigned char)(i * 37U + 0x5aU);

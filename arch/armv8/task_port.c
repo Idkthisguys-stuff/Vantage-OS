@@ -10,7 +10,22 @@ int task_port_owned(void) {
     uint64_t core, level, mask;
     __asm__ volatile("mrs %0, mpidr_el1\nmrs %1, CurrentEL\nmrs %2, daif"
                      : "=r"(core), "=r"(level), "=r"(mask));
-    return !(core & 0xff) && level == 4 && (mask & 0x3c0) == 0x3c0;
+    return (core & 0xff) < TASK_CORES && level == 4 && (mask & 0x3c0) == 0x3c0;
+}
+
+unsigned int task_port_core(void) {
+    uint64_t core;
+    __asm__ volatile("mrs %0, mpidr_el1" : "=r"(core));
+    return (unsigned int)(core & 0xff);
+}
+
+void task_port_lock(uint32_t* lock) {
+    while (__atomic_exchange_n(lock, 1, __ATOMIC_ACQUIRE))
+        __asm__ volatile("yield" ::: "memory");
+}
+
+void task_port_unlock(uint32_t* lock) {
+    __atomic_store_n(lock, 0, __ATOMIC_RELEASE);
 }
 
 void task_context_init(TaskContext* context, void* stack, size_t size,

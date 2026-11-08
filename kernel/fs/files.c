@@ -1,4 +1,15 @@
 #include "../../includes/files_internal.h"
+#ifndef VANTAGE_SIM
+#include "../../includes/task.h"
+#endif
+
+static int services_owned(void) {
+#ifdef VANTAGE_SIM
+    return 1;
+#else
+    return task_services_allowed();
+#endif
+}
 
 #define NAME_MAX 32U
 #define HANDLE_BITS 5U
@@ -20,6 +31,7 @@ static int have_handles(void) {
 }
 
 int files_unmount(void) {
+    if (!services_owned()) return FILE_UNAVAILABLE;
     if (have_handles()) return FILE_BUSY;
     volume.state = 0;
     memset(stored_files, 0, sizeof(stored_files));
@@ -27,6 +39,7 @@ int files_unmount(void) {
 }
 
 int files_mount(const SectorDevice* device, unsigned int partition) {
+    if (!services_owned()) return FILE_UNAVAILABLE;
     if (volume.state == 1 || have_handles()) return FILE_BUSY;
     StoreRegion region;
     int result = store_partition(device, partition, &region);
@@ -72,7 +85,7 @@ static OpenFile* lookup(uint64_t owner, uint64_t handle) {
 
 int64_t files_open(uint64_t owner, const char* path, uint32_t flags) {
     char name[NAME_MAX] = {0};
-    if (!owner || volume.state != 1) return FILE_UNAVAILABLE;
+    if (!services_owned() || !owner || volume.state != 1) return FILE_UNAVAILABLE;
     if (!name_from_path(path, name) || !(flags & (FILE_READ | FILE_WRITE)) ||
         (flags & ~(FILE_READ | FILE_WRITE | FILE_CREATE | FILE_TRUNCATE)) ||
         ((flags & (FILE_CREATE | FILE_TRUNCATE)) && !(flags & FILE_WRITE))) return FILE_BAD;
@@ -117,7 +130,7 @@ int64_t files_open(uint64_t owner, const char* path, uint32_t flags) {
 }
 
 int files_read(uint64_t owner, uint64_t handle, void* data, uint32_t length) {
-    if (volume.state != 1) return FILE_UNAVAILABLE;
+    if (!services_owned() || volume.state != 1) return FILE_UNAVAILABLE;
     OpenFile* open = lookup(owner, handle);
     if (!open) return FILE_BAD_HANDLE;
     if (!(open->flags & FILE_READ)) return FILE_ACCESS;
@@ -131,7 +144,7 @@ int files_read(uint64_t owner, uint64_t handle, void* data, uint32_t length) {
 }
 
 int files_write(uint64_t owner, uint64_t handle, const void* data, uint32_t length) {
-    if (volume.state != 1) return FILE_UNAVAILABLE;
+    if (!services_owned() || volume.state != 1) return FILE_UNAVAILABLE;
     OpenFile* open = lookup(owner, handle);
     if (!open) return FILE_BAD_HANDLE;
     if (!(open->flags & FILE_WRITE)) return FILE_ACCESS;
@@ -150,7 +163,7 @@ int files_write(uint64_t owner, uint64_t handle, const void* data, uint32_t leng
 }
 
 int files_seek(uint64_t owner, uint64_t handle, uint32_t offset) {
-    if (volume.state != 1) return FILE_UNAVAILABLE;
+    if (!services_owned() || volume.state != 1) return FILE_UNAVAILABLE;
     OpenFile* open = lookup(owner, handle);
     if (!open) return FILE_BAD_HANDLE;
     if (offset > stored_files[open->file].size) return FILE_BAD;
@@ -159,6 +172,7 @@ int files_seek(uint64_t owner, uint64_t handle, uint32_t offset) {
 }
 
 int files_close(uint64_t owner, uint64_t handle) {
+    if (!services_owned()) return FILE_UNAVAILABLE;
     OpenFile* open = lookup(owner, handle);
     if (!open) return FILE_BAD_HANDLE;
     open->owner = 0;
@@ -166,13 +180,13 @@ int files_close(uint64_t owner, uint64_t handle) {
 }
 
 void files_release(uint64_t owner) {
-    if (!owner) return;
+    if (!services_owned() || !owner) return;
     for (unsigned int i = 0; i < FILE_HANDLE_LIMIT; i++)
         if (open_files[i].owner == owner) open_files[i].owner = 0;
 }
 
 int files_list(uint64_t owner, FileEntry* entry) {
-    if (!owner || volume.state != 1) return FILE_UNAVAILABLE;
+    if (!services_owned() || !owner || volume.state != 1) return FILE_UNAVAILABLE;
     if (!entry || entry->cursor > FILE_LIMIT) return FILE_BAD;
     unsigned int start = entry->cursor;
     *entry = (FileEntry){0};
@@ -190,7 +204,7 @@ int files_list(uint64_t owner, FileEntry* entry) {
 
 int files_remove(uint64_t owner, const char* path) {
     char name[NAME_MAX] = {0};
-    if (!owner || volume.state != 1) return FILE_UNAVAILABLE;
+    if (!services_owned() || !owner || volume.state != 1) return FILE_UNAVAILABLE;
     if (!name_from_path(path, name)) return FILE_BAD;
     for (unsigned int i = 0; i < FILE_LIMIT; i++) {
         if (!stored_files[i].used || !same_name(stored_files[i].name, name)) continue;

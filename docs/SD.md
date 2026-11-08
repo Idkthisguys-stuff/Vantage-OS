@@ -29,8 +29,9 @@ not change the provenance of other project components or third-party assets.
   timeouts and PIO read/write/erase. `SdCard` is caller-owned; `SdIo` supplies 32-bit register
   access and microsecond timing. All callbacks must return promptly.
 - `drivers/sd_pi4.c`: fixed EMMC2 MMIO adapter at ARM physical address
-  `0xfe340000`. Calls are restricted to masked EL1 on core 0, matching current
-  kernel state ownership. MMIO accesses include ordering barriers.
+  `0xfe340000`. Calls are restricted to masked EL1 on core 0, from boot or
+  immutable core-0-pinned tasks. Movable tasks are rejected even when temporarily
+  running there. MMIO accesses include ordering barriers.
 - `kernel/sched/delays/delay.c`: the BCM2711 1 MHz system timer, sampled
   high/low/high with a retry on carry. Microsecond and millisecond delays use
   unsigned 64-bit elapsed time; millisecond multiplication is widened first.

@@ -54,7 +54,8 @@ int sd_card_sync(SdCard* card);
  * Range must align to CSD erase units. Erased byte values are unspecified. */
 int sd_card_erase(SdCard* card, uint64_t lba, uint32_t count);
 
-/* Pi 4 EMMC2 adapter: core 0, EL1, masked exceptions, exclusive ownership.
+/* Pi 4 EMMC2 adapter: boot/core-0-pinned tasks, EL1, masked exceptions,
+ * exclusive ownership. Movable tasks are rejected even while on core 0.
  * The input clock must be obtained from firmware/board configuration and remain
  * fixed. Normal boot deliberately does not call this unvalidated hardware path. */
 int sd_init(uint32_t base_clock_hz);

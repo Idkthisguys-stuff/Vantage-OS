@@ -12,13 +12,13 @@ from unicorn import arm64_const as regs
 from memory_management import Image, Machine, RETURN
 
 
-def boot(image, mount=0, probe=0):
+def boot(image, mount=0, probe=0, task_probe=1):
     machine = Machine(image)
     events, messages = [], []
     values = {'uart_init': 0, 'uart_writeText': 0, 'mm_prepare': 1,
               'secondary_core_start': 1, 'env_Init': 0, 'mmu_is_enabled': 1,
               'parallel_init': 1, 'parallel_self_test': 1, 'pi4_drivers_start': 0,
-              'task_init': 1, 'task_self_test': 1, 'storage_start': mount,
+              'task_init': 1, 'task_self_test': 1, 'task_multicore_self_test': task_probe, 'storage_start': mount,
               'storage_reboot_probe': probe, 'task_create': 1}
 
     def stub(uc, address, size, name):
@@ -70,6 +70,13 @@ class BootTests(unittest.TestCase):
             self.assertNotIn('task_create', [name for name, _ in events])
             if mount < 0:
                 self.assertNotIn('storage_reboot_probe', [name for name, _ in events])
+
+    def test_failed_multicore_probe_halts_before_storage_and_app(self):
+        m, events, _ = boot(self.validation, task_probe=0)
+        self.assertTrue(m.failure)
+        names = [name for name, _ in events]
+        self.assertNotIn('storage_start', names)
+        self.assertNotIn('task_create', names)
 
 
 if __name__ == '__main__':

@@ -155,31 +155,52 @@ For remaining worker validation, GPU and process-management stages, see the
 
 ## Cooperative tasks
 
-`kernel/sched/` implements round-robin EL1 tasks on core 0. Boot runs a two-task
-progress test, then starts the built-in EL0 app inside a scheduled task. Cores
-1–3 retain their existing synchronous worker ownership.
+`kernel/sched/` implements cooperative EL1 tasks across all four Pi 4 cores.
+Each core has an independent dispatcher context; a locked runnable table supplies
+eligible tasks in round-robin order. Boot checks two-task progress and simultaneous
+four-core execution, then starts the built-in EL0 app pinned to core 0.
 
 `task_init` is one-shot. `task_create` takes a trusted kernel entry and argument;
-the caller keeps the argument alive until exit. Eight fixed slots each have a
+the caller keeps the argument alive until exit. It preserves core-0 affinity for
+existing device clients. `task_create_affinity(entry, argument, mask)` allows a
+task on any selected available cores: `TASK_ALL_CORES` uses all four, and `1U << n`
+pins to core n. Affinity is immutable; a movable task can change cores when it
+yields or blocks. Thirty-two fixed slots each have a
 16 KiB privileged stack with a 64-byte diagnostic guard. Task IDs include a
 generation; reaped IDs cannot address a reused slot. Generation exhaustion
 permanently retires the slot rather than wrapping.
 
 Tasks move through runnable, running, blocked and exited states. Yield returns
-to the boot-stack dispatcher. Returning from an entry exits with status zero.
+to that core's dispatcher. Returning from an entry exits with status zero.
 `task_join` blocks a running task, rejects self/cyclic waits and reserves the
 target for one waiter. `task_reap` is nonblocking and also works from boot; it
 rejects running or waiter-owned targets. Exited stacks remain reserved until
 reaped, after execution has switched away. Join/reap status pointers are trusted
-kernel pointers, not syscall payloads. `task_run` dispatches until quiescent;
-blocked-only state returns `TASK_PENDING` instead of spinning.
+kernel pointers, not syscall payloads. Core 0 coordinates `task_run`, which waits
+for global quiescence, including remote running/runnable tasks. Blocked-only state
+returns `TASK_PENDING`. `task_info` snapshots state, affinity, current core and
+dispatch count under the scheduler lock. IDs remain opaque; their encoding has
+expanded to accommodate the larger table.
 
-All scheduler calls require masked EL1 execution on core 0. Drivers and parallel
-jobs must finish before yielding; there is no preemption, migration, timer wakeup
-or interrupt-safe locking. The context switch saves the AAPCS64 callee-saved
+Scheduler lifecycle calls work from masked EL1 on any participating core;
+initialization and dispatch coordination belong to core 0. Drivers and parallel
+jobs must finish before yielding; there is no preemption, timer wakeup or
+interrupt-safe locking. The context switch saves the AAPCS64 callee-saved
 integer registers, SP, lower halves of v8–v15, FPCR/FPSR and the pending
 ELR_EL1/SPSR_EL1/SP_EL0. This is a cooperative call-boundary context, not a full
 interrupt frame. Stack guards detect some corruption; they are not guard pages.
+The scheduler lock stays held across a task-to-dispatcher switch, until the old
+context/stack is fully saved. This prevents early migration and stack reclamation.
+Task data outside the scheduler needs its own synchronization. See
+[the multicore contract](SCHEDULER.md) for examples and acceptance requirements.
+
+Existing file/display/input services are restricted to boot or core-0-pinned
+tasks; movable tasks cannot use them even while temporarily on core 0. File
+syscalls reject unsupported callers with `FILE_UNAVAILABLE`. Synchronous CPU
+raster jobs reserve idle secondary workers against task dispatch and retain
+four-way rendering. If any secondary is occupied by a task, the renderer uses
+its serial fallback on core 0 instead of waiting on a non-yielding task. No
+rendering speedup is claimed.
 
 | Syscall | ID | Result |
 |---|---|---|
@@ -199,18 +220,23 @@ permissions, executable loading or user-fault recovery.
 
 ```sh
 python tests/arm/tasks.py /path/to/fresh/kernel8.elf -v
+python tests/arm/task_smp.py /path/to/fresh/kernel8.elf -v
 ```
 
 This executes the linked scheduler, context-switch assembly and SVC wrappers,
 with scripted task bodies and modeled exception delivery. It checks register and
-stack preservation, round-robin progress, join/exit/reaping, stale IDs, ownership
-checks, damaged guards and return to EL0 after a yield. It does not model Pi
-caches, GIC interrupts or ARM memory-permission enforcement.
+stack preservation, round-robin progress, cross-core join/exit/reaping and
+migration, stale IDs, ownership checks, damaged guards and return to EL0 after a
+yield. Four CPU contexts share modeled RAM, with explicit per-core exclusive
+reservations. These tests do not validate Pi caches, GIC interrupts or ARM
+memory-permission enforcement. A separate native test uses four OS threads and
+host fibers/ucontext to exercise real host concurrency.
 
 Before hardware acceptance, record image/commit hashes and serial output across
-cold boots. Expect `[OK] Cooperative task self-test passed` before app entry.
-Exercise sustained touch/rendering and a disposable two-task yield/exit build;
-do not infer hardware compatibility from mocked tests.
+cold boots. Expect `[OK] Cooperative task self-test passed` and
+`[OK] Tasks executed concurrently on cores 0, 1, 2 and 3` before app entry.
+Exercise sustained touch/rendering, four-core compute, migration and cross-core
+joins; do not infer hardware compatibility from modeled or host-thread tests.
 
 ## Application files
 
@@ -253,7 +279,8 @@ this ownership check is not user-account permission or process memory isolation.
 Requests have no nested pointers. The dispatcher validates the full range and
 alignment, snapshots input on the kernel stack, checks reserved fields and
 lengths, then copies successful output back. Read clears unused payload bytes.
-Operations do not yield, preserving the scheduler's single-owner rules.
+Operations do not yield and only core-0-pinned tasks can access them, preserving
+the filesystem's single-owner rules.
 
 ```c
 int64_t handle = sys_file_open("/ram/note", FILE_READ | FILE_WRITE | FILE_CREATE);

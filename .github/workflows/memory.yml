@@ -30,12 +30,19 @@ jobs:
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build "$RUNNER_TEMP/files-host" --parallel
           ctest --test-dir "$RUNNER_TEMP/files-host" --output-on-failure
+      - name: Test four-core scheduler on host threads with UBSan
+        run: |
+          cmake -S kernel/sched -B "$RUNNER_TEMP/scheduler-host" -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=undefined -fno-omit-frame-pointer"
+          cmake --build "$RUNNER_TEMP/scheduler-host" --parallel
+          ctest --test-dir "$RUNNER_TEMP/scheduler-host" --output-on-failure
       - name: Build kernel and test linked ARM paths
         run: |
           make BUILD_DIR="$RUNNER_TEMP/mm-arm" -j2
           python tests/arm/memory_management.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/secondary_startup.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/tasks.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+          python tests/arm/task_smp.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/files.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/pi4_drivers.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/storage.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v

@@ -75,16 +75,17 @@ class SchedulerMachine(Machine):
     def start(self):
         assert self.call('task_init') == OK
 
-    def create(self, steps, user=False):
+    def create(self, steps, user=False, affinity=None):
         key = len(self.programs) + 1
         program = {'steps': list(steps), 'key': key, 'user': user, 'results': [], 'started': False}
         self.programs[key] = program
-        program['id'] = self.call('task_create', PROBE, key)
+        program['id'] = (self.call('task_create', PROBE, key) if affinity is None else
+                         self.call('task_create_affinity', PROBE, key, affinity))
         assert program['id']
         return program
 
     def running(self):
-        current = struct.unpack('<Q', self.uc.mem_read(self.image.symbols['current'], 8))[0]
+        current = struct.unpack('<Q', self.uc.mem_read(self.image.symbols['current'] + self.core * 8, 8))[0]
         # The Task layout starts with TaskContext, entry and argument.
         key = struct.unpack('<Q', self.uc.mem_read(current + 216, 8))[0]
         return self.programs[key]
@@ -179,7 +180,7 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(struct.unpack('<i', self.m.uc.mem_read(STATS, 4))[0], -9)
 
     def test_capacity_reaping_stale_ids_and_task_return(self):
-        tasks = [self.m.create([]) for _ in range(8)]
+        tasks = [self.m.create([]) for _ in range(32)]
         self.assertEqual(self.m.call('task_create', PROBE, 99), 0)
         self.assertEqual(signed(self.m.call('task_reap', tasks[0]['id'], 0)), PENDING)
         self.assertEqual(self.m.call('task_run'), OK)
@@ -239,17 +240,29 @@ class TaskTests(unittest.TestCase):
     def test_generation_never_wraps_to_a_stale_id(self):
         # A retired slot must stay unavailable instead of aliasing an old ID.
         generation = self.image.symbols['tasks'] + 232
-        self.m.uc.mem_write(generation, struct.pack('<Q', (1 << 60) - 1))
+        self.m.uc.mem_write(generation, struct.pack('<Q', (1 << 58) - 1))
         fresh = self.m.create([])
-        self.assertEqual(fresh['id'] & 15, 2)
+        self.assertEqual(fresh['id'] & 63, 2)
         self.assertEqual(self.m.call('task_run'), OK)
 
     def test_core_el_and_interrupt_ownership_rejected(self):
-        for core, level, daif in ((1, 4, 0x3c0), (0, 0, 0x3c0), (0, 4, 0)):
+        for core, level, daif in ((4, 4, 0x3c0), (0, 0, 0x3c0), (0, 4, 0)):
             self.m.core, self.m.level, self.m.daif = core, level, daif
             self.assertEqual(self.m.call('task_create', PROBE, 1), 0)
             self.assertEqual(self.m.call('task_run'), INVALID)
             self.assertEqual(self.m.call('task_current'), 0)
+
+    def test_secondary_can_create_but_not_coordinate_or_access_devices(self):
+        self.m.core = 1
+        task = self.m.call('task_create', PROBE, 1)
+        self.assertGreater(task, 0)
+        self.assertEqual(self.m.call('task_run'), INVALID)
+        self.assertEqual(self.m.call('task_services_allowed'), 0)
+        self.assertEqual(signed(self.m.call('handle_sys_call', 32, 0)), -7)
+
+    def test_unavailable_and_invalid_affinity_is_rejected(self):
+        for mask in (0, 2, 15, 16, 0xffffffff):
+            self.assertEqual(self.m.call('task_create_affinity', PROBE, 1, mask), 0)
 
     def test_el0_svc_yield_exit_preserves_exception_return(self):
         user = self.m.create([('sys_task_id', ()), ('sys_task_yield', ()),

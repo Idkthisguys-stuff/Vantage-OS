@@ -32,3 +32,6 @@ For implementation details and tests, see the [developer guide](docs/DEVELOPMENT
 
 Experimental persistent SD files and the physical Pi validation gate are
 documented in [the storage guide](docs/STORAGE.md).
+
+Four-core cooperative task scheduling, affinity and hardware acceptance are
+documented in [the scheduler guide](docs/SCHEDULER.md).

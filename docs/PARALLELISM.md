@@ -7,8 +7,11 @@ Workers enter EL1 and wait for immutable shared MMU tables through a Device
 boot gate before using cached job state. A synchronous four-way batch runs one
 slice on every core, including core 0. Large CPU fills and framebuffer copies
 use disjoint rows; core 0 retains input/UART/mailbox/presentation ownership.
-The worker batch is separate from the cooperative core-0 task scheduler and is
-not a GPU renderer. The original core-1 startup
+The worker facility also hosts a cooperative four-core task scheduler. During
+task sessions, synchronous raster batches reserve idle workers or use their
+serial fallback rather than wait on occupied task cores. See
+[SCHEDULER.md](SCHEDULER.md). This is not a GPU
+renderer. The original core-1 startup
 was reported working on hardware by the maintainer; the new worker system
 still needs Pi 4 runtime and cache-coherency validation.
 
@@ -68,14 +71,15 @@ built-in EL0 function; it has no executable loader, timer-driven scheduler or
 per-process address spaces. The existing shared code mapping and single user-memory region
 are not independent process isolation.
 
-### 1. Single-core cooperative kernel tasks: implemented, Pi validation pending
+### 1. Four-core cooperative tasks: implemented, Pi validation pending
 
-Eight fixed task slots provide create/yield/exit/join/reap, generation-tagged IDs
-and separate privileged stacks. The boot-stack dispatcher runs tasks round-robin
-and returns when quiescent; boot parks once the app has exited. EL0 exposes
-ID/yield/exit only. See [the task contract and tests](DEVELOPMENT.md#cooperative-tasks).
-Linked ARM tests cover progress, preserved context and safe slot reclamation;
-physical Pi scheduling validation is still required.
+Thirty-two fixed task slots provide create/yield/exit/join/reap, generation-tagged
+IDs and separate privileged stacks. Each of the four cores can claim runnable
+work allowed by its affinity, with migration at voluntary yield/block boundaries.
+Core 0 coordinates global quiescence; existing device tasks stay pinned there.
+EL0 exposes ID/yield/exit only. See [the task contract and tests](SCHEDULER.md).
+Host threads and linked ARM models cover progress, migration, preserved context
+and safe slot reclamation; physical Pi scheduling validation is still required.
 
 ### 2. Interrupt foundation and preemption
 
@@ -98,14 +102,13 @@ Acceptance: two processes have independent writable memory, valid syscalls work,
 invalid access faults cannot modify protected memory, and exit frees owned
 resources. Verify this on ARM, not only by inspecting page-table descriptors.
 
-### 4. Multicore scheduling
+### 4. Further multicore policies
 
-Build on the coherent worker foundation, initially with pinned tasks and a
-simple locked runnable queue. Specify which core owns each task and how a
-remote wakeup is delivered. Test that no task runs on two cores at once, blocked
-tasks wake without lost signals, and exit cannot free a stack still in use.
-Task migration and load balancing come later, with explicit TLB and FP/SIMD
-state handling.
+After hardware acceptance, evaluate real workloads before adding priorities,
+per-core run queues or scheduling domains. Process migration will need explicit
+address-space/TLB ownership beyond the current shared-map cooperative model.
+Preserve the no-double-dispatch and safe stack-reclamation invariants when adding
+preemption or changing queue design.
 
 GPU rendering is not a prerequisite for this process manager. Each stage should
 be reviewed and validated separately rather than shipped as one large change.

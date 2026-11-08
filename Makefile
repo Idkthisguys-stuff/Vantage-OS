@@ -51,6 +51,7 @@ BUILD_CONFIG_FLAGS := $(CFLAGS)
 $(MM_OBJECTS): CFLAGS += -Wextra -Werror
 $(BUILD_DIR)/kernel/memory.o: CFLAGS += -fno-tree-loop-distribute-patterns
 $(patsubst %.c, $(BUILD_DIR)/%.o, $(wildcard kernel/sched/*.c) arch/armv8/task_port.c): CFLAGS += -Wextra -Werror
+$(BUILD_DIR)/arch/armv8/task_port.o: CFLAGS += -mno-outline-atomics
 $(patsubst %.c, $(BUILD_DIR)/%.o, kernel/fs/files.c kernel/fs/file_syscall.c kernel/fs/storage.c kernel/fs/storage_pi4.c drivers/sd.c drivers/sd_pi4.c): CFLAGS += -Wextra -Werror
 $(patsubst %.c, $(BUILD_DIR)/%.o, $(wildcard drivers/hw/*.c) $(wildcard drivers/wifi/*.c) drivers/video/v3d.c): CFLAGS += -Wextra -Werror
 

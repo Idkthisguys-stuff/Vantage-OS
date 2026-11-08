@@ -53,6 +53,21 @@ void user_task() {
 }
 
 uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
+#ifndef VANTAGE_SIM
+    /* Scheduling syscalls are available on all cores. Existing device/file
+     * services remain exclusive to boot or immutable core-0-pinned tasks. */
+    if (syscall_id == SYS_TASK_ID) return task_current();
+    if (syscall_id == SYS_TASK_YIELD) return task_yield();
+    if (syscall_id == SYS_TASK_EXIT) {
+        if (task_current()) task_exit((int)(uint32_t)arg0);
+        return 0;
+    }
+    if (!task_services_allowed()) {
+        if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_REMOVE)
+            return (uint64_t)(int64_t)FILE_UNAVAILABLE;
+        return 0;
+    }
+#endif
     if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_REMOVE) {
 #ifdef VANTAGE_SIM
         const uint64_t owner = 1; /* One host app, without emulated task contexts. */
@@ -91,14 +106,6 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 #endif
     }
 
-#ifndef VANTAGE_SIM
-    else if (syscall_id == SYS_TASK_ID) return task_current();
-    else if (syscall_id == SYS_TASK_YIELD) return task_yield();
-    else if (syscall_id == SYS_TASK_EXIT) {
-        if (task_current()) task_exit((int)(uint32_t)arg0);
-    }
-#endif
-
     return 0;
 }
 
@@ -133,6 +140,9 @@ void main(uintptr_t dtb) {
     if (task_init() != TASK_OK || !task_self_test())
         mm_halt("[ERR] Cooperative task self-test failed; boot halted\n");
     uart_writeText("[OK] Cooperative task self-test passed\n");
+    if (!task_multicore_self_test())
+        mm_halt("[ERR] Four-core task scheduling self-test failed; boot halted\n");
+    uart_writeText("[OK] Tasks executed concurrently on cores 0, 1, 2 and 3\n");
 
 #if VANTAGE_STORAGE_VALIDATION
     /* Disposable hardware-validation image only. No automatic format or
