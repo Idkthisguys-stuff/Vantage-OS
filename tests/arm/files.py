@@ -51,6 +51,37 @@ class FileTests(unittest.TestCase):
         self.assertEqual((cursor, size, path.rstrip(b'\0')), (1, 5, b'/ram/hello'))
         self.assertEqual(self.m.uc.mem_read(bottom, 64), b'\xa7' * 64)
 
+    def test_reboot_probe_recovers_committed_empty_creation_after_power_loss(self):
+        self.m.uc.mem_write(self.path, b'/ram/.s1-reboot\0')
+        handle = self.m.call('files_open', 1, self.path, 6)
+        self.assertGreater(handle, 0)
+        # Drop all volatile state after create committed, before the first write.
+        reboot = FileMachine(self.image, self.m.disk)
+        reboot.start()
+        self.assertEqual(reboot.mount_files(), 0)
+        self.assertEqual(reboot.call('storage_reboot_probe'), 0)
+        again = FileMachine(self.image, reboot.disk)
+        again.start()
+        self.assertEqual(again.mount_files(), 0)
+        self.assertEqual(again.call('storage_reboot_probe'), 1)
+        self.assertEqual(again.call('files_unmount'), 0)  # No leaked probe handles.
+
+    def test_reboot_probe_does_not_repair_nonempty_corruption(self):
+        for length in (1, 255, 256, 257):
+            with self.subTest(length=length):
+                m = FileMachine(self.image)
+                m.start()
+                self.assertEqual(m.mount_files(), 0)
+                m.uc.mem_write(self.path, b'/ram/.s1-reboot\0')
+                handle = m.call('files_open', 1, self.path, 6)
+                m.uc.mem_write(self.input, b'x' * length)
+                self.assertEqual(m.call('files_write', 1, handle, self.input, length), length)
+                self.assertEqual(m.call('files_close', 1, handle), 0)
+                before = bytes(m.disk)
+                self.assertEqual(signed(m.call('storage_reboot_probe')), -8)
+                self.assertEqual(bytes(m.disk), before)
+                self.assertEqual(m.call('files_unmount'), 0)
+
     def test_terminal_editor_saves_from_el0_through_file_syscalls(self):
         terminal = self.image.symbols['terminal']
         bottom = self.image.symbols['user_stack']

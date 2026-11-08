@@ -25,17 +25,30 @@ int storage_reboot_probe(void) {
     unsigned char expected[256], actual[256];
     for (unsigned int i = 0; i < sizeof(expected); i++) expected[i] = (unsigned char)(i * 37U + 0x5aU);
     int64_t handle = files_open(owner, "/ram/.s1-reboot", FILE_READ);
-    int created = handle == FILE_NOT_FOUND;
-    if (created) handle = files_open(owner, "/ram/.s1-reboot", FILE_WRITE | FILE_CREATE);
-    if (handle < 0) return (int)handle;
-    int result = created ? files_write(owner, (uint64_t)handle, expected, sizeof(expected)) :
-                           files_read(owner, (uint64_t)handle, actual, sizeof(actual));
-    if (result == (int)sizeof(expected) && !created) {
+    int initialize = handle == FILE_NOT_FOUND;
+    int result = 0;
+    if (!initialize) {
+        if (handle < 0) return (int)handle;
+        result = files_read(owner, (uint64_t)handle, actual, sizeof(actual));
+        /* Creation and the first write are separate snapshot commits. An empty
+         * probe is the durable intermediate state of interrupted initialization,
+         * not proof of a failed persistence check. Never repair nonempty data. */
+        initialize = result == 0;
+    }
+    if (result == (int)sizeof(expected)) {
         if (memcmp(actual, expected, sizeof(expected)) || files_read(owner, (uint64_t)handle, actual, 1) != 0)
             result = FILE_CORRUPT;
     }
-    int closed = files_close(owner, (uint64_t)handle);
+    int closed = handle < 0 ? 0 : files_close(owner, (uint64_t)handle);
+    if (result < 0) return result;
+    if (closed) return closed;
+    if (initialize) {
+        handle = files_open(owner, "/ram/.s1-reboot", FILE_WRITE | FILE_CREATE);
+        if (handle < 0) return (int)handle;
+        result = files_write(owner, (uint64_t)handle, expected, sizeof(expected));
+        closed = files_close(owner, (uint64_t)handle);
+    }
     if (result < 0) return result;
     if (result != (int)sizeof(expected)) return FILE_CORRUPT;
-    return closed ? closed : !created;
+    return closed ? closed : !initialize;
 }

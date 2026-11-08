@@ -132,7 +132,9 @@ volume, halts on failure, and uses the reserved `/ram/.s1-reboot` test file:
 - First run creates a deterministic 256-byte probe and logs that it was written.
 - A later run verifies its exact contents/length and logs a match. A matching
   probe alone is not proof of reboot; retain distinct cold-boot logs.
-- A damaged probe halts; the validation image does not erase or reformat it.
+- An empty probe is retried as interrupted initialization: creation and its first
+  write are separate snapshot commits. This logs a write, not a persistence match.
+- A nonempty damaged probe halts; the validation image does not erase or reformat it.
 
 Before enabling normal storage boot, physically verify all of the following on
 spare cards. Keep each result tied to an exact image; no model result substitutes
