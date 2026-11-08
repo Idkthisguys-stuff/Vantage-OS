@@ -1,4 +1,5 @@
 #include "../include/user_lib.h"
+#include "../../includes/task_api.h"
 
 #ifdef VANTAGE_SIM
 /* Desktop builds use the same dispatcher without an ARM exception. */
@@ -21,6 +22,18 @@ static inline uint64_t syscall(uint64_t id, uint64_t arg) {
     return r0;
 }
 #endif
+
+uint64_t sys_task_id(void) {
+    return syscall(SYS_TASK_ID, 0);
+}
+
+uint32_t sys_task_yield(void) {
+    return (uint32_t)syscall(SYS_TASK_YIELD, 0);
+}
+
+uint32_t sys_task_exit(int status) {
+    return (uint32_t)syscall(SYS_TASK_EXIT, (uint32_t)status);
+}
 
 uint32_t sys_touch_read(TouchEvent* event) {
     return (uint32_t)syscall(1, (uint64_t)event);

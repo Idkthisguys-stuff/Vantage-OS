@@ -1,6 +1,7 @@
 #include "../includes/env/windowManager.h"
 #include "../user/include/user_lib.h"
 #include "../includes/platform.h"
+#include "../includes/task_api.h"
 
 #ifndef VANTAGE_SIM
 #include "../includes/io.h"
@@ -10,6 +11,7 @@
 #include "../includes/mmu.h"
 #include "../includes/parallel.h"
 #include "../includes/memory.h"
+#include "../includes/task.h"
 
 extern unsigned char _end[];
 
@@ -70,12 +72,28 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     else if (syscall_id == 5) {
         // Present Canvas
         canvas_present();
+#ifndef VANTAGE_SIM
+        task_yield();
+#endif
     }
+
+#ifndef VANTAGE_SIM
+    else if (syscall_id == SYS_TASK_ID) return task_current();
+    else if (syscall_id == SYS_TASK_YIELD) return task_yield();
+    else if (syscall_id == SYS_TASK_EXIT) {
+        if (task_current()) task_exit((int)(uint32_t)arg0);
+    }
+#endif
 
     return 0;
 }
 
 #ifndef VANTAGE_SIM
+static void user_entry(void* argument) {
+    (void)argument;
+    enter_user_space(user_task, &user_stack[sizeof(user_stack)]);
+}
+
 void main(uintptr_t dtb) {
     uart_init();
     if (!mm_prepare(dtb, (uintptr_t)_end))
@@ -97,6 +115,9 @@ void main(uintptr_t dtb) {
     if (!mmu_is_enabled() || !parallel_init() || !parallel_self_test())
         parallel_halt("[ERR] Four-core parallel initialization failed; boot halted\n");
     uart_writeText("[OK] Four-core parallel self-test passed\n");
+    if (task_init() != TASK_OK || !task_self_test())
+        mm_halt("[ERR] Cooperative task self-test failed; boot halted\n");
+    uart_writeText("[OK] Cooperative task self-test passed\n");
 
     /*if (!sd_init()) {
         uart_writeText("[OK] SD DRIVER INITIALIZED!\n");
@@ -104,11 +125,12 @@ void main(uintptr_t dtb) {
    
     uart_writeText("[OK] Vantage booted!...\n");
 
-    void* stack_top = (void*)&user_stack[4096];
-    enter_user_space(user_task, stack_top);
+    TaskId app = task_create(user_entry, NULL);
+    if (!app || task_run() != TASK_OK || task_reap(app, NULL) != TASK_OK)
+        mm_halt("[ERR] Application scheduling failed; boot halted\n");
 
     while (1) {
-        // IDLE
+        __asm__ volatile("wfe");
     }
 }
 #endif

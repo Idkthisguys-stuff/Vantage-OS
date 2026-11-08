@@ -1,6 +1,11 @@
 #pragma once
 #include "../../includes/std.h"
 
+uint64_t sys_task_id(void);
+uint32_t sys_task_yield(void);
+/* Returns 0 when scheduling is unavailable; otherwise does not return. */
+uint32_t sys_task_exit(int status);
+
 #include "../../includes/video/graphics.h"
 #include "../../includes/input/touch.h"
 #include "../../includes/video/display.h"

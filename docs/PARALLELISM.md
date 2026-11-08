@@ -7,7 +7,8 @@ Workers enter EL1 and wait for immutable shared MMU tables through a Device
 boot gate before using cached job state. A synchronous four-way batch runs one
 slice on every core, including core 0. Large CPU fills and framebuffer copies
 use disjoint rows; core 0 retains input/UART/mailbox/presentation ownership.
-This is not a process scheduler or GPU renderer. The original core-1 startup
+The worker batch is separate from the cooperative core-0 task scheduler and is
+not a GPU renderer. The original core-1 startup
 was reported working on hardware by the maintainer; the new worker system
 still needs Pi 4 runtime and cache-coherency validation.
 
@@ -54,24 +55,22 @@ References:
 - [Mesa V3D driver and Pi 4 hardware notes](https://docs.mesa3d.org/drivers/v3d.html)
 - [Linux V3D driver: memory, jobs and interrupts](https://docs.kernel.org/gpu/v3d.html)
 
-## Process manager: plan only
+## Task scheduler and process-management stages
 
 Start with kernel task lifecycle and scheduling, not a graphical task-manager
-application. The current kernel starts one built-in EL0 function; it has no
-task allocator, executable loader, timer-driven scheduler or per-process
-address spaces. The existing shared code mapping and single user-memory region
+application. The kernel schedules trusted cooperative tasks and starts one
+built-in EL0 function; it has no executable loader, timer-driven scheduler or
+per-process address spaces. The existing shared code mapping and single user-memory region
 are not independent process isolation.
 
-### 1. Single-core cooperative kernel tasks
+### 1. Single-core cooperative kernel tasks: implemented, Pi validation pending
 
-Use a small fixed-size task table first: task ID, state, entry, stack bounds and
-saved context. Define create, yield, exit and join/reap semantics, including
-invalid IDs and a full table. Keep runnable, running, blocked and exited states
-explicit, and include an idle task. Do not introduce migration or preemption.
-
-Verify two tasks make progress, saved registers and stacks survive switching,
-an exited task never resumes, and slots are reclaimed only after the task can
-no longer execute. Integrate stack checks without claiming complete protection.
+Eight fixed task slots provide create/yield/exit/join/reap, generation-tagged IDs
+and separate privileged stacks. The boot-stack dispatcher runs tasks round-robin
+and returns when quiescent; boot parks once the app has exited. EL0 exposes
+ID/yield/exit only. See [the task contract and tests](DEVELOPMENT.md#cooperative-tasks).
+Linked ARM tests cover progress, preserved context and safe slot reclamation;
+physical Pi scheduling validation is still required.
 
 ### 2. Interrupt foundation and preemption
 

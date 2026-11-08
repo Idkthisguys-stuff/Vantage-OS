@@ -29,3 +29,4 @@ jobs:
           make BUILD_DIR="$RUNNER_TEMP/mm-arm" -j2
           python tests/arm/memory_management.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
           python tests/arm/secondary_startup.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v
+          python tests/arm/tasks.py "$RUNNER_TEMP/mm-arm/kernel8.elf" -v

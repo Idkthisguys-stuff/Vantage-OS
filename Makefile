@@ -6,6 +6,7 @@ BUILD_DIR = out
 
 C_SOURCES = $(wildcard init/*.c) \
             $(wildcard kernel/*.c) \
+            $(wildcard kernel/sched/*.c) \
             $(wildcard kernel/sched/delays/*.c) \
             $(wildcard arch/armv8/*.c) \
             $(wildcard mm/*.c) \
@@ -24,6 +25,8 @@ CFLAGS = -Wall -O2 -ffreestanding -nostdinc -Iinclude -Iuser/include
 # Firmware discovery runs with the MMU off: unaligned Device accesses can fault.
 CFLAGS += -mstrict-align -MMD -MP
 $(MM_OBJECTS): CFLAGS += -Wextra -Werror
+$(BUILD_DIR)/kernel/memory.o: CFLAGS += -fno-tree-loop-distribute-patterns
+$(patsubst %.c, $(BUILD_DIR)/%.o, $(wildcard kernel/sched/*.c) arch/armv8/task_port.c): CFLAGS += -Wextra -Werror
 
 all: $(BUILD_DIR)/prod/kernel8.img
 

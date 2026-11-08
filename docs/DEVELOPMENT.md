@@ -153,6 +153,65 @@ delivery are mocked; it does not test firmware, cache coherence or concurrent ha
 For remaining worker validation, GPU and process-management stages, see the
 [parallelism roadmap](PARALLELISM.md).
 
+## Cooperative tasks
+
+`kernel/sched/` implements round-robin EL1 tasks on core 0. Boot runs a two-task
+progress test, then starts the built-in EL0 app inside a scheduled task. Cores
+1–3 retain their existing synchronous worker ownership.
+
+`task_init` is one-shot. `task_create` takes a trusted kernel entry and argument;
+the caller keeps the argument alive until exit. Eight fixed slots each have a
+16 KiB privileged stack with a 64-byte diagnostic guard. Task IDs include a
+generation; reaped IDs cannot address a reused slot. Generation exhaustion
+permanently retires the slot rather than wrapping.
+
+Tasks move through runnable, running, blocked and exited states. Yield returns
+to the boot-stack dispatcher. Returning from an entry exits with status zero.
+`task_join` blocks a running task, rejects self/cyclic waits and reserves the
+target for one waiter. `task_reap` is nonblocking and also works from boot; it
+rejects running or waiter-owned targets. Exited stacks remain reserved until
+reaped, after execution has switched away. Join/reap status pointers are trusted
+kernel pointers, not syscall payloads. `task_run` dispatches until quiescent;
+blocked-only state returns `TASK_PENDING` instead of spinning.
+
+All scheduler calls require masked EL1 execution on core 0. Drivers and parallel
+jobs must finish before yielding; there is no preemption, migration, timer wakeup
+or interrupt-safe locking. The context switch saves the AAPCS64 callee-saved
+integer registers, SP, lower halves of v8–v15, FPCR/FPSR and the pending
+ELR_EL1/SPSR_EL1/SP_EL0. This is a cooperative call-boundary context, not a full
+interrupt frame. Stack guards detect some corruption; they are not guard pages.
+
+| Syscall | ID | Result |
+|---|---|---|
+| `sys_task_id()` | 16 | Current task ID; zero when unavailable |
+| `sys_task_yield()` | 17 | One after resuming; zero when unavailable |
+| `sys_task_exit(status)` | 18 | Does not return on success; zero when unavailable |
+
+IDs 6–15 are reserved for console extensions. Presentation also yields, after
+the renderer and parallel jobs finish. EL0 return exits through SVC; interrupt
+masks stay set because interrupt delivery is not configured. Task creation and
+join are kernel-only. The desktop app does not emulate scheduling and returns
+zero for these three syscalls.
+
+The shared code and single writable user region are unchanged. These tasks are
+not isolated processes: there are no independent address spaces, user account
+permissions, executable loading or user-fault recovery.
+
+```sh
+python tests/arm/tasks.py /path/to/fresh/kernel8.elf -v
+```
+
+This executes the linked scheduler, context-switch assembly and SVC wrappers,
+with scripted task bodies and modeled exception delivery. It checks register and
+stack preservation, round-robin progress, join/exit/reaping, stale IDs, ownership
+checks, damaged guards and return to EL0 after a yield. It does not model Pi
+caches, GIC interrupts or ARM memory-permission enforcement.
+
+Before hardware acceptance, record image/commit hashes and serial output across
+cold boots. Expect `[OK] Cooperative task self-test passed` before app entry.
+Exercise sustained touch/rendering and a disposable two-task yield/exit build;
+do not infer hardware compatibility from mocked tests.
+
 ## Touch events
 
 `sys_touch_read(&event)` returns 1 when a `TouchEvent` is available, or 0 with
