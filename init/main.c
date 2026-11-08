@@ -6,7 +6,6 @@
 
 #ifndef VANTAGE_SIM
 #include "../includes/io.h"
-#include "../kernel/fs/include/fs.h"
 
 #include "../includes/sd.h"
 #include "../includes/mmu.h"
@@ -14,6 +13,10 @@
 #include "../includes/memory.h"
 #include "../includes/task.h"
 #include "../includes/pi4_drivers.h"
+
+#if VANTAGE_STORAGE_VALIDATION && (SD_BASE_CLOCK_HZ < 400000 || SD_BASE_CLOCK_HZ > 818400000 || STORAGE_PARTITION > 3 || STORAGE_PARTITION < 0)
+#error Invalid storage validation clock or primary partition
+#endif
 
 extern unsigned char _end[];
 
@@ -131,9 +134,21 @@ void main(uintptr_t dtb) {
         mm_halt("[ERR] Cooperative task self-test failed; boot halted\n");
     uart_writeText("[OK] Cooperative task self-test passed\n");
 
-    /* SD stays off the boot path until the EMMC2 handoff and reads are
-     * validated on hardware. Call sd_init(base_clock_hz) from core 0, EL1,
-     * with exceptions masked, then sd_read_blocks(). See docs/SD.md. */
+#if VANTAGE_STORAGE_VALIDATION
+    /* Disposable hardware-validation image only. No automatic format or
+     * destructive erase test: mount a deliberately provisioned data partition. */
+    int storage_result = storage_start(SD_BASE_CLOCK_HZ, STORAGE_PARTITION);
+    if (storage_result < 0) mm_halt("[ERR] Persistent storage mount failed; validation boot halted\n");
+    if (storage_result == STORE_MOUNT_RECOVERED)
+        uart_writeText("[WARN] Storage recovered one valid snapshot; inspect card and validation logs\n");
+    uart_writeText("[OK] Persistent storage mounted in hardware-validation image\n");
+    int probe = storage_reboot_probe();
+    if (probe < 0) mm_halt("[ERR] Storage reboot probe failed; validation boot halted\n");
+    if (probe) uart_writeText("[TEST] Stored reboot probe matched; retain separate cold-boot logs\n");
+    else uart_writeText("[TEST] Storage reboot probe written; power-cycle this validation image to check persistence\n");
+#else
+    uart_writeText("[INFO] SD storage disabled pending physical read/write validation\n");
+#endif
    
     uart_writeText("[OK] Vantage booted!...\n");
 

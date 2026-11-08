@@ -29,3 +29,6 @@ Use the left mouse button as touch input. The simulator shows the most recent
 touch coordinates at the top of the window.
 
 For implementation details and tests, see the [developer guide](docs/DEVELOPMENT.md).
+
+Experimental persistent SD files and the physical Pi validation gate are
+documented in [the storage guide](docs/STORAGE.md).

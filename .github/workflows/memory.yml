@@ -24,7 +24,7 @@ jobs:
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build "$RUNNER_TEMP/mm-host" --parallel
           ctest --test-dir "$RUNNER_TEMP/mm-host" --output-on-failure
-      - name: Build and test RAM file operations with sanitizers
+      - name: Build and test persistent storage with sanitizers
         run: |
           cmake -S kernel/fs -B "$RUNNER_TEMP/files-host" -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
@@ -48,3 +48,8 @@ jobs:
           python -m unittest discover -s tests/tools -v
       - name: Build opt-in GPU path
         run: make BUILD_DIR="$RUNNER_TEMP/v3d-arm" V3D=1 -j2
+      - name: Verify storage boot gate and rebuild after changing options
+        run: |
+          cp "$RUNNER_TEMP/mm-arm/kernel8.elf" "$RUNNER_TEMP/default-kernel8.elf"
+          make BUILD_DIR="$RUNNER_TEMP/mm-arm" STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=100000000 STORAGE_PARTITION=1 -j2
+          python tests/arm/storage_boot.py "$RUNNER_TEMP/default-kernel8.elf" "$RUNNER_TEMP/mm-arm/kernel8.elf" -v

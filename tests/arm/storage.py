@@ -10,6 +10,7 @@ import unittest
 from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
 
 from memory_management import Image, Machine
+from file_storage import new_image
 
 EMMC2 = 0xfe340000
 TIMER = 0xfe003000
@@ -30,6 +31,9 @@ class StorageMachine(Machine):
         self.commands, self.accesses = [], 0
         self.time, self.word, self.lba = 0, 0, 0
         self.echo, self.fail_read = 0x1aa, False
+        self.fail_write = False
+        self.media, self.write_mode = {}, False
+        self.erase_first, self.erase_last = 0, 0
         self.uc.hook_add(UC_HOOK_MEM_READ, self.read_host, begin=EMMC2, end=EMMC2 + 255)
         self.uc.hook_add(UC_HOOK_MEM_WRITE, self.write_host, begin=EMMC2, end=EMMC2 + 255)
         self.uc.hook_add(UC_HOOK_MEM_READ, self.read_timer, begin=TIMER, end=TIMER + 15)
@@ -50,7 +54,10 @@ class StorageMachine(Machine):
         offset = address - EMMC2
         if offset == 0x20:
             assert self.word < 128
-            value = int.from_bytes(bytes((self.lba + self.word * 4 + i) & 255 for i in range(4)), 'little')
+            sector = self.media.get(self.lba)
+            if sector is None:
+                sector = bytes((self.lba + i) & 255 for i in range(512))
+            value = int.from_bytes(sector[self.word * 4:self.word * 4 + 4], 'little')
             self.word += 1
             if self.word == 128:
                 self.registers[0x30] |= 2
@@ -64,6 +71,15 @@ class StorageMachine(Machine):
         self.accesses += 1
         r = self.registers
         offset = address - EMMC2
+        if offset == 0x20:
+            assert self.write_mode and self.word < 128
+            sector = self.media.setdefault(self.lba, bytearray(512))
+            sector[self.word * 4:self.word * 4 + 4] = value.to_bytes(4, 'little')
+            self.word += 1
+            if self.word == 128:
+                r[0x30] |= 2
+                r[0x24] = 0
+            return
         if offset == 0x30:
             r[offset] = r.get(offset, 0) & ~value
         elif offset == 0x2c:
@@ -89,7 +105,7 @@ class StorageMachine(Machine):
         elif index == 3:
             r[0x10] = 0x12340000
         elif index == 9:
-            r[0x10], r[0x14], r[0x18], r[0x1c] = 0, 0x1fff00, 0x900, 0x400000
+            r[0x10], r[0x14], r[0x18], r[0x1c] = 9 << 14, 0x1fff40, 0x30900, 0x400000
         elif index == 7:
             r[0x30] |= 2
         elif index == 17:
@@ -97,6 +113,24 @@ class StorageMachine(Machine):
             self.word, self.lba = 0, argument
             r[0x24] = 2
             r[0x30] |= 0x108000 if self.fail_read else 0x20
+            self.write_mode = False
+        elif index == 24:
+            assert r[0x04] == 0x10200 and (value & 0xffffff) == 0x3a0000
+            self.word, self.lba, self.write_mode = 0, argument, True
+            r[0x24] = 2
+            r[0x30] |= 0x108000 if self.fail_write else 16
+        elif index == 13:
+            assert argument == 0x12340000
+            r[0x10] = 0x900
+        elif index == 32:
+            self.erase_first = argument
+        elif index == 33:
+            self.erase_last = argument
+        elif index == 38:
+            assert argument == 0
+            for lba in range(self.erase_first, self.erase_last + 1):
+                self.media[lba] = bytearray(b'\xff' * 512)
+            r[0x30] |= 2
         else:
             assert index in (0, 2)
 
@@ -125,6 +159,8 @@ class StorageTests(unittest.TestCase):
             m.core, m.level, m.daif = core, level, masks
             self.assertEqual(signed(m.call('sd_init', 100000000)), -3)
             self.assertEqual(signed(m.call('sd_read_blocks', 0, 1, BUFFER, 512)), -3)
+            self.assertEqual(signed(m.call('sd_write_blocks', 0, 1, BUFFER, 512)), -3)
+            self.assertEqual(signed(m.call('sd_erase_blocks', 0, 1)), -3)
             self.assertEqual(m.accesses, 0)
         m.core, m.level, m.daif = 0, 4, 0x3c0
         self.assertEqual(m.call('sd_init', 100000000), 0)
@@ -132,6 +168,41 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(signed(m.call('sd_read_blocks', 0, 1, BUFFER, 511)), -3)
         self.assertEqual(m.call('sd_readBlock', 0, BUFFER, 0), 0)
         self.assertEqual(m.accesses, accesses)
+
+    def test_linked_unaligned_writes_status_erase_and_fail_closed(self):
+        m = StorageMachine(self.image)
+        self.assertEqual(m.call('sd_init', 100000000), 0)
+        expected = bytes(i & 255 for i in range(1024))
+        m.uc.mem_write(BUFFER, expected)
+        self.assertEqual(m.call('sd_write_blocks', 5, 2, BUFFER, 1024), 0)
+        self.assertEqual(m.call('sd_read_blocks', 5, 2, BUFFER, 1024), 0)
+        self.assertEqual(m.uc.mem_read(BUFFER, 1024), expected)
+        self.assertEqual(m.call('sd_erase_blocks', 5, 2), 0)
+        self.assertEqual((m.erase_first, m.erase_last), (5, 6))
+        self.assertEqual(m.media[5], b'\xff' * 512)
+        m.fail_write = True
+        self.assertEqual(signed(m.call('sd_write_blocks', 5, 1, BUFFER, 512)), -1)
+        self.assertEqual(signed(m.call('sd_sync')), -5)
+
+    def test_pi_adapter_mounts_and_persists_through_sector_syscalls(self):
+        m = StorageMachine(self.image)
+        disk = new_image()
+        m.media = {i // 512: bytearray(disk[i:i + 512]) for i in range(0, len(disk), 512)}
+        self.assertEqual(m.call('storage_start', 100000000, 0), 0)
+        self.assertEqual(m.call('storage_reboot_probe'), 0)
+        m.uc.mem_write(BUFFER, b'/ram/pi-test\0')
+        h = m.call('files_open', 1, BUFFER, 7)
+        self.assertGreater(h, 0)
+        m.uc.mem_write(BUFFER + 128, b'sector-backed')
+        self.assertEqual(m.call('files_write', 1, h, BUFFER + 128, 13), 13)
+        self.assertEqual(m.call('files_close', 1, h), 0)
+        self.assertEqual(m.call('files_unmount'), 0)
+        self.assertEqual(m.call('storage_start', 100000000, 0), 0)
+        self.assertEqual(m.call('storage_reboot_probe'), 1)
+        h = m.call('files_open', 1, BUFFER, 1)
+        self.assertEqual(m.call('files_read', 1, h, BUFFER + 256, 32), 13)
+        self.assertEqual(m.uc.mem_read(BUFFER + 256, 13), b'sector-backed')
+        self.assertEqual(bytes(m.media[0]), disk[:512])
 
     def test_echo_and_read_errors_invalidate_card(self):
         m = StorageMachine(self.image)

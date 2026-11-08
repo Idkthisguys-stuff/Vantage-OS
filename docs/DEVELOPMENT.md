@@ -214,9 +214,12 @@ do not infer hardware compatibility from mocked tests.
 
 ## Application files
 
-Apps can access a small **volatile RAM filesystem** through `sys_file_*` in
-`user/include/user_lib.h`. It does not access SD or survive reboot. The legacy
-block-device RAM disk is separate; these files use kernel-owned bounded storage.
+Apps access a small **persistent snapshot filesystem** through `sys_file_*` in
+`user/include/user_lib.h` after an explicit successful storage mount. Normal Pi
+boot keeps SD disabled pending physical validation, so files are unavailable
+there. The simulator can mount a regular image through `VANTAGE_STORAGE_IMAGE`.
+The legacy block-device RAM disk is separate. Provisioning, crash recovery,
+limits and the hardware acceptance gate are documented in [STORAGE.md](STORAGE.md).
 
 Paths are `/ram/<name>` with 1–31 ASCII letters, digits, `.`, `_` or `-`.
 `.` and `..` are rejected. There are no subdirectories or relative paths. Limits
@@ -237,6 +240,10 @@ handle capacity before creating/truncating a file. A write exceeding capacity
 fails without changing data or position. Seek accepts offsets through current
 EOF; no sparse files are supported. Truncation leaves other handles' positions
 unchanged: reads past EOF return zero, and writes there require a seek first.
+The `/ram/` spelling is retained for ABI compatibility, not volatile storage.
+Successful mutations commit synchronously. I/O failures quarantine the mount
+until handles are released and storage is remounted; they are not guaranteed
+to have left the disk unchanged. Corruption and I/O errors are reported explicitly.
 
 Handles include a non-wrapping generation and belong to the current task. Exit
 closes that task's handles but retains named files. Remove rejects files with
@@ -266,8 +273,9 @@ until it returns zero. Entries include a full path, byte size and next cursor.
 Listing is not a snapshot across concurrent file creation/removal. Calls after
 an error should inspect the error rather than treating it as EOF.
 
-Native tests cover paths, permissions, capacity, stale handles, syscall buffers
-and 5000 deterministic read/write/seek operations against a byte-array oracle.
+Native tests cover paths, permissions, capacity, stale handles, syscall buffers,
+5000 deterministic read/write/seek operations against a byte-array oracle,
+fresh-process persistence and interrupted snapshot commits.
 They can run without SDL:
 
 ```sh
@@ -279,7 +287,7 @@ python tests/arm/files.py /path/to/fresh/kernel8.elf -v
 
 The linked tests exercise the real EL0 wrappers, syscall handler, automatic
 task-exit cleanup and malformed buffers, using modeled exception delivery.
-Persistent storage remains a separate change after the SD driver is ready.
+Physical SD read/write/erase and reboot-persistence acceptance remain pending.
 
 ## Touch events
 

@@ -5,19 +5,41 @@
 #define HANDLE_MASK 31U
 
 typedef struct {
-    char name[NAME_MAX];
-    uint32_t used, size;
-    unsigned char data[FILE_CAPACITY];
-} RamFile;
-
-typedef struct {
     uint64_t owner, id, generation;
     uint32_t file, offset, flags;
 } OpenFile;
 
-static RamFile ram_files[FILE_LIMIT];
+static StoredFile stored_files[FILE_LIMIT];
+static Store volume;
 static OpenFile open_files[FILE_HANDLE_LIMIT];
 static const char prefix[] = "/ram/";
+
+static int have_handles(void) {
+    for (unsigned int i = 0; i < FILE_HANDLE_LIMIT; i++) if (open_files[i].owner) return 1;
+    return 0;
+}
+
+int files_unmount(void) {
+    if (have_handles()) return FILE_BUSY;
+    volume.state = 0;
+    memset(stored_files, 0, sizeof(stored_files));
+    return 0;
+}
+
+int files_mount(const SectorDevice* device, unsigned int partition) {
+    if (volume.state == 1 || have_handles()) return FILE_BUSY;
+    StoreRegion region;
+    int result = store_partition(device, partition, &region);
+    if (result) return result;
+    return store_mount(&volume, device, &region, stored_files);
+}
+
+static int commit(void) {
+    int result = store_commit(&volume, stored_files);
+    /* Even a rejected commit must not expose staged changes as durable files. */
+    if (result) volume.state = -1;
+    return result;
+}
 
 static int name_from_path(const char* path, char name[NAME_MAX]) {
     if (!path) return 0;
@@ -50,7 +72,7 @@ static OpenFile* lookup(uint64_t owner, uint64_t handle) {
 
 int64_t files_open(uint64_t owner, const char* path, uint32_t flags) {
     char name[NAME_MAX] = {0};
-    if (!owner) return FILE_UNAVAILABLE;
+    if (!owner || volume.state != 1) return FILE_UNAVAILABLE;
     if (!name_from_path(path, name) || !(flags & (FILE_READ | FILE_WRITE)) ||
         (flags & ~(FILE_READ | FILE_WRITE | FILE_CREATE | FILE_TRUNCATE)) ||
         ((flags & (FILE_CREATE | FILE_TRUNCATE)) && !(flags & FILE_WRITE))) return FILE_BAD;
@@ -65,22 +87,26 @@ int64_t files_open(uint64_t owner, const char* path, uint32_t flags) {
     if (!open) return FILE_NO_SPACE;
     unsigned int existing = FILE_LIMIT, free_slot = FILE_LIMIT;
     for (unsigned int i = 0; i < FILE_LIMIT; i++) {
-        if (ram_files[i].used && same_name(ram_files[i].name, name)) existing = i;
-        if (!ram_files[i].used && free_slot == FILE_LIMIT) free_slot = i;
+        if (stored_files[i].used && same_name(stored_files[i].name, name)) existing = i;
+        if (!stored_files[i].used && free_slot == FILE_LIMIT) free_slot = i;
     }
+    int changed = 0;
     if (existing == FILE_LIMIT) {
         if (!(flags & FILE_CREATE)) return FILE_NOT_FOUND;
         if (free_slot == FILE_LIMIT) return FILE_NO_SPACE;
         existing = free_slot;
-        ram_files[existing] = (RamFile){0};
-        memcpy(ram_files[existing].name, name, NAME_MAX);
-        ram_files[existing].used = 1;
+        stored_files[existing] = (StoredFile){0};
+        memcpy(stored_files[existing].name, name, NAME_MAX);
+        stored_files[existing].used = 1;
+        changed = 1;
     }
-    RamFile* file = &ram_files[existing];
+    StoredFile* file = &stored_files[existing];
     if (flags & FILE_TRUNCATE) {
         file->size = 0;
         memset(file->data, 0, FILE_CAPACITY);
+        changed = 1;
     }
+    if (changed) { int result = commit(); if (result) return result; }
     open->generation++;
     open->id = (open->generation << HANDLE_BITS) | ((unsigned int)(open - open_files) + 1U);
     open->owner = owner;
@@ -91,11 +117,12 @@ int64_t files_open(uint64_t owner, const char* path, uint32_t flags) {
 }
 
 int files_read(uint64_t owner, uint64_t handle, void* data, uint32_t length) {
+    if (volume.state != 1) return FILE_UNAVAILABLE;
     OpenFile* open = lookup(owner, handle);
     if (!open) return FILE_BAD_HANDLE;
     if (!(open->flags & FILE_READ)) return FILE_ACCESS;
     if (length && !data) return FILE_BAD;
-    RamFile* file = &ram_files[open->file];
+    StoredFile* file = &stored_files[open->file];
     uint32_t available = open->offset < file->size ? file->size - open->offset : 0;
     if (length > available) length = available;
     if (length) memcpy(data, file->data + open->offset, length);
@@ -104,23 +131,29 @@ int files_read(uint64_t owner, uint64_t handle, void* data, uint32_t length) {
 }
 
 int files_write(uint64_t owner, uint64_t handle, const void* data, uint32_t length) {
+    if (volume.state != 1) return FILE_UNAVAILABLE;
     OpenFile* open = lookup(owner, handle);
     if (!open) return FILE_BAD_HANDLE;
     if (!(open->flags & FILE_WRITE)) return FILE_ACCESS;
     if (length && !data) return FILE_BAD;
-    RamFile* file = &ram_files[open->file];
+    StoredFile* file = &stored_files[open->file];
     if (open->offset > file->size) return FILE_BAD;
     if (length > FILE_CAPACITY - open->offset) return FILE_NO_SPACE;
-    if (length) memcpy(file->data + open->offset, data, length);
-    open->offset += length;
-    if (open->offset > file->size) file->size = open->offset;
+    if (!length) return 0;
+    memcpy(file->data + open->offset, data, length);
+    uint32_t end = open->offset + length;
+    if (end > file->size) file->size = end;
+    int result = commit();
+    if (result) return result;
+    open->offset = end;
     return (int)length;
 }
 
 int files_seek(uint64_t owner, uint64_t handle, uint32_t offset) {
+    if (volume.state != 1) return FILE_UNAVAILABLE;
     OpenFile* open = lookup(owner, handle);
     if (!open) return FILE_BAD_HANDLE;
-    if (offset > ram_files[open->file].size) return FILE_BAD;
+    if (offset > stored_files[open->file].size) return FILE_BAD;
     open->offset = offset;
     return 0;
 }
@@ -139,16 +172,16 @@ void files_release(uint64_t owner) {
 }
 
 int files_list(uint64_t owner, FileEntry* entry) {
-    if (!owner) return FILE_UNAVAILABLE;
+    if (!owner || volume.state != 1) return FILE_UNAVAILABLE;
     if (!entry || entry->cursor > FILE_LIMIT) return FILE_BAD;
     unsigned int start = entry->cursor;
     *entry = (FileEntry){0};
     for (unsigned int i = start; i < FILE_LIMIT; i++) {
-        if (!ram_files[i].used) continue;
+        if (!stored_files[i].used) continue;
         entry->cursor = i + 1;
-        entry->size = ram_files[i].size;
+        entry->size = stored_files[i].size;
         memcpy(entry->path, prefix, 5);
-        for (unsigned int j = 0; j < NAME_MAX; j++) entry->path[j + 5] = ram_files[i].name[j];
+        for (unsigned int j = 0; j < NAME_MAX; j++) entry->path[j + 5] = stored_files[i].name[j];
         return 1;
     }
     entry->cursor = FILE_LIMIT;
@@ -157,14 +190,14 @@ int files_list(uint64_t owner, FileEntry* entry) {
 
 int files_remove(uint64_t owner, const char* path) {
     char name[NAME_MAX] = {0};
-    if (!owner) return FILE_UNAVAILABLE;
+    if (!owner || volume.state != 1) return FILE_UNAVAILABLE;
     if (!name_from_path(path, name)) return FILE_BAD;
     for (unsigned int i = 0; i < FILE_LIMIT; i++) {
-        if (!ram_files[i].used || !same_name(ram_files[i].name, name)) continue;
+        if (!stored_files[i].used || !same_name(stored_files[i].name, name)) continue;
         for (unsigned int j = 0; j < FILE_HANDLE_LIMIT; j++)
             if (open_files[j].owner && open_files[j].file == i) return FILE_BUSY;
-        ram_files[i] = (RamFile){0};
-        return 0;
+        stored_files[i] = (StoredFile){0};
+        return commit();
     }
     return FILE_NOT_FOUND;
 }

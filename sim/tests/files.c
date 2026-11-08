@@ -1,8 +1,5 @@
 #include "../../includes/files_internal.h"
-#include <stdio.h>
-#include <stdlib.h>
-
-#define CHECK(c) do { if (!(c)) { fprintf(stderr, "line %d: %s\n", __LINE__, #c); exit(1); } } while (0)
+#include "storage_fixture.h"
 
 static union { uint64_t aligned; unsigned char bytes[1024]; } user;
 
@@ -170,7 +167,48 @@ static void mixed_io(void) {
 }
 
 int main(void) {
+    Store store;
+    fixture_reset();
+    CHECK(files_open(1, "/ram/absent", FILE_READ) == FILE_UNAVAILABLE);
+    CHECK(store_format(&store, &device, &region, STORE_FORMAT_CONFIRM) == 0);
+    CHECK(files_mount(&device, 0) == 0);
     paths_and_modes(); capacity_and_atomic_open(); ownership_and_reuse(); syscall_bounds(); mixed_io();
-    puts("PASS: RAM files, bounds, ownership, atomic failures and syscall snapshots");
+    int64_t h = files_open(1, "/ram/reboot", FILE_READ | FILE_WRITE | FILE_CREATE);
+    CHECK(h > 0 && files_write(1, (uint64_t)h, "persistent", 10) == 10);
+    CHECK(files_unmount() == FILE_BUSY);
+    CHECK(files_close(1, (uint64_t)h) == 0 && files_unmount() == 0);
+    CHECK(files_mount(&device, 0) == 0);
+    int64_t fresh = files_open(1, "/ram/reboot", FILE_READ);
+    char data[16];
+    CHECK(fresh > 0 && fresh != h && files_read(1, (uint64_t)fresh, data, 16) == 10);
+    CHECK(!memcmp(data, "persistent", 10));
+    CHECK(files_close(1, (uint64_t)fresh) == 0);
+    disk.fail_at = disk.calls + 1;
+    CHECK(files_open(1, "/ram/reboot", FILE_WRITE | FILE_TRUNCATE) == FILE_IO_ERROR);
+    CHECK(files_open(1, "/ram/reboot", FILE_READ) == FILE_UNAVAILABLE);
+    disk.fail_at = 0;
+    CHECK(files_unmount() == 0 && files_mount(&device, 0) == 0);
+    fresh = files_open(1, "/ram/reboot", FILE_READ);
+    CHECK(files_read(1, (uint64_t)fresh, data, 16) == 10 && !memcmp(data, "persistent", 10));
+    CHECK(files_close(1, (uint64_t)fresh) == 0);
+    fresh = files_open(1, "/ram/reboot", FILE_READ | FILE_WRITE);
+    disk.fail_at = disk.calls + 10; disk.tear = 255;
+    CHECK(files_write(1, (uint64_t)fresh, "uncertain", 9) == FILE_IO_ERROR);
+    CHECK(files_read(1, (uint64_t)fresh, data, 16) == FILE_UNAVAILABLE);
+    FileEntry entry = {0}; CHECK(files_list(1, &entry) == FILE_UNAVAILABLE);
+    CHECK(files_close(1, (uint64_t)fresh) == 0 && files_unmount() == 0);
+    disk.fail_at = 0;
+    CHECK(files_mount(&device, 0) == STORE_MOUNT_RECOVERED);
+    fresh = files_open(1, "/ram/reboot", FILE_READ | FILE_WRITE);
+    CHECK(files_read(1, (uint64_t)fresh, data, 16) == 10 && !memcmp(data, "persistent", 10));
+    CHECK(files_close(1, (uint64_t)fresh) == 0);
+    fresh = files_open(1, "/ram/reboot", FILE_WRITE | FILE_TRUNCATE);
+    CHECK(fresh > 0 && files_close(1, (uint64_t)fresh) == 0 && files_unmount() == 0);
+    CHECK(files_mount(&device, 0) == 0);
+    fresh = files_open(1, "/ram/reboot", FILE_READ);
+    CHECK(files_read(1, (uint64_t)fresh, data, 16) == 0 && files_close(1, (uint64_t)fresh) == 0);
+    CHECK(files_remove(1, "/ram/reboot") == 0 && files_unmount() == 0 && files_mount(&device, 0) == 0);
+    CHECK(files_open(1, "/ram/reboot", FILE_READ) == FILE_NOT_FOUND);
+    puts("PASS: persistent files, remount, bounds, ownership, atomic failures and syscall snapshots");
     return 0;
 }

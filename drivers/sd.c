@@ -16,12 +16,15 @@ enum {
 #define IRQ_COMMAND BIT(0)
 #define IRQ_TRANSFER BIT(1)
 #define IRQ_READ BIT(5)
+#define IRQ_WRITE BIT(4)
 #define IRQ_ERRORS 0xffff8000U
 #define IRQ_TIMEOUTS (BIT(16) | BIT(20))
 #define R1_ERRORS 0xfff98008U
 #define COMMAND_TIMEOUT_US 100000U
 #define CLOCK_TIMEOUT_US 150000U
 #define DATA_TIMEOUT_US 1000000U
+#define WRITE_TIMEOUT_US 5000000U
+#define ERASE_TIMEOUT_US 120000000U
 #define POLL_LIMIT 100000U
 
 enum { RESPONSE_NONE, RESPONSE_LONG, RESPONSE_SHORT, RESPONSE_BUSY };
@@ -36,8 +39,6 @@ static void write_reg(SdCard* card, uint32_t offset, uint32_t value) {
 
 static uint64_t now(SdCard* card) { return card->io.now_us(card->io.context); }
 
-static void pause_poll(SdCard* card) { card->io.delay_us(card->io.context, 10); }
-
 static int wait_bits(SdCard* card, uint32_t offset, uint32_t mask,
                      uint32_t expected, uint32_t timeout) {
     uint64_t start = now(card);
@@ -45,7 +46,7 @@ static int wait_bits(SdCard* card, uint32_t offset, uint32_t mask,
     for (attempts = 0; attempts < POLL_LIMIT; attempts++) {
         if ((read_reg(card, offset) & mask) == expected) return SD_OK;
         if (now(card) - start >= timeout) break;
-        pause_poll(card);
+        card->io.delay_us(card->io.context, timeout / POLL_LIMIT > 10 ? timeout / POLL_LIMIT : 10);
     }
     return SD_TIMEOUT;
 }
@@ -63,7 +64,7 @@ static int wait_interrupt(SdCard* card, uint32_t wanted, uint32_t timeout) {
             return SD_OK;
         }
         if (now(card) - start >= timeout) break;
-        pause_poll(card);
+        card->io.delay_us(card->io.context, timeout / POLL_LIMIT > 10 ? timeout / POLL_LIMIT : 10);
     }
     return SD_TIMEOUT;
 }
@@ -106,7 +107,7 @@ static int command(SdCard* card, uint32_t index, uint32_t argument,
     if (result) return result;
     if (response_type == RESPONSE_LONG) flags |= BIT(19); /* CRC, no index in R2. */
     else if (response_type != RESPONSE_NONE && index != 41) flags |= BIT(19) | BIT(20);
-    if (data) flags |= BIT(21) | BIT(4); /* Data present, read, single block, PIO. */
+    if (data) flags |= BIT(21) | (data == 1 ? BIT(4) : 0); /* Single block, PIO. */
     write_reg(card, INTERRUPT, 0xffffffffU);
     write_reg(card, ARGUMENT, argument);
     write_reg(card, COMMAND, (index << 24) | flags);
@@ -115,8 +116,9 @@ static int command(SdCard* card, uint32_t index, uint32_t argument,
     card->last_response = response_type == RESPONSE_NONE ? 0 : read_reg(card, RESPONSE);
     if (check_status && (card->last_response & R1_ERRORS)) return SD_ERROR;
     if (response_type == RESPONSE_BUSY) {
-        result = wait_interrupt(card, IRQ_TRANSFER, DATA_TIMEOUT_US);
-        if (!result) result = wait_bits(card, STATE, DATA_BUSY, 0, DATA_TIMEOUT_US);
+        uint32_t timeout = index == 38 ? ERASE_TIMEOUT_US : DATA_TIMEOUT_US;
+        result = wait_interrupt(card, IRQ_TRANSFER, timeout);
+        if (!result) result = wait_bits(card, STATE, DATA_BUSY, 0, timeout);
     }
     return result;
 }
@@ -136,6 +138,13 @@ static int capacity(SdCard* card) {
     for (i = 0; i < 4; i++) response[i] = read_reg(card, RESPONSE + i * 4);
     structure = csd_field(response, 126, 2);
     block_length = csd_field(response, 80, 4);
+    card->command_classes = csd_field(response, 84, 12);
+    card->write_protected = csd_field(response, 12, 2) != 0;
+    uint32_t write_length = csd_field(response, 22, 4);
+    if (write_length >= 9 && write_length <= 11) {
+        card->erase_sectors = csd_field(response, 46, 1) ? 1U :
+            (csd_field(response, 39, 7) + 1U) << (write_length - 9);
+    }
     if (card->block_addressed) {
         if (structure != 1 || block_length != 9) return SD_UNSUPPORTED;
         card->sectors = ((uint64_t)csd_field(response, 48, 22) + 1) * 1024;
@@ -164,7 +173,7 @@ int sd_card_init(SdCard* card, const SdIo* io, uint32_t base_clock_hz) {
     result = wait_bits(card, CLOCK, RESET_ALL, 0, COMMAND_TIMEOUT_US);
     if (result) return invalidate(card, result);
     write_reg(card, HOST, read_reg(card, HOST) & ~(BIT(1) | BIT(2) | BIT(5)));
-    write_reg(card, STATUS_ENABLE, IRQ_COMMAND | IRQ_TRANSFER | IRQ_READ | IRQ_ERRORS);
+    write_reg(card, STATUS_ENABLE, IRQ_COMMAND | IRQ_TRANSFER | IRQ_READ | IRQ_WRITE | IRQ_ERRORS);
     result = set_clock(card, 400000);
     if (result) return invalidate(card, result);
     card->io.delay_us(card->io.context, 1000); /* More than 74 initial SD clocks. */
@@ -203,6 +212,74 @@ int sd_card_init(SdCard* card, const SdIo* io, uint32_t base_clock_hz) {
     if (result) return invalidate(card, result);
     card->ready = 1;
     return SD_OK;
+}
+
+int sd_card_sync(SdCard* card) {
+    if (!card) return SD_INVALID;
+    if (!card->ready) return SD_NOT_READY;
+    uint64_t start = now(card);
+    for (uint32_t attempts = 0; attempts < 5000; attempts++) {
+        int result = command(card, 13, card->rca, RESPONSE_SHORT, 1, 0);
+        if (result) return invalidate(card, result);
+        uint32_t state = (card->last_response >> 9) & 15U;
+        if ((card->last_response & BIT(8)) && state == 4) {
+            result = wait_bits(card, STATE, DATA_BUSY, 0, WRITE_TIMEOUT_US);
+            return result ? invalidate(card, result) : SD_OK;
+        }
+        if (state != 4 && state != 7) return invalidate(card, SD_ERROR);
+        if (now(card) - start >= WRITE_TIMEOUT_US) break;
+        card->io.delay_us(card->io.context, 1000);
+    }
+    return invalidate(card, SD_TIMEOUT);
+}
+
+int sd_card_write(SdCard* card, uint64_t lba, uint32_t count,
+                  const void* buffer, size_t buffer_bytes) {
+    if (!card) return SD_INVALID;
+    if (!card->ready) return SD_NOT_READY;
+    if (!buffer || !count || count > SD_READ_MAX_BLOCKS) return SD_INVALID;
+    size_t needed = (size_t)count * SD_BLOCK_SIZE;
+    if (buffer_bytes < needed || (uintptr_t)buffer > ~(uintptr_t)0 - needed ||
+        lba >= card->sectors || count > card->sectors - lba) return SD_INVALID;
+    if (card->write_protected) return SD_WRITE_PROTECTED;
+    if (!(card->command_classes & BIT(4))) return SD_UNSUPPORTED;
+    const uint8_t* bytes = buffer;
+    for (uint32_t block = 0; block < count; block++) {
+        uint64_t address = card->block_addressed ? lba + block : (lba + block) * SD_BLOCK_SIZE;
+        if (address > 0xffffffffULL) return invalidate(card, SD_ERROR);
+        write_reg(card, BLOCK, (1U << 16) | SD_BLOCK_SIZE);
+        int result = command(card, 24, (uint32_t)address, RESPONSE_SHORT, 1, 2);
+        if (!result) result = wait_interrupt(card, IRQ_WRITE, DATA_TIMEOUT_US);
+        if (result) return invalidate(card, result);
+        for (uint32_t word = 0; word < SD_BLOCK_SIZE / 4; word++, bytes += 4) {
+            uint32_t value = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
+                             ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+            write_reg(card, DATA, value);
+        }
+        result = wait_interrupt(card, IRQ_TRANSFER, WRITE_TIMEOUT_US);
+        if (!result) result = wait_bits(card, STATE, DATA_BUSY, 0, WRITE_TIMEOUT_US);
+        if (!result) result = sd_card_sync(card);
+        if (result) return card->ready ? invalidate(card, result) : result;
+    }
+    return SD_OK;
+}
+
+int sd_card_erase(SdCard* card, uint64_t lba, uint32_t count) {
+    if (!card) return SD_INVALID;
+    if (!card->ready) return SD_NOT_READY;
+    if (!count || count > SD_ERASE_MAX_BLOCKS || lba >= card->sectors ||
+        count > card->sectors - lba) return SD_INVALID;
+    if (card->write_protected) return SD_WRITE_PROTECTED;
+    if (!(card->command_classes & BIT(5)) || !card->erase_sectors) return SD_UNSUPPORTED;
+    if (lba % card->erase_sectors || count % card->erase_sectors) return SD_INVALID;
+    uint64_t first = card->block_addressed ? lba : lba * SD_BLOCK_SIZE;
+    uint64_t last = card->block_addressed ? lba + count - 1 : (lba + count - 1) * SD_BLOCK_SIZE;
+    if (last > 0xffffffffULL) return SD_INVALID;
+    int result = command(card, 32, (uint32_t)first, RESPONSE_SHORT, 1, 0);
+    if (!result) result = command(card, 33, (uint32_t)last, RESPONSE_SHORT, 1, 0);
+    if (!result) result = command(card, 38, 0, RESPONSE_BUSY, 1, 0);
+    if (!result) result = sd_card_sync(card);
+    return result && card->ready ? invalidate(card, result) : result;
 }
 
 int sd_card_read(SdCard* card, uint64_t lba, uint32_t count,

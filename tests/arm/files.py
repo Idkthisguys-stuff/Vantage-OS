@@ -1,4 +1,4 @@
-"""Linked RAM-file and EL0 file-syscall regressions with modeled exceptions.
+"""Linked persistent-file and EL0 file-syscall regressions with modeled exceptions.
 
 Usage: python tests/arm/files.py path/to/fresh/kernel8.elf -v
 No SD operations or physical Pi hardware are exercised.
@@ -8,7 +8,8 @@ import sys
 import unittest
 
 from memory_management import Image
-from tasks import SchedulerMachine, signed, OK
+from tasks import signed, OK
+from file_storage import FileMachine
 
 OPEN, READ, WRITE, SEEK, CLOSE, LIST, REMOVE = range(32, 39)
 BAD, NOT_FOUND, NO_SPACE, ACCESS, BAD_HANDLE = range(-1, -6, -1)
@@ -19,8 +20,9 @@ class FileTests(unittest.TestCase):
     def setUpClass(cls): cls.image = Image(sys.argv[1])
 
     def setUp(self):
-        self.m = SchedulerMachine(self.image)
+        self.m = FileMachine(self.image)
         self.m.start()
+        self.assertEqual(self.m.mount_files(), 0)
         self.path = self.image.symbols['__user_start'] + 0x10000
         self.input, self.output, self.entry = self.path + 64, self.path + 128, self.path + 256
         self.request = self.path + 512
@@ -131,6 +133,21 @@ class FileTests(unittest.TestCase):
         h = self.m.call('files_open', 1, self.path, 7)
         self.assertGreater(h, 0)
         self.assertEqual(h & 31, 2)
+
+    def test_files_survive_fresh_kernel_state_and_detect_corruption(self):
+        h = self.m.call('files_open', 1, self.path, 7)
+        self.assertEqual(self.m.call('files_write', 1, h, self.input, 5), 5)
+        reboot = FileMachine(self.image, self.m.disk)
+        self.assertEqual(reboot.mount_files(), 0)
+        reboot.uc.mem_write(self.path, b'/ram/hello\0')
+        h = reboot.call('files_open', 1, self.path, 1)
+        self.assertEqual(reboot.call('files_read', 1, h, self.output, 16), 5)
+        self.assertEqual(reboot.uc.mem_read(self.output, 5), b'hello')
+        reboot.disk[2048 * 512] ^= 1
+        reboot.disk[(2048 + 145) * 512] ^= 1
+        broken = FileMachine(self.image, reboot.disk)
+        self.assertEqual(signed(broken.mount_files()), -8)
+        self.assertEqual(signed(broken.call('files_open', 1, self.path, 1)), -7)
 
 
 if __name__ == '__main__':

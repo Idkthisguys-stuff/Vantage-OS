@@ -2,15 +2,19 @@
 
 ## Scope and status
 
-The C driver is a new, read-only SD command engine and Pi 4 EMMC2 adapter. It
+The C driver is an SD command engine and Pi 4 EMMC2 adapter. It
 supports SD v2 cards that answer CMD8: SDSC with byte addressing, and SDHC/SDXC
 with 512-byte sector addressing. It uses a one-bit bus and default-speed clocks
-up to 25 MHz. Each read is a separate CMD17 transaction, even for multiple
-sectors. There are no write/erase commands, DMA buffers, allocation or interrupts.
+up to 25 MHz. Reads use CMD17; writes use CMD24 followed by transfer completion,
+DAT idle and CMD13 readiness/status checks. Erase uses CMD32/33/38 with an exact,
+erase-unit-aligned range. There are no DMA buffers, allocation or interrupts.
 
-**Normal boot does not initialize SD.** The replacement has native and linked
-ARM regression tests, but has not been validated on a physical Pi. The desktop
-terminal does not mount an SD image or expose storage commands.
+**Normal boot does not initialize SD.** Native and linked ARM regression tests
+have been added, but physical Pi validation is pending. An explicit
+`STORAGE_VALIDATION=1` image mounts a provisioned data partition and writes/checks
+a reboot probe. See [persistent storage](STORAGE.md) for provisioning, format,
+build flags and the hardware acceptance checklist. The simulator can mount a
+regular disk image through `VANTAGE_STORAGE_IMAGE`.
 
 The previous tutorial-derived SD implementation and timer helpers were replaced,
 not renamed or reformatted. The new engine uses explicit controller callbacks,
@@ -22,7 +26,7 @@ not change the provenance of other project components or third-party assets.
 ## Layout and interfaces
 
 - `drivers/sd.c`: portable command sequencing, clock division, CSD decoding,
-  timeouts and PIO reads. `SdCard` is caller-owned; `SdIo` supplies 32-bit register
+  timeouts and PIO read/write/erase. `SdCard` is caller-owned; `SdIo` supplies 32-bit register
   access and microsecond timing. All callbacks must return promptly.
 - `drivers/sd_pi4.c`: fixed EMMC2 MMIO adapter at ARM physical address
   `0xfe340000`. Calls are restricted to masked EL1 on core 0, matching current
@@ -43,19 +47,35 @@ and the full sector range against CSD capacity before I/O. The destination must
 be writable kernel/caller storage and must not overlap the card state. This is
 not a user-buffer validation API.
 
-`sd_init(base_clock_hz)` and `sd_read_blocks(...)` expose the singleton Pi adapter.
+`sd_card_write` has the same sector/count/buffer-size contract, accepts unaligned
+sources and checks the CSD write-protection bits and write command class. Errors
+can mean some sectors changed: do not treat a failed request as atomic.
+`sd_card_sync` checks READY_FOR_DATA and the TRAN state, including deferred R1
+errors. No optional volatile card write cache is enabled; this is not a generic
+cache-flush implementation. Completion still requires physical power-loss tests.
+
+`sd_card_erase` accepts 1–65,536 sectors within capacity and aligned to
+`erase_sectors`, decoded from ERASE_BLK_EN, SECTOR_SIZE and WRITE_BL_LEN. It
+rejects unsupported command classes and permanent/temporary write protection.
+Erased byte values are unspecified. It is destructive and is never called by
+filesystem commits or normal boot. Raw driver callers must enforce their own
+partition boundaries. Software cannot promise secure deletion inside card flash.
+
+`sd_init(base_clock_hz)`, `sd_read_blocks`, `sd_write_blocks`, `sd_sync`,
+`sd_erase_blocks` and `sd_sector_count` expose the singleton Pi adapter.
 The legacy declared spelling `sd_readBlock(lba, buffer, count)` remains as a
 byte-count/zero-on-error wrapper. It cannot verify the caller's actual allocation;
 new callers should use the size-checked interface. The old private `sd_cmd` and
-global `sd_err` interface is removed. There are no active storage callers to
-migrate. `sd_init` now requires the actual base-clock frequency.
+global `sd_err` interface is removed. `kernel/fs/storage_pi4.c` adapts the checked
+interfaces to the filesystem's sector device. `sd_init` requires the actual
+base-clock frequency.
 
 Invalid requests do no controller I/O. An unsupported host version is queried
 without reconfiguring the controller. Once setup starts, hardware or protocol errors mark the card
 unready, disable interrupt signaling and attempt a bounded full host reset. A
 successful reset stops its output clock; a wedged host that cannot reset remains
 unusable. Clock gating is not used to abort an inhibited transaction. Reinitialization
-is required before another read. Error returns may leave partial data in the
+is required before further I/O. Error returns may leave partial data in the
 destination: discard the entire request's result. Do not use partial bytes as
 filesystem metadata. `last_interrupt` and `last_response` retain diagnostics.
 
@@ -76,12 +96,14 @@ assumed source frequency or automatic firmware mailbox request.
 
 Status bits use write-one-to-clear semantics. A controller error wins over a
 simultaneous completion bit. R1 errors are separate from host errors. Busy
-responses and reads require transfer completion, not just command completion or
-buffer-ready. PIO words are unpacked into bytes without aligned buffer casts.
+responses and data operations require transfer completion, not just command
+completion or buffer-ready. PIO words are packed/unpacked without aligned casts.
 
 Host reset, inhibit and command polls have a 100 ms deadline; clock stabilization
-has a 150 ms deadline;
-data/busy waits have a 1 s deadline. Each poll also has a 100,000-iteration cap.
+has a 150 ms deadline; reads and selection-busy waits have a 1 s deadline.
+Write completion and CMD13 readiness use 5 s bounds; erase-busy polls use a 120 s
+bound. The host hardware timeout can report failure earlier. Each register poll
+also has a 100,000-iteration cap; CMD13 has a 5,000-command cap.
 Card power-up negotiation has a 1 s elapsed-time check and at most 1,000 attempts;
 individual command waits may extend the total time. These bounds assume the
 callbacks return. The hardware delay implementation requires a running system
@@ -112,15 +134,19 @@ Before calling `sd_init` in a disposable hardware-validation build:
    bounded failures. Confirm errors require successful reinitialization before
    reuse. Record board/firmware, source clock, commit, image hash and results.
 
-Filesystem parsing, partitions, file commands and executable loading are separate
-work. Keep the normal boot path disabled until the handoff and reads are verified.
+Keep SD initialization disabled in normal boot until physical handoff,
+read/write/erase and reboot-persistence testing is accepted. Filesystem/partition
+handling and the corresponding validation procedure are in [STORAGE.md](STORAGE.md).
 
 ## Regression tests
 
-After a simulator build, `ctest --test-dir <build> -C Release --output-on-failure`
+Build the native tests with `cmake -S drivers -B <build>` and
+`cmake --build <build> --config Release`, then run
+`ctest --test-dir <build> -C Release --output-on-failure`. The simulator build also
 includes `sd_controller` and `delays`. The controller model independently handles
 write-one-to-clear status, command response types, card replies, the read FIFO
-and transfer completion. Cases include CMD8 mismatches, both CSD formats,
+and transfer completion. Cases include writes, CMD13 programming/errors, erase
+endpoints, unit alignment, write protection, CMD8 mismatches, both CSD formats,
 maximum capacity, byte/sector addressing, unaligned buffers with guards,
 argument rejection without I/O, CRC/timeout failures, stuck hardware, frozen
 clock callbacks, counter wrap and explicit reinitialization. Timer tests cover
