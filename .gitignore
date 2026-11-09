@@ -2,3 +2,5 @@ out/
 sim/build/
 __pycache__/
 *.pyc
+*.img
+build/
