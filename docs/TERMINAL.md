@@ -15,7 +15,11 @@ or serial at **115200 baud, 8N1**, with local echo disabled.
 | `mem` | Show memory information |
 | `echo text` | Print text |
 | `about` | About the terminal |
-| `ls` | List stored files |
+| `pwd` | Print current directory |
+| `cd [path]` | Change directory (default `/ram`) |
+| `mkdir path` | Create a persistent directory |
+| `rmdir path` | Remove an empty directory |
+| `ls [path]` | List current or named directory; directories end in `/` |
 | `cat name` | Read a file |
 | `edit name` | Edit a text file |
 | `rm name` | Delete a file |
@@ -29,7 +33,8 @@ statistics on Pi.
 
 ## Scope
 
-Input is printable ASCII, limited to 127 characters per command. Overlong input is
+Input is printable ASCII, limited to 287 characters per command (less on small
+screens). This accommodates a command plus a 255-byte path. Overlong input is
 discarded. The terminal does not yet run programs, and has no command history or
 physical USB keyboard driver.
 
@@ -45,7 +50,19 @@ included bitmap; regeneration is documented in the developer guide.
 ## Persistent text files
 
 With storage mounted, use `ls`, `cat notes`, `rm notes`, or `edit notes`.
-Short names refer to `/ram/`; full `/ram/name` paths also work. `edit notes` opens
+The current directory starts at `/ram`. Relative paths use that directory;
+absolute `/ram/...` paths also work. `/` aliases the protected mount root, and
+`..` there stays at root. `.` and `..` traverse existing directories, so missing
+parents cannot be bypassed. Names use ASCII letters, digits, `.`, `_`, `-` (31
+bytes per component). V3 volumes allow 255-byte total paths, 256 files/directories
+combined and 1 MiB per file, subject to shared disk capacity. Existing V1/2 volumes
+retain 47-byte paths, 16 entries and 4096-byte files until explicitly migrated;
+see [STORAGE.md](STORAGE.md#migrate-an-existing-data-image). Parents must already
+exist; `rmdir` refuses nonempty directories and root, and `rm` deletes files only.
+There is no recursive removal. For example: `mkdir docs`, `cd docs`, `edit note`,
+`cd ..`, `ls docs`. The on-screen comma key becomes `/` while Shift is active.
+
+`edit notes` opens
 a compact, full-screen, touch-first ASCII editor above the keyboard. Existing
 files load into memory; missing files start empty and are created only on Save.
 
@@ -72,8 +89,10 @@ Long lines scroll horizontally to keep the insertion position in view; `<` at
 the left of the text means its beginning is off-screen. Each line has a two-row
 touch target. The editor needs at least 40 columns and 12 text rows.
 
-Files still hold at most 4096 bytes, independently of SD/FAT cluster sizes.
-Editor lines are not subject to the shell's 127-character command limit. An edit
+The editor deliberately retains a **4096-byte document limit**, independently of
+the filesystem's 1 MiB file limit. Larger files are refused without truncation;
+`cat` streams them without loading the entire file into the editor buffer.
+Editor lines are not subject to the shell's command limit. An edit
 that would exceed capacity is rejected without discarding the buffer. Binary
 files are rejected; existing tabs and carriage returns display as spaces and
 are preserved unless edited. Use `rm name` at the shell to delete a saved file.
@@ -85,8 +104,8 @@ Each chunk is durable separately: a power loss during save can leave an empty or
 partially saved file. Failed saves retain the in-memory buffer but may already
 have changed the disk file. There is no atomic whole-document replacement yet.
 
-On Pi, storage is available only in the explicitly enabled storage-validation
-image described in [STORAGE.md](STORAGE.md); normal SD boot remains disabled.
+On Pi, mounting requires the explicit clock and partition settings described in
+[STORAGE.md](STORAGE.md); hardware acceptance is still pending.
 In the simulator, provision a regular image with `tools/storage_image.py` and
 set `VANTAGE_STORAGE_IMAGE` to its path before launch. An unmounted filesystem
 reports `Storage unavailable` rather than silently saving to RAM.

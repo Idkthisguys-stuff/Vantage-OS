@@ -1,5 +1,8 @@
-#include "../../includes/task_internal.h"
-#include "../../includes/io.h"
+#include <vantage/kernel/task_port.h>
+#include <vantage/arch/irq.h>
+#include <vantage/arch/mmu.h>
+#include <vantage/arch/trap.h>
+#include <vantage/platform/pi4/io.h>
 
 typedef char context_size_must_match_assembly[(sizeof(TaskContext) == 208) ? 1 : -1];
 typedef char context_sp_offset_must_match[( __builtin_offsetof(TaskContext, sp) == 96) ? 1 : -1];
@@ -37,6 +40,29 @@ void task_context_init(TaskContext* context, void* stack, size_t size,
 
 void task_context_dispose(TaskContext* context) {
     (void)context;
+}
+
+void task_port_address_space(uint64_t root) {
+    mmu_install_space(root);
+}
+
+void task_port_slice_start(uint32_t microseconds) { irq_timer_start(microseconds); }
+void task_port_slice_stop(void) { irq_timer_stop(); }
+
+void task_port_irq_enable(void) { __asm__ volatile("msr daifclr, #2" ::: "memory"); }
+void task_port_irq_disable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
+
+/* EL0t with every exception unmasked: user code cannot hold off the tick. */
+#define USER_STATE 0ULL
+
+void task_port_enter_user(uint64_t entry, uint64_t stack, uint64_t argument) {
+    /* Nothing of the kernel's register state may reach EL0. */
+    TrapFrame frame __attribute__((aligned(16))) = {0};
+    frame.x[0] = argument;
+    frame.sp_el0 = stack;
+    frame.elr = entry;
+    frame.spsr = USER_STATE;
+    trap_return(&frame);
 }
 
 void task_port_halt(const char* message) {

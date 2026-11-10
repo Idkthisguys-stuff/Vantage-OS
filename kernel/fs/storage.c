@@ -1,8 +1,11 @@
-#include "../../includes/storage.h"
+#include <vantage/kernel/storage.h>
 
-#if FILE_LIMIT != 16 || FILE_CAPACITY != 4096
-#error Storage format version 1 requires 16 files of 4096 bytes
-#endif
+/* Legacy geometry is frozen independently of the current filesystem limits. */
+#undef FILE_LIMIT
+#undef FILE_CAPACITY
+#define FILE_LIMIT STORE_LEGACY_LIMIT
+#define FILE_CAPACITY STORE_LEGACY_CAPACITY
+#define LEGACY_PATH_MAX FILE_LEGACY_PATH_MAX
 
 static const unsigned char magic[8] = {'V', 'S', 'T', 'O', 'R', 'E', '1', 0};
 
@@ -73,11 +76,24 @@ int store_name_valid(const char name[STORE_NAME_BYTES]) {
 static int files_valid(const StoredFile files[FILE_LIMIT]) {
     for (unsigned int i = 0; i < FILE_LIMIT; i++) {
         const StoredFile* f = &files[i];
-        if (f->used > 1 || f->size > FILE_CAPACITY) return 0;
-        if (!f->used) { if (f->size || f->name[0]) return 0; continue; }
+        if (f->used > FILE_DIRECTORY || f->size > FILE_CAPACITY) return 0;
+        if (!f->used) { if (f->size || f->name[0] || f->parent) return 0; continue; }
+        if (f->used == FILE_DIRECTORY && f->size) return 0;
         if (!store_name_valid(f->name)) return 0;
         for (unsigned int j = 0; j < i; j++)
-            if (files[j].used && !memcmp(f->name, files[j].name, STORE_NAME_BYTES)) return 0;
+            if (files[j].used && files[j].parent == f->parent &&
+                !memcmp(f->name, files[j].name, STORE_NAME_BYTES)) return 0;
+        unsigned int node = i + 1, length = 4, depth = 0;
+        while (node) {
+            if (node > FILE_LIMIT || ++depth > FILE_LIMIT) return 0;
+            const StoredFile* ancestor = &files[node - 1];
+            if (node != i + 1 && ancestor->used != FILE_DIRECTORY) return 0;
+            unsigned int n = 0;
+            while (n < STORE_NAME_BYTES && ancestor->name[n]) n++;
+            length += n + 1;
+            if (length >= LEGACY_PATH_MAX) return 0;
+            node = ancestor->parent;
+        }
     }
     return 1;
 }
@@ -95,7 +111,8 @@ static void encode(const StoredFile files[FILE_LIMIT], unsigned int offset, unsi
     memset(sector, 0, 512);
     if (!f->used) return;
     if (!part) {
-        memcpy(sector, f->name, STORE_NAME_BYTES); put32(sector + 32, 1); put32(sector + 36, f->size);
+        memcpy(sector, f->name, STORE_NAME_BYTES); put32(sector + 32, f->used); put32(sector + 36, f->size);
+        put32(sector + 40, f->parent);
     } else {
         unsigned int start = (part - 1) * 512;
         unsigned int count = f->size > start ? f->size - start : 0;
@@ -108,7 +125,8 @@ static int load(Store* s, unsigned int bank, StoredFile files[FILE_LIMIT], uint6
     unsigned char sector[512];
     uint64_t base = bank_start(s, bank);
     if (s->device.read(s->device.context, base, sector)) return FILE_IO_ERROR;
-    if (memcmp(sector, magic, sizeof(magic)) || get32(sector + 8) != 1 || get32(sector + 12) != bank ||
+    uint32_t version = get32(sector + 8);
+    if (memcmp(sector, magic, sizeof(magic)) || (version != 1 && version != 2) || get32(sector + 12) != bank ||
         !get64(sector + 16) || get32(sector + 28) != STORE_PAYLOAD_SECTORS ||
         get64(sector + 32) != s->region.first || get64(sector + 40) != s->region.sectors ||
         get32(sector + 508) != store_crc32(0, sector, 508)) return FILE_CORRUPT;
@@ -123,7 +141,9 @@ static int load(Store* s, unsigned int bank, StoredFile files[FILE_LIMIT], uint6
         unsigned int part = offset % STORE_FILE_SECTORS;
         if (!part) {
             memcpy(f->name, sector, STORE_NAME_BYTES); f->used = get32(sector + 32); f->size = get32(sector + 36);
-            for (unsigned int j = 40; j < 512; j++) if (sector[j]) return FILE_CORRUPT;
+            if (version == 1 && f->used > 1) return FILE_CORRUPT;
+            f->parent = version == 2 ? get32(sector + 40) : 0;
+            for (unsigned int j = version == 2 ? 44 : 40; j < 512; j++) if (sector[j]) return FILE_CORRUPT;
         } else memcpy(f->data + (part - 1) * 512, sector, 512);
     }
     if (crc != expected || !files_valid(files)) return FILE_CORRUPT;
@@ -180,7 +200,7 @@ int store_commit(Store* s, const StoredFile files[FILE_LIMIT]) {
     }
     if (readback != crc) return fault(s);
     memset(sector, 0, sizeof(sector)); memcpy(sector, magic, sizeof(magic));
-    put32(sector + 8, 1); put32(sector + 12, bank); put64(sector + 16, s->generation + 1);
+    put32(sector + 8, 2); put32(sector + 12, bank); put64(sector + 16, s->generation + 1);
     put32(sector + 24, crc); put32(sector + 28, STORE_PAYLOAD_SECTORS);
     put64(sector + 32, s->region.first); put64(sector + 40, s->region.sectors);
     put32(sector + 508, store_crc32(0, sector, 508));
@@ -194,7 +214,7 @@ int store_commit(Store* s, const StoredFile files[FILE_LIMIT]) {
 int store_format(Store* s, const SectorDevice* d, const StoreRegion* region, uint64_t confirmation) {
     /* No large automatic arrays on task stacks. Formatting uses a zeroed static
      * image and is, like all storage calls, non-reentrant and core-0 only. */
-    static const StoredFile empty[FILE_LIMIT] = {{{0}, 0, 0, {0}}};
+    static const StoredFile empty[FILE_LIMIT] = {0};
     if (!s || confirmation != STORE_FORMAT_CONFIRM || !region_valid(d, region)) return FILE_BAD;
     *s = (Store){0}; s->device = *d; s->region = *region;
     unsigned char zero[512] = {0};
