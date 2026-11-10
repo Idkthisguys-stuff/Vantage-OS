@@ -1,6 +1,6 @@
 """Check default/opt-in linked boot sequencing with scripted initialization.
 
-Usage: python storage_boot.py default-kernel.elf validation-kernel.elf
+Usage: python storage_boot.py default-kernel.elf validation-kernel.elf [configured-kernel.elf]
 The validation ELF uses SD_BASE_CLOCK_HZ=100000000 STORAGE_PARTITION=1.
 This does not boot firmware or validate hardware.
 """
@@ -16,17 +16,17 @@ def boot(image, mount=0, probe=0, task_probe=1):
     machine = Machine(image)
     events, messages = [], []
     values = {'uart_init': 0, 'uart_writeText': 0, 'mm_prepare': 1,
-              'secondary_core_start': 1, 'env_Init': 0, 'mmu_is_enabled': 1,
+              'secondary_core_start': 1, 'env_Init': 0, 'mmu_is_enabled': 1, 'irq_init_core': 1,
               'parallel_init': 1, 'parallel_self_test': 1, 'pi4_drivers_start': 0,
-              'task_init': 1, 'task_self_test': 1, 'task_multicore_self_test': task_probe, 'storage_start': mount,
-              'storage_reboot_probe': probe, 'task_create': 1}
+              'task_init': 1, 'task_self_test': 1, 'task_multicore_self_test': task_probe, 'task_preemption_self_test': 1, 'storage_start': mount,
+              'storage_reboot_probe': probe, 'process_create': 1, 'sd_init': 0}
 
     def stub(uc, address, size, name):
         args = (uc.reg_read(regs.UC_ARM64_REG_X0), uc.reg_read(regs.UC_ARM64_REG_X1))
         events.append((name, args))
         if name == 'uart_writeText':
             messages.append(bytes(uc.mem_read(args[0], 256)).split(b'\0', 1)[0])
-        if name == 'task_create':
+        if name == 'process_create':
             uc.emu_stop()
             return
         uc.reg_write(regs.UC_ARM64_REG_X0, values[name] & 0xffffffffffffffff)
@@ -45,13 +45,27 @@ class BootTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.default, cls.validation = Image(sys.argv[1]), Image(sys.argv[2])
+        cls.configured = Image(sys.argv[3]) if len(sys.argv) > 3 and not sys.argv[3].startswith('-') else None
 
     def test_default_boot_never_enters_storage(self):
         m, events, log = boot(self.default)
         self.assertFalse(m.failure)
-        self.assertIn('task_create', [name for name, _ in events])
+        self.assertIn('process_create', [name for name, _ in events])
         self.assertNotIn('storage_start', [name for name, _ in events])
-        self.assertIn(b'SD storage disabled', log)
+        self.assertNotIn('sd_init', [name for name, _ in events])
+        self.assertIn(b'SD storage skipped', log)
+
+    def test_configured_normal_mount_and_failure_continue_without_probe(self):
+        if self.configured is None:
+            self.skipTest('provide a configured ordinary-boot ELF')
+        for mount in (0, 1, -8):
+            m, events, log = boot(self.configured, mount)
+            self.assertFalse(m.failure)
+            self.assertIn(('storage_start', (100000000, 1)), events)
+            names = [name for name, _ in events]
+            self.assertNotIn('storage_reboot_probe', names)
+            self.assertIn('process_create', names)
+            self.assertEqual(b'mount failed' in log, mount < 0)
 
     def test_opt_in_mount_probe_and_recovery_warning(self):
         for recovered, existing in ((0, 0), (1, 1)):
@@ -60,14 +74,14 @@ class BootTests(unittest.TestCase):
             self.assertIn(('storage_start', (100000000, 1)), events)
             names = [name for name, _ in events]
             self.assertLess(names.index('storage_start'), names.index('storage_reboot_probe'))
-            self.assertLess(names.index('storage_reboot_probe'), names.index('task_create'))
+            self.assertLess(names.index('storage_reboot_probe'), names.index('process_create'))
             self.assertEqual(b'[WARN] Storage recovered' in log, bool(recovered))
 
     def test_failed_mount_or_probe_halts_before_app(self):
         for mount, probe in ((-8, 0), (0, -9)):
             m, events, _ = boot(self.validation, mount, probe)
             self.assertTrue(m.failure)
-            self.assertNotIn('task_create', [name for name, _ in events])
+            self.assertNotIn('process_create', [name for name, _ in events])
             if mount < 0:
                 self.assertNotIn('storage_reboot_probe', [name for name, _ in events])
 
@@ -76,8 +90,9 @@ class BootTests(unittest.TestCase):
         self.assertTrue(m.failure)
         names = [name for name, _ in events]
         self.assertNotIn('storage_start', names)
-        self.assertNotIn('task_create', names)
+        self.assertNotIn('process_create', names)
 
 
 if __name__ == '__main__':
-    unittest.main(argv=[sys.argv[0], *sys.argv[3:]])
+    extra = 4 if len(sys.argv) > 3 and not sys.argv[3].startswith('-') else 3
+    unittest.main(argv=[sys.argv[0], *sys.argv[extra:]])

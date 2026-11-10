@@ -1,0 +1,128 @@
+$ <home>\AppData\Local\Programs\Python\Python314\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/wifi --jobs 4 --wifi-firmware-c <checkout>\out\synthetic-wifi\assets.c
+
+Wi-Fi: assets supplied
+
++ <toolchain>\xpack-windows-build-tools-4.4.1-3\bin\make.EXE -j4 BUILD_DIR=out/wifi CC=aarch64-none-elf-gcc LD=aarch64-none-elf-ld OBJCOPY=aarch64-none-elf-objcopy PYTHON=<home>/AppData/Local/Programs/Python/Python314/python.exe SHELL=<toolchain>/xpack-windows-build-tools-4.4.1-3/bin/sh.EXE WIFI_FIRMWARE_C=<checkout>/out/synthetic-wifi/assets.c
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c arch/armv8/address_space.c -o out/wifi/arch/armv8/address_space.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c arch/armv8/irq.c -o out/wifi/arch/armv8/irq.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c arch/armv8/mmu.c -o out/wifi/arch/armv8/mmu.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c arch/armv8/mmu_tables.c -o out/wifi/arch/armv8/mmu_tables.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c arch/armv8/parallel_port.c -o out/wifi/arch/armv8/parallel_port.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -mno-outline-atomics -c arch/armv8/task_port.c -o out/wifi/arch/armv8/task_port.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c arch/armv8/trap.c -o out/wifi/arch/armv8/trap.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/hw/property.c -o out/wifi/drivers/hw/property.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/hw/wait.c -o out/wifi/drivers/hw/wait.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/input/key.c -o out/wifi/drivers/input/key.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/input/touch.c -o out/wifi/drivers/input/touch.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/storage/sd.c -o out/wifi/drivers/storage/sd.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/video/v3d.c -o out/wifi/drivers/video/v3d.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/wifi/bus.c -o out/wifi/drivers/wifi/bus.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/wifi/cyw43455.c -o out/wifi/drivers/wifi/cyw43455.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/wifi/nvram.c -o out/wifi/drivers/wifi/nvram.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c drivers/wifi/sdio.c -o out/wifi/drivers/wifi/sdio.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/boot/main.c -o out/wifi/kernel/boot/main.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/fs/block_store.c -o out/wifi/kernel/fs/block_store.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/fs/file_syscall.c -o out/wifi/kernel/fs/file_syscall.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/fs/files.c -o out/wifi/kernel/fs/files.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/fs/storage.c -o out/wifi/kernel/fs/storage.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/mm/boot.c -o out/wifi/kernel/mm/boot.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/mm/fdt.c -o out/wifi/kernel/mm/fdt.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/mm/heap.c -o out/wifi/kernel/mm/heap.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/mm/pages.c -o out/wifi/kernel/mm/pages.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/mm/ranges.c -o out/wifi/kernel/mm/ranges.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/mm/runtime.c -o out/wifi/kernel/mm/runtime.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/parallel/worker.c -o out/wifi/kernel/parallel/worker.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/sched/process.c -o out/wifi/kernel/sched/process.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/sched/self_test.c -o out/wifi/kernel/sched/self_test.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/sched/task.c -o out/wifi/kernel/sched/task.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/syscall/dispatch.c -o out/wifi/kernel/syscall/dispatch.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c kernel/ui/canvas.c -o out/wifi/kernel/ui/canvas.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c kernel/ui/raster.c -o out/wifi/kernel/ui/raster.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c kernel/ui/render.c -o out/wifi/kernel/ui/render.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c kernel/ui/window_manager.c -o out/wifi/kernel/ui/window_manager.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -fno-tree-loop-distribute-patterns -c lib/memory.c -o out/wifi/lib/memory.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c platform/pi4/display.c -o out/wifi/platform/pi4/display.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c platform/pi4/hardware.c -o out/wifi/platform/pi4/hardware.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c platform/pi4/i2c.c -o out/wifi/platform/pi4/i2c.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c platform/pi4/io.c -o out/wifi/platform/pi4/io.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c platform/pi4/sd.c -o out/wifi/platform/pi4/sd.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c platform/pi4/startup.c -o out/wifi/platform/pi4/startup.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wextra -Werror -c platform/pi4/storage.c -o out/wifi/platform/pi4/storage.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c platform/pi4/timer.c -o out/wifi/platform/pi4/timer.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c arch/armv8/boot.s -o out/wifi/arch/armv8/boot.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c arch/armv8/exception.s -o out/wifi/arch/armv8/exception.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c arch/armv8/secondary.s -o out/wifi/arch/armv8/secondary.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c arch/armv8/task_context.s -o out/wifi/arch/armv8/task_context.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wa,-Iout/wifi/user -c user/lib/start.s -o out/wifi/user/lib/start.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wa,-Iout/wifi/user -c user/apps/terminal/app.c -o out/wifi/user/apps/terminal/app.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wa,-Iout/wifi/user -c user/apps/terminal/terminal.c -o out/wifi/user/apps/terminal/terminal.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wa,-Iout/wifi/user -c user/lib/user_lib.c -o out/wifi/user/lib/user_lib.o
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -c <checkout>/out/synthetic-wifi/assets.c -o out/wifi/drivers/wifi/assets.o
+
+aarch64-none-elf-ld -T user/program.ld out/wifi/user/lib/start.o out/wifi/user/apps/terminal/app.o out/wifi/user/apps/terminal/terminal.o out/wifi/user/lib/user_lib.o out/wifi/lib/memory.o -o out/wifi/user/terminal.elf
+
+aarch64-none-elf-objcopy -O binary out/wifi/user/terminal.elf out/wifi/user/terminal.bin
+
+aarch64-none-elf-gcc -Iinclude -DVANTAGE_V3D=1 -DVANTAGE_WIFI=1 -DVANTAGE_STORAGE=1 -DVANTAGE_WIFI_ASSETS=1 -DVANTAGE_STORAGE_VALIDATION=0 -DSD_BASE_CLOCK_HZ=0 -DSTORAGE_PARTITION=-1 -Wall -O2 -ffreestanding -nostdinc -mstrict-align -MMD -MP -Wa,-Iout/wifi/user -c kernel/boot/terminal_image.s -o out/wifi/kernel/boot/terminal_image.o
+
+aarch64-none-elf-ld -T arch/armv8/linker.ld out/wifi/arch/armv8/address_space.o out/wifi/arch/armv8/irq.o out/wifi/arch/armv8/mmu.o out/wifi/arch/armv8/mmu_tables.o out/wifi/arch/armv8/parallel_port.o out/wifi/arch/armv8/task_port.o out/wifi/arch/armv8/trap.o out/wifi/drivers/hw/property.o out/wifi/drivers/hw/wait.o out/wifi/drivers/input/key.o out/wifi/drivers/input/touch.o out/wifi/drivers/storage/sd.o out/wifi/drivers/video/v3d.o out/wifi/drivers/wifi/bus.o out/wifi/drivers/wifi/cyw43455.o out/wifi/drivers/wifi/nvram.o out/wifi/drivers/wifi/sdio.o out/wifi/kernel/boot/main.o out/wifi/kernel/fs/block_store.o out/wifi/kernel/fs/file_syscall.o out/wifi/kernel/fs/files.o out/wifi/kernel/fs/storage.o out/wifi/kernel/mm/boot.o out/wifi/kernel/mm/fdt.o out/wifi/kernel/mm/heap.o out/wifi/kernel/mm/pages.o out/wifi/kernel/mm/ranges.o out/wifi/kernel/mm/runtime.o out/wifi/kernel/parallel/worker.o out/wifi/kernel/sched/process.o out/wifi/kernel/sched/self_test.o out/wifi/kernel/sched/task.o out/wifi/kernel/syscall/dispatch.o out/wifi/kernel/ui/canvas.o out/wifi/kernel/ui/raster.o out/wifi/kernel/ui/render.o out/wifi/kernel/ui/window_manager.o out/wifi/lib/memory.o out/wifi/platform/pi4/display.o out/wifi/platform/pi4/hardware.o out/wifi/platform/pi4/i2c.o out/wifi/platform/pi4/io.o out/wifi/platform/pi4/sd.o out/wifi/platform/pi4/startup.o out/wifi/platform/pi4/storage.o out/wifi/platform/pi4/timer.o out/wifi/arch/armv8/boot.o out/wifi/arch/armv8/exception.o out/wifi/arch/armv8/secondary.o out/wifi/arch/armv8/task_context.o out/wifi/kernel/boot/terminal_image.o out/wifi/drivers/wifi/assets.o -o out/wifi/kernel8.elf
+
+aarch64-none-elf-objcopy -O binary out/wifi/kernel8.elf out/wifi/prod/kernel8.img
+
+
+Exit code: 0

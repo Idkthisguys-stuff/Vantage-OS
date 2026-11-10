@@ -1,0 +1,14 @@
+$ <home>\AppData\Local\Programs\Python\Python314\python.exe tests/tools/terminal_capture_roundtrip.py out/desktop/sim/Release/terminal_capture.exe --output out/evidence/final-captures
+
+INFO: [OK] Vantage graphics driver...
+
+PASS: actual SDL editor saved nested file through file syscalls
+
+INFO: [OK] Vantage graphics driver...
+
+PASS: fresh simulator process read exact file bytes and empty directory
+
+PASS: SDL captures, exact file bytes, and empty-directory persistence across two processes
+
+
+Exit code: 0

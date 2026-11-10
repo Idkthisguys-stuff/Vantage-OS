@@ -1,0 +1,256 @@
+<testsuite name="Win32-MSBuild" tests="32" failures="0" disabled="0" skipped="0" hostname="local-windows-host" time="50" timestamp="2026-11-10T22:23:13">
+  <testcase name="hardware_mailbox" classname="hardware_mailbox" time="0.455429" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: mailbox response validation, late-DMA quarantine, timer wrap and stopped timer
+</system-out>
+  </testcase>
+  <testcase name="v3d_commands_and_mmu" classname="v3d_commands_and_mmu" time="0.685885" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: V3D bring-up, per-step failure quiescence, private and per-job mappings, cache/TLB ordering, counter and timer wrap, job timeout/fault reset, quarantine
+</system-out>
+  </testcase>
+  <testcase name="render_backends" classname="render_backends" time="0.944924" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: render backend seam, V3D/CPU pixel equivalence, frame-preserving runtime fallback and re-entry halt
+</system-out>
+  </testcase>
+  <testcase name="wifi_firmware_and_frames" classname="wifi_firmware_and_frames" time="0.0883681" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: modeled CYW43455 boot/readback, CLM/country, WPA2 offload, frames, wrap, bounds and errors
+</system-out>
+  </testcase>
+  <testcase name="sdio_host" classname="sdio_host" time="0.0658751" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: SDIO PIO, CMD52/53, tail bytes, R5 errors, timeout, owner and SD-slot exclusion
+</system-out>
+  </testcase>
+  <testcase name="sd_controller" classname="sd_controller" time="0.635828" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: SD initialization, capacity, byte/block addressing, PIO read/write, erase, status and failure recovery
+</system-out>
+  </testcase>
+  <testcase name="delays" classname="delays" time="0.0637316" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: timer carry retry, full-width values, delay units, zero, wrap and millisecond multiplication
+</system-out>
+  </testcase>
+  <testcase name="touch_driver" classname="touch_driver" time="0.0601188" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out />
+  </testcase>
+  <testcase name="serial_input" classname="serial_input" time="0.0605286" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: nonblocking UART input, CRLF, control keys, ANSI filtering and overrun cancellation
+</system-out>
+  </testcase>
+  <testcase name="gpio_pins" classname="gpio_pins" time="0.0627781" status="run">
+    <properties>
+      <property name="cmake_labels" value="drivers" />
+    </properties>
+    <system-out>PASS: UART pins 14/15, GPIO 57 accepted, GPIO 58 rejected by all helpers, invalid field value
+</system-out>
+  </testcase>
+  <testcase name="persistent_files" classname="persistent_files" time="1.44068" status="run">
+    <properties>
+      <property name="cmake_labels" value="storage" />
+    </properties>
+    <system-out>PASS: persistent files, remount, bounds, ownership, atomic failures and syscall snapshots
+</system-out>
+  </testcase>
+  <testcase name="storage_recovery" classname="storage_recovery" time="20.939" status="run">
+    <properties>
+      <property name="cmake_labels" value="storage" />
+    </properties>
+    <system-out>PASS: 294 I/O cut points, five torn-sector lengths, direct and sync-buffered devices (v2 baseline)
+PASS: 294 I/O cut points, five torn-sector lengths, direct and sync-buffered devices (v1 baseline)
+</system-out>
+  </testcase>
+  <testcase name="storage_capacity" classname="storage_capacity" time="1.88037" status="run">
+    <properties>
+      <property name="cmake_labels" value="storage" />
+    </properties>
+    <system-out>PASS: V3 78 cut points, five tears, direct/buffered devices
+PASS: 256 entries, 255-byte paths, 1 MiB files, shared capacity and additive ABI
+</system-out>
+  </testcase>
+  <testcase name="storage_process_reboot" classname="storage_process_reboot" time="0.665943" status="run">
+    <properties>
+      <property name="cmake_labels" value="storage" />
+    </properties>
+    <system-out>PASS: files survive writer process exit and fresh reader mount
+</system-out>
+  </testcase>
+  <testcase name="mm_pages" classname="mm_pages" time="0.0622978" status="run">
+    <properties>
+      <property name="cmake_labels" value="memory" />
+    </properties>
+    <system-out />
+  </testcase>
+  <testcase name="mm_allocators" classname="mm_allocators" time="0.304577" status="run">
+    <properties>
+      <property name="cmake_labels" value="memory" />
+    </properties>
+    <system-out>PASS: ranges/page runs versus independent models; heap alignment, recovery and metadata pressure
+</system-out>
+  </testcase>
+  <testcase name="mm_fdt" classname="mm_fdt" time="0.303837" status="run">
+    <properties>
+      <property name="cmake_labels" value="memory" />
+    </properties>
+    <system-out>PASS: DTB RAM/reservations/dynamic pools, malformed inputs and deterministic mutations
+</system-out>
+  </testcase>
+  <testcase name="scheduler_four_core" classname="scheduler_four_core" time="0.589645" status="run">
+    <properties>
+      <property name="cmake_labels" value="scheduler" />
+    </properties>
+    <system-out>PASS: simultaneous four-core entry, affinity, stacks and repeated yields
+PASS: live task migrated between cores after yielding
+PASS: cross-core join/wakeup and exclusive reaping
+PASS: concurrent creation, 32-slot capacity, 28 movable children, 32 stress rounds
+PASS: occupied-worker serial fallback, idle-worker reservation and four-way batches
+PASS: all scheduler thread/fiber tests (physical Pi validation pending)
+</system-out>
+  </testcase>
+  <testcase name="scheduler_processes" classname="scheduler_processes" time="0.611783" status="run">
+    <properties>
+      <property name="cmake_labels" value="scheduler" />
+    </properties>
+    <system-out>PASS: process create, run, exit status, reap and complete memory release
+PASS: 600 address spaces reuse 255 ASIDs across rollover, each flushed before reuse
+PASS: process capacity, allocation-failure rollback and rejected images
+PASS: per-process tables, same-address isolation, W^X and range checks
+PASS: forbidden syscall buffers terminate the calling process only
+PASS: threads share one space; exit and kill end every thread; core 0 owns teardown
+PASS: all process tests (host model; ARM isolation is tested on the CPU model)
+</system-out>
+  </testcase>
+  <testcase name="scheduler_preemption" classname="scheduler_preemption" time="0.519801" status="run">
+    <properties>
+      <property name="cmake_labels" value="scheduler" />
+    </properties>
+    <system-out>PASS: the tick shares one core between processes that never yield
+PASS: a preempted process resumed on another allowed core with its stack intact
+PASS: a looping process on another core is terminated within one slice
+PASS: kernel tasks are preempted inside explicit regions only, on every core
+PASS: all preemption tests (simulated tick; physical Pi validation pending)
+</system-out>
+  </testcase>
+  <testcase name="terminal_model" classname="terminal_model" time="0.323531" status="run">
+    <properties>
+      <property name="cmake_labels" value="user" />
+    </properties>
+    <system-out>PASS: shell commands, memory source labels, editing, wrapping, scrolling and input bounds
+</system-out>
+  </testcase>
+  <testcase name="user_memory" classname="user_memory" time="0.0609875" status="run">
+    <properties>
+      <property name="cmake_labels" value="user" />
+    </properties>
+    <system-out>PASS: privileged-only kernel mappings, buffer boundaries and syscall pointer checks
+</system-out>
+  </testcase>
+  <testcase name="syscall_abi" classname="syscall_abi" time="0.0466934" status="run">
+    <properties>
+      <property name="cmake_labels" value="user" />
+    </properties>
+    <system-out />
+  </testcase>
+  <testcase name="python_tools" classname="python_tools" time="7.44068" status="run">
+    <properties>
+      <property name="cmake_labels" value="tooling" />
+    </properties>
+    <system-out>test_argument_validation (test_build.BuildHelperTests.test_argument_validation) ... ok
+test_default_options (test_build.BuildHelperTests.test_default_options) ... ok
+test_portable_tool_directories (test_build.BuildHelperTests.test_portable_tool_directories) ... ok
+test_make_defaults_and_validation_requirements (test_build_config.BuildConfigTests.test_make_defaults_and_validation_requirements) ... ok
+test_unchanged_configuration_keeps_timestamp_and_changed_flags_replace_it (test_build_config.BuildConfigTests.test_unchanged_configuration_keeps_timestamp_and_changed_flags_replace_it) ... ok
+test_explicit_regulatory_values (test_embed_wifi.EmbedTests.test_explicit_regulatory_values) ... ok
+test_invalid_images_and_binary_nvram_rejected (test_embed_wifi.EmbedTests.test_invalid_images_and_binary_nvram_rejected) ... ok
+test_no_overwrite_of_unrelated_files_or_inputs (test_embed_wifi.EmbedTests.test_no_overwrite_of_unrelated_files_or_inputs) ... ok
+test_reproducible_output_and_hash_manifest (test_embed_wifi.EmbedTests....
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+  </testcase>
+  <testcase name="simulator_smoke" classname="simulator_smoke" time="0.333969" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator" />
+    </properties>
+    <system-out>INFO: [OK] Vantage graphics driver...
+</system-out>
+  </testcase>
+  <testcase name="terminal_smoke" classname="terminal_smoke" time="0.689741" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator" />
+    </properties>
+    <system-out>INFO: [OK] Vantage graphics driver...
+PASS: SDL keyboard through syscalls to shell pixels, font/cursor bounds and independent input queues
+</system-out>
+  </testcase>
+  <testcase name="editor_touch" classname="editor_touch" time="2.35787" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator" />
+    </properties>
+    <system-out>INFO: [OK] Vantage graphics driver...
+PASS: touch line selection, keyboard edits, save, drag cancellation, new/drop and exit confirmation
+</system-out>
+  </testcase>
+  <testcase name="terminal_storage_reboot" classname="terminal_storage_reboot" time="1.01788" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator;storage" />
+    </properties>
+    <system-out>PASS: editor create/read/replace/delete persists across fresh process mounts
+PASS: editor create/read/replace/delete persists across fresh process mounts
+</system-out>
+  </testcase>
+  <testcase name="terminal_capture_reboot" classname="terminal_capture_reboot" time="1.11959" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator;storage" />
+    </properties>
+    <system-out>INFO: [OK] Vantage graphics driver...
+PASS: actual SDL editor saved nested file through file syscalls
+INFO: [OK] Vantage graphics driver...
+PASS: fresh simulator process read exact file bytes and empty directory
+PASS: SDL captures, exact file bytes, and empty-directory persistence across two processes
+</system-out>
+  </testcase>
+  <testcase name="parallel_batches" classname="parallel_batches" time="0.0653763" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator" />
+    </properties>
+    <system-out>PASS: host-thread dispatcher checks (not ARM cache/firmware validation)
+</system-out>
+  </testcase>
+  <testcase name="parallel_missing_worker" classname="parallel_missing_worker" time="1.02908" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator" />
+    </properties>
+    <system-out>PASS: host-thread dispatcher checks (not ARM cache/firmware validation)
+</system-out>
+  </testcase>
+  <testcase name="parallel_completion_timeout" classname="parallel_completion_timeout" time="1.04432" status="run">
+    <properties>
+      <property name="cmake_labels" value="simulator" />
+    </properties>
+    <system-out>[ERR] Parallel core 3 job timed out; system halted
+</system-out>
+  </testcase>
+</testsuite>

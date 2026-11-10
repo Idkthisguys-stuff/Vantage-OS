@@ -1,0 +1,42 @@
+$ <model-python> -B tests/arm/tasks.py out/arm/kernel8.elf -v
+
+test_bad_saved_stack_pointer_halts_before_dispatch (__main__.TaskTests.test_bad_saved_stack_pointer_halts_before_dispatch) ... ok
+
+test_boot_self_test_and_reinit_rejected (__main__.TaskTests.test_boot_self_test_and_reinit_rejected) ... ok
+
+test_capacity_reaping_stale_ids_and_task_return (__main__.TaskTests.test_capacity_reaping_stale_ids_and_task_return) ... ok
+
+test_core_el_and_interrupt_ownership_rejected (__main__.TaskTests.test_core_el_and_interrupt_ownership_rejected) ... ok
+
+test_generation_never_wraps_to_a_stale_id (__main__.TaskTests.test_generation_never_wraps_to_a_stale_id) ... ok
+
+test_invalid_calls_and_nested_dispatch (__main__.TaskTests.test_invalid_calls_and_nested_dispatch) ... ok
+
+test_join_blocks_wakes_and_exclusively_reaps (__main__.TaskTests.test_join_blocks_wakes_and_exclusively_reaps) ... ok
+
+test_repeated_switches_and_join_already_exited (__main__.TaskTests.test_repeated_switches_and_join_already_exited) ... ok
+
+test_round_robin_and_actual_stack_register_switching (__main__.TaskTests.test_round_robin_and_actual_stack_register_switching) ... ok
+
+test_secondary_can_create_but_not_coordinate_or_access_devices (__main__.TaskTests.test_secondary_can_create_but_not_coordinate_or_access_devices) ... ok
+
+test_stack_guard_corruption_halts_before_dispatch (__main__.TaskTests.test_stack_guard_corruption_halts_before_dispatch) ... ok
+
+test_unavailable_and_invalid_affinity_is_rejected (__main__.TaskTests.test_unavailable_and_invalid_affinity_is_rejected) ... ok
+
+test_unknown_and_unavailable_syscalls (__main__.TaskTests.test_unknown_and_unavailable_syscalls) ... ok
+
+test_wait_cycles_and_self_join_are_rejected (__main__.TaskTests.test_wait_cycles_and_self_join_are_rejected) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 14 tests in 5.383s
+
+
+
+OK
+
+
+Exit code: 0

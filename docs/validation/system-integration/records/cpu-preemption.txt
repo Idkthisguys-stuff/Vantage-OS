@@ -1,0 +1,26 @@
+$ <model-python> -B tests/arm/preemption.py out/cpu/kernel8.elf -v
+
+test_address_spaces_stay_separate_under_preemption_and_migration (__main__.PreemptionTests.test_address_spaces_stay_separate_under_preemption_and_migration) ... ok
+
+test_kernel_tasks_are_preempted_only_inside_preemptible_regions (__main__.PreemptionTests.test_kernel_tasks_are_preempted_only_inside_preemptible_regions) ... ok
+
+test_non_yielding_loop_cannot_keep_its_core_and_is_killed_within_a_slice (__main__.PreemptionTests.test_non_yielding_loop_cannot_keep_its_core_and_is_killed_within_a_slice) ... ok
+
+test_registers_of_a_preempted_process_survive_migration (__main__.PreemptionTests.test_registers_of_a_preempted_process_survive_migration) ... ok
+
+test_threads_of_a_killed_process_stop_on_every_core (__main__.PreemptionTests.test_threads_of_a_killed_process_stop_on_every_core) ... ok
+
+test_tick_pending_during_a_system_call_is_taken_on_return_to_user (__main__.PreemptionTests.test_tick_pending_during_a_system_call_is_taken_on_return_to_user) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 6 tests in 15.299s
+
+
+
+OK
+
+
+Exit code: 0

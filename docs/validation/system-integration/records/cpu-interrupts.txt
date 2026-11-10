@@ -1,0 +1,32 @@
+$ <model-python> -B tests/arm/interrupts.py out/cpu/kernel8.elf -v
+
+test_each_core_enables_only_its_own_timer_interrupt (__main__.InterruptTests.test_each_core_enables_only_its_own_timer_interrupt) ... ok
+
+test_el0_system_call_round_trips_through_the_complete_frame (__main__.InterruptTests.test_el0_system_call_round_trips_through_the_complete_frame) ... ok
+
+test_interrupt_at_every_el0_instruction_preserves_all_state (__main__.InterruptTests.test_interrupt_at_every_el0_instruction_preserves_all_state) ... ok
+
+test_interrupt_at_every_el1_instruction_preserves_all_state (__main__.InterruptTests.test_interrupt_at_every_el1_instruction_preserves_all_state) ... ok
+
+test_masked_el1_code_is_not_interrupted (__main__.InterruptTests.test_masked_el1_code_is_not_interrupted) ... ok
+
+test_service_completes_real_interrupts_and_ignores_spurious_ones (__main__.InterruptTests.test_service_completes_real_interrupts_and_ignores_spurious_ones) ... ok
+
+test_timer_interval_follows_the_counter_frequency (__main__.InterruptTests.test_timer_interval_follows_the_counter_frequency) ... ok
+
+test_unusable_interrupt_setup_is_reported (__main__.InterruptTests.test_unusable_interrupt_setup_is_reported) ... ok
+
+test_vectors_route_interrupts_and_el0_calls_to_frame_handlers (__main__.InterruptTests.test_vectors_route_interrupts_and_el0_calls_to_frame_handlers) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 9 tests in 8.417s
+
+
+
+OK
+
+
+Exit code: 0

@@ -1,0 +1,24 @@
+$ <model-python> -B tests/arm/terminal.py out/arm/kernel8.elf -v
+
+test_delete_hold_delay_repeat_release_drag_and_clock_wrap (__main__.TerminalTests.test_delete_hold_delay_repeat_release_drag_and_clock_wrap) ... ok
+
+test_embedded_program_is_a_separately_linked_user_image (__main__.TerminalTests.test_embedded_program_is_a_separately_linked_user_image) ... ok
+
+test_freestanding_copy_and_zero_handle_unaligned_buffers (__main__.TerminalTests.test_freestanding_copy_and_zero_handle_unaligned_buffers) ... ok
+
+test_isolated_app_uses_its_own_stack_and_real_kernel_stats (__main__.TerminalTests.test_isolated_app_uses_its_own_stack_and_real_kernel_stats) ... ok
+
+test_linked_syscall_rejects_buffers_from_kernel_callers (__main__.TerminalTests.test_linked_syscall_rejects_buffers_from_kernel_callers) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 5 tests in 11.884s
+
+
+
+OK
+
+
+Exit code: 0

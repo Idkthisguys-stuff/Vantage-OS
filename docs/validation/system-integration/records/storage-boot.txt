@@ -1,0 +1,24 @@
+$ <model-python> -B tests/arm/storage_boot.py out/boot-default/kernel8.elf out/validation/kernel8.elf out/storage/kernel8.elf -v
+
+test_configured_normal_mount_and_failure_continue_without_probe (__main__.BootTests.test_configured_normal_mount_and_failure_continue_without_probe) ... ok
+
+test_default_boot_never_enters_storage (__main__.BootTests.test_default_boot_never_enters_storage) ... ok
+
+test_failed_mount_or_probe_halts_before_app (__main__.BootTests.test_failed_mount_or_probe_halts_before_app) ... ok
+
+test_failed_multicore_probe_halts_before_storage_and_app (__main__.BootTests.test_failed_multicore_probe_halts_before_storage_and_app) ... ok
+
+test_opt_in_mount_probe_and_recovery_warning (__main__.BootTests.test_opt_in_mount_probe_and_recovery_warning) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 5 tests in 1.251s
+
+
+
+OK
+
+
+Exit code: 0

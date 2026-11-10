@@ -1,0 +1,226 @@
+$ <home>\AppData\Local\Programs\Python\Python314\python.exe tools/build.py sim --sdl <SDL2> --build-dir out/desktop --jobs 4
+
++ "C:\Program Files\CMake\bin\cmake.EXE" -S . -B out/desktop -DVANTAGE_BUILD_SIMULATOR=ON -DCMAKE_PREFIX_PATH=<SDL2>
+
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26300.
+-- Found Python3: <home>/AppData/Local/Programs/Python/Python314/python.exe (found suitable version "3.14.7", minimum required is "3.11") found components: Interpreter
+-- Found Python3: <home>/AppData/Local/Programs/Python/Python314/python.exe (found version "3.14.7") found components: Interpreter
+-- Configuring done (3.6s)
+-- Generating done (3.3s)
+-- Build files have been written to: <checkout>/out/desktop
++ "C:\Program Files\CMake\bin\cmake.EXE" --build out/desktop --config Release --parallel 4
+
+MSBuild version 18.6.3+84d3e95b4 for .NET Framework
+
+
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\ZERO_CHECK.vcxproj]
+
+  Checking File Globs
+
+  1>Checking Build System
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\header_contracts.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  header_contracts.vcxproj -> <checkout>\out\desktop\tests\native\header_contracts.dir\Release\header_contracts.lib
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\capacity_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\delays_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\abi_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\vantage_sim_core.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+  abi_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\abi_test.exe
+
+  delays_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\delays_test.exe
+
+  capacity_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\capacity_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\files_test.vcxproj]
+
+  vantage_sim_core.vcxproj -> <checkout>\out\desktop\sim\Release\vantage_sim_core.lib
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\gpio_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\hardware_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\editor_touch.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+  gpio_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\gpio_test.exe
+
+  hardware_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\hardware_test.exe
+
+  editor_touch.vcxproj -> <checkout>\out\desktop\sim\Release\editor_touch.exe
+
+  files_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\files_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\mm_test_core.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\parallel_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\preempt_test.vcxproj]
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\process_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  mm_test_core.vcxproj -> <checkout>\out\desktop\tests\native\Release\mm_test_core.lib
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\mm_allocators_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  parallel_test.vcxproj -> <checkout>\out\desktop\sim\Release\parallel_test.exe
+
+  preempt_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\preempt_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\mm_pages_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  process_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\process_test.exe
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  mm_allocators_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\mm_allocators_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\mm_fdt_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\sd_controller_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\render_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  mm_pages_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\mm_pages_test.exe
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  mm_fdt_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\mm_fdt_test.exe
+
+  sd_controller_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\sd_controller_test.exe
+
+  render_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\render_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\sdio_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\serial_input_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\storage_host_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\storage_test.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  sdio_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\sdio_test.exe
+
+  serial_input_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\serial_input_test.exe
+
+  storage_host_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\storage_host_test.exe
+
+  storage_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\storage_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\task_smp_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\terminal_capture.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\terminal_smoke.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\terminal_storage_test.vcxproj]
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+  task_smp_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\task_smp_test.exe
+
+  terminal_capture.vcxproj -> <checkout>\out\desktop\sim\Release\terminal_capture.exe
+
+  terminal_smoke.vcxproj -> <checkout>\out\desktop\sim\Release\terminal_smoke.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\terminal_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\user_memory_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\touch_driver_test.vcxproj]
+
+  terminal_storage_test.vcxproj -> <checkout>\out\desktop\sim\Release\terminal_storage_test.exe
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  terminal_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\terminal_test.exe
+
+  touch_driver_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\touch_driver_test.exe
+
+  user_memory_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\user_memory_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\v3d_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\vantage_sim.vcxproj]
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+  vantage_sim.vcxproj -> <checkout>\out\desktop\sim\Release\vantage_sim.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\tests\native\wifi_test.vcxproj]
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\sim\vantage_sim_smoke.vcxproj]
+
+  v3d_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\v3d_test.exe
+
+  Building Custom Rule <checkout>/sim/CMakeLists.txt
+
+  Building Custom Rule <checkout>/tests/native/CMakeLists.txt
+
+  vantage_sim_smoke.vcxproj -> <checkout>\out\desktop\sim\Release\vantage_sim_smoke.exe
+
+  wifi_test.vcxproj -> <checkout>\out\desktop\tests\native\Release\wifi_test.exe
+
+C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VC\v180\Microsoft.CppBuild.targets(561,5): warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory as it could lead to issues with incremental build. [<checkout>\out\desktop\ALL_BUILD.vcxproj]
+
+  Building Custom Rule <checkout>/CMakeLists.txt
+
+
+Exit code: 0

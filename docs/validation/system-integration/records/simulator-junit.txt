@@ -1,0 +1,82 @@
+$ ctest --test-dir out/desktop -C Release --output-on-failure --output-junit <checkout>\out\evidence\simulator.xml
+
+Test project <checkout>/out/desktop
+      Start  1: hardware_mailbox
+ 1/32 Test  #1: hardware_mailbox .................   Passed    0.46 sec
+      Start  2: v3d_commands_and_mmu
+ 2/32 Test  #2: v3d_commands_and_mmu .............   Passed    0.69 sec
+      Start  3: render_backends
+ 3/32 Test  #3: render_backends ..................   Passed    0.94 sec
+      Start  4: wifi_firmware_and_frames
+ 4/32 Test  #4: wifi_firmware_and_frames .........   Passed    0.09 sec
+      Start  5: sdio_host
+ 5/32 Test  #5: sdio_host ........................   Passed    0.07 sec
+      Start  6: sd_controller
+ 6/32 Test  #6: sd_controller ....................   Passed    0.64 sec
+      Start  7: delays
+ 7/32 Test  #7: delays ...........................   Passed    0.06 sec
+      Start  8: touch_driver
+ 8/32 Test  #8: touch_driver .....................   Passed    0.06 sec
+      Start  9: serial_input
+ 9/32 Test  #9: serial_input .....................   Passed    0.06 sec
+      Start 10: gpio_pins
+10/32 Test #10: gpio_pins ........................   Passed    0.06 sec
+      Start 11: persistent_files
+11/32 Test #11: persistent_files .................   Passed    1.44 sec
+      Start 12: storage_recovery
+12/32 Test #12: storage_recovery .................   Passed   20.94 sec
+      Start 13: storage_capacity
+13/32 Test #13: storage_capacity .................   Passed    1.88 sec
+      Start 14: storage_process_reboot
+14/32 Test #14: storage_process_reboot ...........   Passed    0.67 sec
+      Start 15: mm_pages
+15/32 Test #15: mm_pages .........................   Passed    0.06 sec
+      Start 16: mm_allocators
+16/32 Test #16: mm_allocators ....................   Passed    0.30 sec
+      Start 17: mm_fdt
+17/32 Test #17: mm_fdt ...........................   Passed    0.30 sec
+      Start 18: scheduler_four_core
+18/32 Test #18: scheduler_four_core ..............   Passed    0.59 sec
+      Start 19: scheduler_processes
+19/32 Test #19: scheduler_processes ..............   Passed    0.61 sec
+      Start 20: scheduler_preemption
+20/32 Test #20: scheduler_preemption .............   Passed    0.52 sec
+      Start 21: terminal_model
+21/32 Test #21: terminal_model ...................   Passed    0.32 sec
+      Start 22: user_memory
+22/32 Test #22: user_memory ......................   Passed    0.06 sec
+      Start 23: syscall_abi
+23/32 Test #23: syscall_abi ......................   Passed    0.05 sec
+      Start 24: python_tools
+24/32 Test #24: python_tools .....................   Passed    7.44 sec
+      Start 25: simulator_smoke
+25/32 Test #25: simulator_smoke ..................   Passed    0.33 sec
+      Start 26: terminal_smoke
+26/32 Test #26: terminal_smoke ...................   Passed    0.69 sec
+      Start 27: editor_touch
+27/32 Test #27: editor_touch .....................   Passed    2.36 sec
+      Start 28: terminal_storage_reboot
+28/32 Test #28: terminal_storage_reboot ..........   Passed    1.02 sec
+      Start 29: terminal_capture_reboot
+29/32 Test #29: terminal_capture_reboot ..........   Passed    1.12 sec
+      Start 30: parallel_batches
+30/32 Test #30: parallel_batches .................   Passed    0.07 sec
+      Start 31: parallel_missing_worker
+31/32 Test #31: parallel_missing_worker ..........   Passed    1.03 sec
+      Start 32: parallel_completion_timeout
+32/32 Test #32: parallel_completion_timeout ......   Passed    1.04 sec
+
+100% tests passed out of 32
+
+Label Time Summary:
+drivers      =   3.12 sec*proc (10 tests)
+memory       =   0.67 sec*proc (3 tests)
+scheduler    =   1.72 sec*proc (3 tests)
+simulator    =   7.66 sec*proc (8 tests)
+storage      =  27.06 sec*proc (6 tests)
+tooling      =   7.44 sec*proc (1 test)
+user         =   0.43 sec*proc (3 tests)
+
+Total Test time (real) =  50.08 sec
+
+Exit code: 0

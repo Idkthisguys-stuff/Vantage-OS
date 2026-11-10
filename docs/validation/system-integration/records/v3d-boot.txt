@@ -1,0 +1,26 @@
+$ <model-python> -B tests/arm/v3d_boot.py out/boot-default/kernel8.elf out/boot-cpu/kernel8.elf -v
+
+test_absent_or_broken_device_boots_to_ui_on_cpu (__main__.BootTests.test_absent_or_broken_device_boots_to_ui_on_cpu) ... ok
+
+test_cpu_build_never_touches_the_device (__main__.BootTests.test_cpu_build_never_touches_the_device) ... ok
+
+test_dead_mailbox_and_allocation_failure_fall_back (__main__.BootTests.test_dead_mailbox_and_allocation_failure_fall_back) ... ok
+
+test_runtime_failure_keeps_the_frame_and_continues_on_cpu (__main__.BootTests.test_runtime_failure_keeps_the_frame_and_continues_on_cpu) ... ok
+
+test_unconfirmed_stop_quarantines_gpu_memory (__main__.BootTests.test_unconfirmed_stop_quarantines_gpu_memory) ... ok
+
+test_working_device_boots_to_ui_on_v3d (__main__.BootTests.test_working_device_boots_to_ui_on_v3d) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 6 tests in 171.353s
+
+
+
+OK
+
+
+Exit code: 0
