@@ -1,0 +1,24 @@
+$ <model-python> -B tests/arm/capacity.py out/arm/kernel8.elf -v
+
+test_256_real_entries_and_capacity_failure (__main__.CapacityTests.test_256_real_entries_and_capacity_failure) ... ok
+
+test_large_file_partial_growth_and_remount (__main__.CapacityTests.test_large_file_partial_growth_and_remount) ... ok
+
+test_long_directory_unmapped_and_readonly_payloads_fault_process (__main__.CapacityTests.test_long_directory_unmapped_and_readonly_payloads_fault_process) ... ok
+
+test_long_path_syscalls_from_isolated_el0_process (__main__.CapacityTests.test_long_path_syscalls_from_isolated_el0_process) ... ok
+
+test_one_mib_file_read_and_capacity_bound (__main__.CapacityTests.test_one_mib_file_read_and_capacity_bound) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 5 tests in 39.343s
+
+
+
+OK
+
+
+Exit code: 0

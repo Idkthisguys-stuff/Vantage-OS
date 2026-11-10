@@ -431,6 +431,22 @@ unmounted-storage errors and buffer retention after a failed save. Linked ARM
 file tests run the editor inside the embedded terminal process, driven by key
 and touch events, and read the saved file back through the kernel. These are
 software tests, not physical SD acceptance.
+`terminal_capture_reboot` additionally drives the actual SDL application, saves a
+nested file, and validates its exact bytes and an empty directory from a second
+process. To retain its real 480x800 framebuffer captures instead of using a
+temporary directory:
+
+```sh
+python tests/tools/terminal_capture_roundtrip.py /path/to/terminal_capture --output out/captures
+```
+
+The output directory must be new. On multi-config Windows builds the executable
+is `<build>/sim/Release/terminal_capture.exe`; on single-config builds it is
+`<build>/sim/terminal_capture`. `capture.json` records the persisted namespace and
+BMP hashes. These are SDL software-renderer captures, not Pi photographs.
+The [integration validation record](validation/system-integration/README.md)
+links the recorded commands, logs, JUnit reports and lossless PNG copies.
+
 `editor_touch` drives SDL touch events through the application to exercise line
 selection, on-screen text input, Save, New/Drop, drag cancellation, exit
 confirmation and persistence after remount. Model tests exercise editor bounds

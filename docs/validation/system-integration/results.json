@@ -1,0 +1,523 @@
+{
+  "schema": 1,
+  "tested_source_commit": "0030ac826eccca42e840bc9f80b7239aade03cb9",
+  "date_utc": "2026-11-10",
+  "scope": "Local Windows host tests, SDL captures and linked ARM software models; not physical Pi acceptance.",
+  "normalization": "Private absolute paths and local machine hostname are replaced; test names, results, output, counts and timings are retained.",
+  "environment": {
+    "os": "Windows x64",
+    "native_compiler": "MSVC 19.51.36243.0",
+    "python": "3.14.7",
+    "cmake": "4.4.3",
+    "cross_compiler": "Arm GNU Toolchain 15.2.Rel1; GCC 15.2.1",
+    "unicorn": "2.1.4",
+    "capstone": "5.0.7",
+    "sdl": "2.32.10",
+    "pillow": "12.3.0"
+  },
+  "summaries": [
+    {
+      "label": "Native CTest",
+      "passed": 24,
+      "total": 24,
+      "note": "MSVC; 24 shared host suites"
+    },
+    {
+      "label": "Desktop CTest",
+      "passed": 32,
+      "total": 32,
+      "note": "24 shared + 8 SDL suites"
+    },
+    {
+      "label": "Linked ARM: default V3D",
+      "passed": 107,
+      "total": 107,
+      "note": "12 suites; actual linked ARM code"
+    },
+    {
+      "label": "Linked ARM: forced CPU",
+      "passed": 107,
+      "total": 107,
+      "note": "12 suites; V3D=0 kernel"
+    },
+    {
+      "label": "Boot / fallback models",
+      "passed": 13,
+      "total": 13,
+      "note": "GPU 6 | SD 5 | Wi-Fi 2"
+    },
+    {
+      "label": "Python tooling",
+      "passed": 22,
+      "total": 22,
+      "note": "Images, config, layout, firmware"
+    }
+  ],
+  "fault_injection": {
+    "cut_points": 78,
+    "torn_lengths": [
+      0,
+      1,
+      255,
+      511,
+      512
+    ],
+    "device_modes": [
+      "direct",
+      "sync-buffered"
+    ],
+    "cases": 780
+  },
+  "image_sha256": {
+    "arm": "98243bfffa90724571b0c19245fed6a6963e14cee3e4f294e31e0f017cd31def",
+    "cpu": "d2b2c2bee9922fce75a45b36270c171b2ef0490ec026bf9001c4a884ca64dc85"
+  },
+  "frames": {
+    "editor": {
+      "file": "terminal.editor.png",
+      "width": 480,
+      "height": 800,
+      "original_bmp_sha256": "dec94363880cf55c6771f5034df7caa2e5b0e4a14e1666459dd5483c9f699ca1",
+      "pixel_sha256": "4d9953a5060f0eb164f722c5ed91622248003aac1822ec231b4be4943d4e640e",
+      "png_sha256": "0bcf9a43f6c30d78cef80798de650ab01597d38c300936d794b3a7d91fee6d2a"
+    },
+    "folders": {
+      "file": "terminal.folders.png",
+      "width": 480,
+      "height": 800,
+      "original_bmp_sha256": "1471f98c769b6f5f60d297b456efb0310ddfc2245f0c6729f7442090e6820611",
+      "pixel_sha256": "03d938fa9c742c54f05c250e2bbf25dff04418b04f480cd11db20e9a6b930c0a",
+      "png_sha256": "af22b879dcbc59294eccff2b414f6b584942d69cb7f6f009fdcc0037db7b93f4"
+    },
+    "reboot": {
+      "file": "terminal.reboot.png",
+      "width": 480,
+      "height": 800,
+      "original_bmp_sha256": "73fe802b73e1de9fc4c033616e7e0beef103e49acc80484e09af9b589ffe27af",
+      "pixel_sha256": "89dc0c68562502b1a9c6e61251dd773b3bcccaa22230cb0a8683638b8cb04243",
+      "png_sha256": "a67ddf2eca5ebd573e1772b215712a2380c754536dd9925f5bdab71c0298e24a"
+    }
+  },
+  "capture": {
+    "kind": "actual SDL framebuffer captures; not Pi hardware",
+    "processes": 2,
+    "format_version": 3,
+    "files": [
+      {
+        "path": "/ram/empty",
+        "size": 0,
+        "type": "directory"
+      },
+      {
+        "path": "/ram/docs",
+        "size": 0,
+        "type": "directory"
+      },
+      {
+        "path": "/ram/docs/notes",
+        "size": 0,
+        "type": "directory"
+      },
+      {
+        "path": "/ram/docs/notes/roadmap",
+        "size": 95,
+        "type": "file"
+      }
+    ],
+    "frames": {
+      "editor": {
+        "file": "terminal.editor.bmp",
+        "sha256": "dec94363880cf55c6771f5034df7caa2e5b0e4a14e1666459dd5483c9f699ca1"
+      },
+      "folders": {
+        "file": "terminal.folders.bmp",
+        "sha256": "1471f98c769b6f5f60d297b456efb0310ddfc2245f0c6729f7442090e6820611"
+      },
+      "reboot": {
+        "file": "terminal.reboot.bmp",
+        "sha256": "73fe802b73e1de9fc4c033616e7e0beef103e49acc80484e09af9b589ffe27af"
+      }
+    }
+  },
+  "commands": [
+    {
+      "name": "host-build-and-test",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py test --build-dir out/host --jobs 4",
+      "exit_code": 0,
+      "elapsed_seconds": 97.036,
+      "log": "host-build-and-test.txt"
+    },
+    {
+      "name": "host-junit",
+      "command": "ctest --test-dir out/host -C Release --output-on-failure --output-junit <checkout>\\out\\evidence\\host.xml",
+      "exit_code": 0,
+      "elapsed_seconds": 36.789,
+      "log": "host-junit.txt"
+    },
+    {
+      "name": "simulator-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py sim --sdl <SDL2> --build-dir out/desktop --jobs 4",
+      "exit_code": 0,
+      "elapsed_seconds": 14.021,
+      "log": "simulator-build.txt"
+    },
+    {
+      "name": "simulator-junit",
+      "command": "ctest --test-dir out/desktop -C Release --output-on-failure --output-junit <checkout>\\out\\evidence\\simulator.xml",
+      "exit_code": 0,
+      "elapsed_seconds": 50.159,
+      "log": "simulator-junit.txt"
+    },
+    {
+      "name": "v3-crash-recovery",
+      "command": "out/host/tests/native/Release/capacity_test.exe",
+      "exit_code": 0,
+      "elapsed_seconds": 1.647,
+      "log": "v3-crash-recovery.txt"
+    },
+    {
+      "name": "sdl-frame-capture",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tests/tools/terminal_capture_roundtrip.py out/desktop/sim/Release/terminal_capture.exe --output out/evidence/final-captures",
+      "exit_code": 0,
+      "elapsed_seconds": 1.19,
+      "log": "sdl-frame-capture.txt"
+    },
+    {
+      "name": "tool-tests",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe -B -m unittest discover -s tests/tools -v",
+      "exit_code": 0,
+      "elapsed_seconds": 9.829,
+      "log": "tool-tests.txt",
+      "tests": 22
+    },
+    {
+      "name": "host-diff-check",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "elapsed_seconds": 0.1,
+      "log": "host-diff-check.txt"
+    },
+    {
+      "name": "arm-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/arm --jobs 4",
+      "exit_code": 0,
+      "elapsed_seconds": 13.977,
+      "log": "arm-build.txt"
+    },
+    {
+      "name": "arm-memory_management",
+      "command": "<model-python> -B tests/arm/memory_management.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 76.047,
+      "log": "arm-memory_management.txt",
+      "tests": 14
+    },
+    {
+      "name": "arm-secondary_startup",
+      "command": "<model-python> -B tests/arm/secondary_startup.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 1.242,
+      "log": "arm-secondary_startup.txt",
+      "tests": 12
+    },
+    {
+      "name": "arm-interrupts",
+      "command": "<model-python> -B tests/arm/interrupts.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 9.015,
+      "log": "arm-interrupts.txt",
+      "tests": 9
+    },
+    {
+      "name": "arm-processes",
+      "command": "<model-python> -B tests/arm/processes.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 23.054,
+      "log": "arm-processes.txt",
+      "tests": 11
+    },
+    {
+      "name": "arm-preemption",
+      "command": "<model-python> -B tests/arm/preemption.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 15.957,
+      "log": "arm-preemption.txt",
+      "tests": 6
+    },
+    {
+      "name": "arm-terminal",
+      "command": "<model-python> -B tests/arm/terminal.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 12.443,
+      "log": "arm-terminal.txt",
+      "tests": 5
+    },
+    {
+      "name": "arm-tasks",
+      "command": "<model-python> -B tests/arm/tasks.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 5.886,
+      "log": "arm-tasks.txt",
+      "tests": 14
+    },
+    {
+      "name": "arm-task_smp",
+      "command": "<model-python> -B tests/arm/task_smp.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 102.311,
+      "log": "arm-task_smp.txt",
+      "tests": 7
+    },
+    {
+      "name": "arm-files",
+      "command": "<model-python> -B tests/arm/files.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 206.876,
+      "log": "arm-files.txt",
+      "tests": 14
+    },
+    {
+      "name": "arm-capacity",
+      "command": "<model-python> -B tests/arm/capacity.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 39.779,
+      "log": "arm-capacity.txt",
+      "tests": 5
+    },
+    {
+      "name": "arm-pi4_drivers",
+      "command": "<model-python> -B tests/arm/pi4_drivers.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 36.971,
+      "log": "arm-pi4_drivers.txt",
+      "tests": 4
+    },
+    {
+      "name": "arm-storage",
+      "command": "<model-python> -B tests/arm/storage.py out/arm/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 7.275,
+      "log": "arm-storage.txt",
+      "tests": 6
+    },
+    {
+      "name": "arm-diff-check",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "elapsed_seconds": 0.074,
+      "log": "arm-diff-check.txt"
+    },
+    {
+      "name": "cpu-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/cpu --jobs 4 --v3d 0",
+      "exit_code": 0,
+      "elapsed_seconds": 13.952,
+      "log": "cpu-build.txt"
+    },
+    {
+      "name": "cpu-memory_management",
+      "command": "<model-python> -B tests/arm/memory_management.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 75.714,
+      "log": "cpu-memory_management.txt",
+      "tests": 14
+    },
+    {
+      "name": "cpu-secondary_startup",
+      "command": "<model-python> -B tests/arm/secondary_startup.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 1.207,
+      "log": "cpu-secondary_startup.txt",
+      "tests": 12
+    },
+    {
+      "name": "cpu-interrupts",
+      "command": "<model-python> -B tests/arm/interrupts.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 9.055,
+      "log": "cpu-interrupts.txt",
+      "tests": 9
+    },
+    {
+      "name": "cpu-processes",
+      "command": "<model-python> -B tests/arm/processes.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 23.154,
+      "log": "cpu-processes.txt",
+      "tests": 11
+    },
+    {
+      "name": "cpu-preemption",
+      "command": "<model-python> -B tests/arm/preemption.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 15.824,
+      "log": "cpu-preemption.txt",
+      "tests": 6
+    },
+    {
+      "name": "cpu-terminal",
+      "command": "<model-python> -B tests/arm/terminal.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 12.489,
+      "log": "cpu-terminal.txt",
+      "tests": 5
+    },
+    {
+      "name": "cpu-tasks",
+      "command": "<model-python> -B tests/arm/tasks.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 5.688,
+      "log": "cpu-tasks.txt",
+      "tests": 14
+    },
+    {
+      "name": "cpu-task_smp",
+      "command": "<model-python> -B tests/arm/task_smp.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 102.145,
+      "log": "cpu-task_smp.txt",
+      "tests": 7
+    },
+    {
+      "name": "cpu-files",
+      "command": "<model-python> -B tests/arm/files.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 206.441,
+      "log": "cpu-files.txt",
+      "tests": 14
+    },
+    {
+      "name": "cpu-capacity",
+      "command": "<model-python> -B tests/arm/capacity.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 39.837,
+      "log": "cpu-capacity.txt",
+      "tests": 5
+    },
+    {
+      "name": "cpu-pi4_drivers",
+      "command": "<model-python> -B tests/arm/pi4_drivers.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 36.746,
+      "log": "cpu-pi4_drivers.txt",
+      "tests": 4
+    },
+    {
+      "name": "cpu-storage",
+      "command": "<model-python> -B tests/arm/storage.py out/cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 7.091,
+      "log": "cpu-storage.txt",
+      "tests": 6
+    },
+    {
+      "name": "cpu-diff-check",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "elapsed_seconds": 0.091,
+      "log": "cpu-diff-check.txt"
+    },
+    {
+      "name": "boot-default-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/boot-default --jobs 4",
+      "exit_code": 0,
+      "elapsed_seconds": 13.914,
+      "log": "boot-default-build.txt"
+    },
+    {
+      "name": "boot-cpu-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/boot-cpu --jobs 4 --v3d 0",
+      "exit_code": 0,
+      "elapsed_seconds": 9.285,
+      "log": "boot-cpu-build.txt"
+    },
+    {
+      "name": "all-disabled-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/disabled --jobs 4 --v3d 0 --wifi 0 --storage 0",
+      "exit_code": 0,
+      "elapsed_seconds": 12.975,
+      "log": "all-disabled-build.txt"
+    },
+    {
+      "name": "normal-storage-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/storage --jobs 4 --sd-base-clock-hz 100000000 --storage-partition 1",
+      "exit_code": 0,
+      "elapsed_seconds": 11.26,
+      "log": "normal-storage-build.txt"
+    },
+    {
+      "name": "validation-storage-build",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/validation --jobs 4 --storage-validation 1 --sd-base-clock-hz 100000000 --storage-partition 1",
+      "exit_code": 0,
+      "elapsed_seconds": 8.516,
+      "log": "validation-storage-build.txt"
+    },
+    {
+      "name": "synthetic-wifi-assets",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/embed_wifi.py --firmware <checkout>\\out\\synthetic-wifi\\firmware.bin --nvram <checkout>\\out\\synthetic-wifi\\nvram.txt --clm <checkout>\\out\\synthetic-wifi\\clm.bin --country GB --regrev 0 --output <checkout>\\out\\synthetic-wifi\\assets.c",
+      "exit_code": 0,
+      "elapsed_seconds": 0.312,
+      "log": "synthetic-wifi-assets.txt"
+    },
+    {
+      "name": "synthetic-wifi-compile-only",
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe tools/build.py --toolchain-dir <toolchain> --build-dir out/wifi --jobs 4 --wifi-firmware-c <checkout>\\out\\synthetic-wifi\\assets.c",
+      "exit_code": 0,
+      "elapsed_seconds": 8.006,
+      "log": "synthetic-wifi-compile-only.txt"
+    },
+    {
+      "name": "storage-boot",
+      "command": "<model-python> -B tests/arm/storage_boot.py out/boot-default/kernel8.elf out/validation/kernel8.elf out/storage/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 1.704,
+      "log": "storage-boot.txt",
+      "tests": 5
+    },
+    {
+      "name": "wifi-boot",
+      "command": "<model-python> -B tests/arm/wifi_boot.py out/boot-cpu/kernel8.elf out/disabled/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 0.714,
+      "log": "wifi-boot.txt",
+      "tests": 2
+    },
+    {
+      "name": "v3d-boot",
+      "command": "<model-python> -B tests/arm/v3d_boot.py out/boot-default/kernel8.elf out/boot-cpu/kernel8.elf -v",
+      "exit_code": 0,
+      "elapsed_seconds": 171.836,
+      "log": "v3d-boot.txt",
+      "tests": 6
+    },
+    {
+      "name": "variants-diff-check",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "elapsed_seconds": 0.079,
+      "log": "variants-diff-check.txt"
+    }
+  ],
+  "jobs": [
+    {
+      "job": "host",
+      "started_utc": "2026-11-10T15:20:45.708116+00:00",
+      "finished_utc": "2026-11-10T15:24:16.491770+00:00"
+    },
+    {
+      "job": "arm",
+      "started_utc": "2026-11-10T15:20:45.712707+00:00",
+      "finished_utc": "2026-11-10T15:29:56.638718+00:00"
+    },
+    {
+      "job": "cpu",
+      "started_utc": "2026-11-10T15:20:45.741312+00:00",
+      "finished_utc": "2026-11-10T15:29:55.196959+00:00"
+    },
+    {
+      "job": "variants",
+      "started_utc": "2026-11-10T15:20:45.780056+00:00",
+      "finished_utc": "2026-11-10T15:24:44.398267+00:00"
+    }
+  ]
+}

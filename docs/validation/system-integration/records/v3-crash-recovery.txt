@@ -1,0 +1,8 @@
+$ out/host/tests/native/Release/capacity_test.exe
+
+PASS: V3 78 cut points, five tears, direct/buffered devices
+
+PASS: 256 entries, 255-byte paths, 1 MiB files, shared capacity and additive ABI
+
+
+Exit code: 0

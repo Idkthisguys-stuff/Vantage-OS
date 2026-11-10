@@ -1,0 +1,18 @@
+$ <model-python> -B tests/arm/wifi_boot.py out/boot-cpu/kernel8.elf out/disabled/kernel8.elf -v
+
+test_absent_assets_skip_radio (__main__.WifiBootTests.test_absent_assets_skip_radio) ... ok
+
+test_disabled_skips_radio (__main__.WifiBootTests.test_disabled_skips_radio) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 2 tests in 0.248s
+
+
+
+OK
+
+
+Exit code: 0

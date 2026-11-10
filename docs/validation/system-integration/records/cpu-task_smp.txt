@@ -1,0 +1,28 @@
+$ <model-python> -B tests/arm/task_smp.py out/cpu/kernel8.elf -v
+
+test_all_four_cores_keep_independent_stacks_registers_and_affinity (__main__.MulticoreTests.test_all_four_cores_keep_independent_stacks_registers_and_affinity) ... ok
+
+test_boot_probe_requires_simultaneous_entry_and_all_core_progress (__main__.MulticoreTests.test_boot_probe_requires_simultaneous_entry_and_all_core_progress) ... ok
+
+test_cross_core_cycle_is_rejected_without_stalling_dispatchers (__main__.MulticoreTests.test_cross_core_cycle_is_rejected_without_stalling_dispatchers) ... ok
+
+test_cross_core_join_wakes_after_target_context_is_saved (__main__.MulticoreTests.test_cross_core_join_wakes_after_target_context_is_saved) ... ok
+
+test_movable_tasks_cannot_initialize_raw_sd_or_mount_storage (__main__.MulticoreTests.test_movable_tasks_cannot_initialize_raw_sd_or_mount_storage) ... ok
+
+test_movable_tasks_preserve_actual_context_when_resuming_on_other_cores (__main__.MulticoreTests.test_movable_tasks_preserve_actual_context_when_resuming_on_other_cores) ... ok
+
+test_remote_syscalls_and_raw_file_calls_leave_storage_untouched (__main__.MulticoreTests.test_remote_syscalls_and_raw_file_calls_leave_storage_untouched) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 7 tests in 101.706s
+
+
+
+OK
+
+
+Exit code: 0

@@ -1,0 +1,6 @@
+$ <home>\AppData\Local\Programs\Python\Python314\python.exe tools/embed_wifi.py --firmware <checkout>\out\synthetic-wifi\firmware.bin --nvram <checkout>\out\synthetic-wifi\nvram.txt --clm <checkout>\out\synthetic-wifi\clm.bin --country GB --regrev 0 --output <checkout>\out\synthetic-wifi\assets.c
+
+Generated <checkout>\out\synthetic-wifi\assets.c. Retain the firmware/NVRAM/CLM redistribution licenses with any distributed image.
+
+
+Exit code: 0

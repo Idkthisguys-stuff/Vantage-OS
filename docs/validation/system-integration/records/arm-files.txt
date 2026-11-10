@@ -1,0 +1,42 @@
+$ <model-python> -B tests/arm/files.py out/arm/kernel8.elf -v
+
+test_directory_services_reject_nonowner_core_before_access (__main__.FileTests.test_directory_services_reject_nonowner_core_before_access) ... ok
+
+test_el0_bad_paths_flags_and_reserved_fields_do_not_create_files (__main__.FileTests.test_el0_bad_paths_flags_and_reserved_fields_do_not_create_files) ... ok
+
+test_el0_directory_abi_and_persistent_empty_directory (__main__.FileTests.test_el0_directory_abi_and_persistent_empty_directory) ... ok
+
+test_el0_file_calls_round_trip_through_copied_payloads (__main__.FileTests.test_el0_file_calls_round_trip_through_copied_payloads) ... ok
+
+test_file_calls_from_kernel_callers_never_dereference_their_argument (__main__.FileTests.test_file_calls_from_kernel_callers_never_dereference_their_argument) ... ok
+
+test_files_survive_fresh_kernel_state_and_detect_corruption (__main__.FileTests.test_files_survive_fresh_kernel_state_and_detect_corruption) ... ok
+
+test_full_file_failed_write_is_atomic_and_seek_has_no_holes (__main__.FileTests.test_full_file_failed_write_is_atomic_and_seek_has_no_holes) ... ok
+
+test_handle_generation_exhaustion_retires_slot (__main__.FileTests.test_handle_generation_exhaustion_retires_slot) ... ok
+
+test_handles_belong_to_one_process_and_are_released_when_it_exits (__main__.FileTests.test_handles_belong_to_one_process_and_are_released_when_it_exits) ... ok
+
+test_reboot_probe_does_not_repair_nonempty_corruption (__main__.FileTests.test_reboot_probe_does_not_repair_nonempty_corruption) ... ok
+
+test_reboot_probe_recovers_committed_empty_creation_after_power_loss (__main__.FileTests.test_reboot_probe_recovers_committed_empty_creation_after_power_loss) ... ok
+
+test_removed_data_is_not_exposed_by_reused_slots (__main__.FileTests.test_removed_data_is_not_exposed_by_reused_slots) ... ok
+
+test_terminal_directory_commands_and_nested_file_from_el0 (__main__.FileTests.test_terminal_directory_commands_and_nested_file_from_el0) ... ok
+
+test_terminal_editor_saves_from_el0_through_file_syscalls (__main__.FileTests.test_terminal_editor_saves_from_el0_through_file_syscalls) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 14 tests in 206.393s
+
+
+
+OK
+
+
+Exit code: 0

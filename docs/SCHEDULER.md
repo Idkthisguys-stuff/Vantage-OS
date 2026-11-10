@@ -280,7 +280,9 @@ no timer armed; they must not yield, block or change scheduler state.
 
 ## System calls
 
-Existing numbers and payload layouts are unchanged; no system call was added.
+The scheduler retains the existing task-call numbers and payloads below.
+Process creation and management remain kernel APIs. The separate additive
+directory and long-path file calls are documented in [STORAGE.md](STORAGE.md).
 
 | Call | ID | Result |
 |---|---|---|

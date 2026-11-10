@@ -1,0 +1,26 @@
+$ <model-python> -B tests/arm/storage.py out/cpu/kernel8.elf -v
+
+test_echo_and_read_errors_invalidate_card (__main__.StorageTests.test_echo_and_read_errors_invalidate_card) ... ok
+
+test_linked_timer_reads_carry_and_waits_in_milliseconds (__main__.StorageTests.test_linked_timer_reads_carry_and_waits_in_milliseconds) ... ok
+
+test_linked_unaligned_writes_status_erase_and_fail_closed (__main__.StorageTests.test_linked_unaligned_writes_status_erase_and_fail_closed) ... ok
+
+test_owner_and_buffer_rejections_do_not_touch_controller (__main__.StorageTests.test_owner_and_buffer_rejections_do_not_touch_controller) ... ok
+
+test_pi_adapter_initializes_and_reads_unaligned_buffer (__main__.StorageTests.test_pi_adapter_initializes_and_reads_unaligned_buffer) ... ok
+
+test_pi_adapter_mounts_and_persists_through_sector_syscalls (__main__.StorageTests.test_pi_adapter_mounts_and_persists_through_sector_syscalls) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 6 tests in 6.752s
+
+
+
+OK
+
+
+Exit code: 0

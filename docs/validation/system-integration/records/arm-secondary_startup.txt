@@ -1,0 +1,40 @@
+$ <model-python> -B tests/arm/secondary_startup.py out/arm/kernel8.elf -v
+
+test_acquire_release_and_completion_instructions (__main__.StartupTests.test_acquire_release_and_completion_instructions) ... ok
+
+test_layout (__main__.StartupTests.test_layout) ... ok
+
+test_main_sequences_and_halts_on_missing_worker (__main__.StartupTests.test_main_sequences_and_halts_on_missing_worker) ... ok
+
+test_mmu_init_rejects_live_tables (__main__.StartupTests.test_mmu_init_rejects_live_tables) ... ok
+
+test_primary_rejects_before_release (__main__.StartupTests.test_primary_rejects_before_release) ... ok
+
+test_release_slots (__main__.StartupTests.test_release_slots) ... ok
+
+test_response_just_before_deadline (__main__.StartupTests.test_response_just_before_deadline) ... ok
+
+test_shared_mmu_registers_and_gate_publication (__main__.StartupTests.test_shared_mmu_registers_and_gate_publication) ... ok
+
+test_timeouts_and_timer_wrap (__main__.StartupTests.test_timeouts_and_timer_wrap) ... ok
+
+test_workers_have_distinct_stacks_and_flags (__main__.StartupTests.test_workers_have_distinct_stacks_and_flags) ... ok
+
+test_workers_reject_invalid_state (__main__.StartupTests.test_workers_reject_invalid_state) ... ok
+
+test_workers_wait_for_gate_then_enable_mmu_and_interrupts_before_c (__main__.StartupTests.test_workers_wait_for_gate_then_enable_mmu_and_interrupts_before_c) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 12 tests in 0.681s
+
+
+
+OK
+
+Mocked assembled-code tests: not firmware, cache coherence or Pi hardware.
+
+
+Exit code: 0

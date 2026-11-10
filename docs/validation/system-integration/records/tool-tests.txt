@@ -1,0 +1,58 @@
+$ <home>\AppData\Local\Programs\Python\Python314\python.exe -B -m unittest discover -s tests/tools -v
+
+test_argument_validation (test_build.BuildHelperTests.test_argument_validation) ... ok
+
+test_default_options (test_build.BuildHelperTests.test_default_options) ... ok
+
+test_portable_tool_directories (test_build.BuildHelperTests.test_portable_tool_directories) ... ok
+
+test_make_defaults_and_validation_requirements (test_build_config.BuildConfigTests.test_make_defaults_and_validation_requirements) ... ok
+
+test_unchanged_configuration_keeps_timestamp_and_changed_flags_replace_it (test_build_config.BuildConfigTests.test_unchanged_configuration_keeps_timestamp_and_changed_flags_replace_it) ... ok
+
+test_explicit_regulatory_values (test_embed_wifi.EmbedTests.test_explicit_regulatory_values) ... ok
+
+test_invalid_images_and_binary_nvram_rejected (test_embed_wifi.EmbedTests.test_invalid_images_and_binary_nvram_rejected) ... ok
+
+test_no_overwrite_of_unrelated_files_or_inputs (test_embed_wifi.EmbedTests.test_no_overwrite_of_unrelated_files_or_inputs) ... ok
+
+test_reproducible_output_and_hash_manifest (test_embed_wifi.EmbedTests.test_reproducible_output_and_hash_manifest) ... ok
+
+test_unrelated_manifest_is_preserved (test_embed_wifi.EmbedTests.test_unrelated_manifest_is_preserved) ... ok
+
+test_kernel_manifest_covers_production_sources_exactly_once (test_layout.LayoutTests.test_kernel_manifest_covers_production_sources_exactly_once) ... ok
+
+test_project_includes_exist_and_use_the_canonical_namespace (test_layout.LayoutTests.test_project_includes_exist_and_use_the_canonical_namespace) ... ok
+
+test_shared_abi_does_not_import_privileged_headers (test_layout.LayoutTests.test_shared_abi_does_not_import_privileged_headers) ... ok
+
+test_user_apps_do_not_import_kernel_or_hardware_apis (test_layout.LayoutTests.test_user_apps_do_not_import_kernel_or_hardware_apis) ... ok
+
+test_256_entries_and_one_mib_file (test_storage_capacity.CapacityTests.test_256_entries_and_one_mib_file) ... ok
+
+test_cli_defaults_and_both_bank_recovery (test_storage_capacity.CapacityTests.test_cli_defaults_and_both_bank_recovery) ... ok
+
+test_explicit_migration_keeps_source_and_requires_new_output (test_storage_capacity.CapacityTests.test_explicit_migration_keeps_source_and_requires_new_output) ... ok
+
+test_mixed_formats_and_recovered_sources_are_rejected (test_storage_capacity.CapacityTests.test_mixed_formats_and_recovered_sources_are_rejected) ... ok
+
+test_paths_and_checksum_valid_semantic_corruption (test_storage_capacity.CapacityTests.test_paths_and_checksum_valid_semantic_corruption) ... ok
+
+test_format_and_inspect_regular_image_preserves_surrounding_sectors (test_storage_image.ImageTests.test_format_and_inspect_regular_image_preserves_surrounding_sectors) ... ok
+
+test_old_files_and_explicit_directory_trees (test_storage_image.ImageTests.test_old_files_and_explicit_directory_trees) ... ok
+
+test_partition_rejects_overlap_gpt_bounds_and_wrong_type (test_storage_image.ImageTests.test_partition_rejects_overlap_gpt_bounds_and_wrong_type) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 22 tests in 9.506s
+
+
+
+OK
+
+
+Exit code: 0

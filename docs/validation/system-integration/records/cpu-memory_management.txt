@@ -1,0 +1,42 @@
+$ <model-python> -B tests/arm/memory_management.py out/cpu/kernel8.elf -v
+
+test_boot_order_and_failed_discovery (__main__.MemoryTests.test_boot_order_and_failed_discovery) ... ok
+
+test_boot_rejects_bad_firmware_before_clear (__main__.MemoryTests.test_boot_rejects_bad_firmware_before_clear) ... ok
+
+test_boot_rejects_initrd_conflicts_before_clear (__main__.MemoryTests.test_boot_rejects_initrd_conflicts_before_clear) ... ok
+
+test_boot_rejects_overlapping_dtb_without_writes (__main__.MemoryTests.test_boot_rejects_overlapping_dtb_without_writes) ... ok
+
+test_boot_rejects_reserved_payload_conflicts_before_clear (__main__.MemoryTests.test_boot_rejects_reserved_payload_conflicts_before_clear) ... ok
+
+test_bootstrap_stack_is_part_of_loaded_image (__main__.MemoryTests.test_bootstrap_stack_is_part_of_loaded_image) ... ok
+
+test_cache_state_and_live_table_rebuild (__main__.MemoryTests.test_cache_state_and_live_table_rebuild) ... ok
+
+test_linked_allocator_and_stack_guard (__main__.MemoryTests.test_linked_allocator_and_stack_guard) ... ok
+
+test_main_discovers_before_releasing_workers (__main__.MemoryTests.test_main_discovers_before_releasing_workers) ... ok
+
+test_primary_preserves_dtb_and_clears_bss (__main__.MemoryTests.test_primary_preserves_dtb_and_clears_bss) ... ok
+
+test_renderer_uses_heap_and_reserved_framebuffer (__main__.MemoryTests.test_renderer_uses_heap_and_reserved_framebuffer) ... ok
+
+test_reservation_conflicts_and_reinitialization (__main__.MemoryTests.test_reservation_conflicts_and_reinitialization) ... ok
+
+test_tables_and_boot_gate (__main__.MemoryTests.test_tables_and_boot_gate) ... ok
+
+test_zeroing_exhaustion_owner_and_reentry (__main__.MemoryTests.test_zeroing_exhaustion_owner_and_reentry) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 14 tests in 74.953s
+
+
+
+OK
+
+
+Exit code: 0
