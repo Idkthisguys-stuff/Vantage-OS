@@ -74,3 +74,18 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 -include $(OBJECTS:.o=.d) $(USER_OBJECTS:.o=.d)
+
+partition: all
+	rm -f card-copy.img
+	truncate -s 300M card-copy.img
+	printf "label: dos\nstart=8192,   size=524288, type=c, bootable\nstart=532480, size=16384,  type=da\n" | sfdisk card-copy.img
+	mkfs.vfat -F 32 --offset 8192 card-copy.img 262144
+
+	mcopy -i card-copy.img@@4194304 $(BUILD_DIR)/prod/kernel8.img ::kernel8.img
+	mcopy -i card-copy.img@@4194304 firmware/bcm2711-rpi-4-b.dtb ::bcm2711-rpi-4-b.dtb
+	mcopy -i card-copy.img@@4194304 firmware/config.txt ::config.txt
+	mcopy -i card-copy.img@@4194304 firmware/start4.elf ::start4.elf
+	mcopy -i card-copy.img@@4194304 firmware/fixup4.dat ::fixup4.dat
+
+	$(PYTHON) tools/storage_image.py format --image card-copy.img --partition 1 --confirm-format
+	$(PYTHON) tools/storage_image.py inspect --image card-copy.img --partition 1
