@@ -20,6 +20,7 @@ kernel/
   boot/               Hardware boot coordinator and the embedded terminal image
   fs/                 File handles, snapshot storage and file syscall validation
   mm/                 Firmware discovery, physical pages and kernel heap
+  net/                Network service, IPv4/ARP/ICMP/UDP, DHCP, DNS, TCP, sockets
   parallel/           Synchronous multicore worker coordination
   sched/              Preemptive task scheduling and the process lifecycle
   syscall/            Common validated syscall dispatcher
@@ -30,17 +31,18 @@ drivers/
   storage/            Portable SD command/state engine
   video/              V3D engine and render backend, licensed generated font assets
   wifi/               SDIO/CYW43455 protocol and firmware transport
-platform/pi4/         MMIO, clocks, display, SD and storage adapters, driver startup
+platform/pi4/         MMIO, clocks, display, SD/storage and network adapters, RNG,
+                       driver startup
 lib/                  Canonical freestanding memory primitives
 user/
   apps/terminal/      Terminal/editor model and interactive application
   lib/                Userspace syscall transport, wrappers and program entry
   program.ld          Link layout of the separate EL0 program image
 sim/
-  platform/           Host display/input and regular-image sector adapters
+  platform/           Host display/input, regular-image sectors, virtual network
   tests/              SDL integration and concurrent raster tests
 tests/
-  native/             Headless driver, filesystem, memory, scheduler and ABI tests
+  native/             Headless driver, filesystem, network, memory, scheduler and ABI tests
   support/            Shared test fixtures and device models
   arm/                Linked AArch64 execution/model regressions
   tools/              Image, firmware, configuration and layout-tool tests
@@ -59,7 +61,8 @@ legacy/               Retained historical examples, excluded from production
   APIs. ABI structures are shared data, not kernel service declarations. Userspace
   applications call `sys_*` wrappers; they do not call raw drawing/file/MMIO APIs.
 - `kernel/syscall/dispatch.c` validates userspace requests and routes them to
-  privileged services. `kernel/fs/file_syscall.c` snapshots file payloads.
+  privileged services. `kernel/fs/file_syscall.c` and `kernel/net/net_syscall.c`
+  snapshot file and network payloads.
   Both copy payloads through `<vantage/kernel/user_access.h>`, which resolves
   buffers in the calling process's address space. Keep validation at this
   boundary; internal file APIs accept trusted kernel buffers only.
@@ -71,6 +74,9 @@ legacy/               Retained historical examples, excluded from production
 - Portable command engines receive callbacks (`HwOps`, `SdIo`, `SectorDevice`).
   The Pi backend owns MMIO/cache maintenance and the host backend owns files/SDL.
   Device-specific register maps inside protocol drivers are intentional.
+- `include/vantage/kernel/net.h` (`NetLink`) is the only seam between the
+  network service and a radio: `platform/pi4/net.c` adapts the CYW43455 driver
+  and `sim/platform/net_sim.c` the simulator's virtual network.
 - `include/vantage/kernel/render.h` is the only seam between the display layer
   and its renderers. `platform/pi4/startup.c` selects the V3D backend at
   runtime after its self-test; canvas and display code never call the V3D
@@ -82,8 +88,8 @@ legacy/               Retained historical examples, excluded from production
 
 On the Pi, user programs run as preempted processes in isolated address
 spaces; see [the scheduler guide](SCHEDULER.md). The kernel itself is not
-preemptible outside explicit regions, so storage, the allocator, the mailbox
-and the renderer stay non-reentrant single-owner services. See the subsystem
+preemptible outside explicit regions, so storage, networking, the allocator,
+the mailbox and the renderer stay non-reentrant single-owner services. See the subsystem
 guides for lifetime, core-affinity, exception-mask and error-recovery
 requirements. This is validated on host tests and ARM models; physical Pi
 acceptance is pending.

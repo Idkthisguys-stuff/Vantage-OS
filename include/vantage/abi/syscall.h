@@ -1,5 +1,6 @@
 #pragma once
 #include <vantage/abi/files.h>
+#include <vantage/abi/net.h>
 #include <vantage/abi/task.h>
 
 /* Stable syscall numbers shared by the EL0 library and EL1 dispatcher. */

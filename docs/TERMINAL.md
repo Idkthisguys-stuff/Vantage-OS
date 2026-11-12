@@ -23,6 +23,7 @@ or serial at **115200 baud, 8N1**, with local echo disabled.
 | `cat name` | Read a file |
 | `edit name` | Edit a text file |
 | `rm name` | Delete a file |
+| `net [command]` | Network status; `net help` lists `scan`, `join`, `leave`, `saved`, `forget`, `ping`, `lookup` and `get` |
 
 Backspace edits, Ctrl+C cancels a line, and Ctrl+L clears the display while keeping
 your input. On-screen Shift applies to the next character. Hold Del to repeat
@@ -30,6 +31,12 @@ deletion; release or drag off to stop.
 
 `mem` shows host-managed display memory in the simulator and kernel allocator
 statistics on Pi.
+
+Network commands keep running across frames; Cancel (Ctrl+C) stops them, and
+other input waits until they finish. `net join` prompts for the passphrase and
+shows it as `*`; joined networks are saved in `/ram/.netprofiles`, with
+passphrases in plain text. The simulator uses a built-in virtual network. See
+[NETWORK.md](NETWORK.md#using-it) for every `net` command and its limits.
 
 ## Scope
 

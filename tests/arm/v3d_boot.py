@@ -19,10 +19,12 @@ WIDTH, HEIGHT = 800, 480
 PAGE = WIDTH * HEIGHT * 4
 MBOX_READ, MBOX_STATUS, MBOX_WRITE = 0xfe00b880, 0xfe00b898, 0xfe00b8a0
 TIMER = 0xfe003004
+GENET = 0xfd580000
 STUBS = {'uart_init': 0, 'uart_writeText': 0, 'uart_writeHex': 0, 'secondary_core_start': 1,
          'touch_init': 1, 'irq_init_core': 1, 'parallel_init': 1, 'parallel_self_test': 1,
          'task_init': 1, 'task_self_test': 1, 'task_multicore_self_test': 1,
-         'task_preemption_self_test': 1, 'process_create': 1}
+         'task_preemption_self_test': 1, 'process_create': 1,
+         'pi4_rng_start': (-5) & 0xffffffffffffffff}  # Entropy is modeled in network.py.
 
 
 class Board(Machine):
@@ -36,10 +38,11 @@ class Board(Machine):
         self.offset = 0
         self.failed_allocations = ()
         self.allocations = 0
+        self.genet_reads = 0
         self.device = V3dDevice(lambda address, size: bytes(self.uc.mem_read(address, size)),
                                 lambda address, data: self.uc.mem_write(address, data))
         for base, size in ((0xfe003000, 0x1000), (0xfe00b000, 0x1000), (0xfe100000, 0x1000),
-                           (0xfec00000, 0x12000)):
+                           (0xfec00000, 0x12000), (GENET, 0x10000)):
             self.uc.mem_map(base, size)
             self.uc.hook_add(UC_HOOK_MEM_READ, self.mmio_read, begin=base, end=base + size - 1)
             self.uc.hook_add(UC_HOOK_MEM_WRITE, self.mmio_write, begin=base, end=base + size - 1)
@@ -87,12 +90,17 @@ class Board(Machine):
             result = self.clock
         elif address == MBOX_STATUS: result = 0 if self.token is not None else 0x40000000
         elif address == MBOX_READ: result, self.token = self.token, None
+        elif GENET <= address < GENET + 0x10000:
+            # No GENET v5 answers: the revision register reads 0.
+            self.genet_reads += 1
+            result = 0
         else: result = self.device.read(address)
         uc.mem_write(address, struct.pack('<I', result))
 
     def mmio_write(self, uc, access, address, size, value, _):
         assert size == 4
         value &= 0xffffffff
+        assert not GENET <= address < GENET + 0x10000, 'absent GENET written'
         if address != MBOX_WRITE:
             self.device.write(address, value)
             return
@@ -161,6 +169,8 @@ class BootTests(unittest.TestCase):
         self.assertNotIn('[ERR]', log)
         self.assertNotIn('CPU rendering backend selected', log)
         self.assertIn('[OK] Vantage booted!', log)
+        self.assertIn('[INFO] Ethernet unavailable (no GENET v5 controller)', log)
+        self.assertEqual(board.genet_reads, 1)
         self.assertTrue(board.device.powered())
         self.assertEqual(board.device.render_jobs, 3)
         # The self-test target was the hidden page the first present reuses.
@@ -261,6 +271,7 @@ class BootTests(unittest.TestCase):
         log = board.boot()
         self.assertIn('[INFO] V3D disabled at build time (V3D=0); CPU rendering backend selected', log)
         self.assertNotIn('V3D self-test', log)
+        self.assertIn('[INFO] Ethernet unavailable (no GENET v5 controller)', log)
         self.assertEqual((board.device.accesses, board.device.properties, board.allocations), (0, 0, 0))
         self.assert_cpu_session(board)
 

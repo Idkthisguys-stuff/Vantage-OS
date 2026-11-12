@@ -14,6 +14,8 @@ static uint32_t read32(void* context, uintptr_t address) {
         mailbox.words[4] = 0x80000008U;
         mailbox.words[6] = 100000000;
         if (m->mode == 3) mailbox.words[4] = 8;
+        if (m->mode == 5) mailbox.words[4] = 0x80000006U;
+        if (m->mode == 6) mailbox.words[4] = 0x8000000cU;
         return m->token;
     }
     return 0;
@@ -38,6 +40,10 @@ int main(void) {
     CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_OK);
     CHECK(values[1] == 100000000 && m.clean == 1 && m.invalidated == 1);
     m.mode = 3; values[1] = 123;
+    CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_PROTOCOL && values[1] == 123);
+    m.mode = 5; m.submitted = 0;
+    CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_OK && values[1] == 100000000);
+    m.mode = 6; m.submitted = 0; values[1] = 123;
     CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_PROTOCOL && values[1] == 123);
     m.mode = 1;
     CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_TIMEOUT && mailbox.state == 0);

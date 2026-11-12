@@ -25,7 +25,7 @@ class LayoutTests(unittest.TestCase):
             self.assertNotRegex(text, r'#include\s+"[^"\n]*[/\\]', str(path.relative_to(ROOT)))
             for include in PROJECT_INCLUDE.findall(text):
                 with self.subTest(source=str(path.relative_to(ROOT)), include=include):
-                    self.assertTrue(include in ('vantage/base.h', 'vantage/user.h') or
+                    self.assertTrue(include in ('vantage/base.h', 'vantage/user.h', 'vantage/tls.h') or
                                     include.startswith('vantage/abi/'))
 
     def test_project_includes_exist_and_use_the_canonical_namespace(self):

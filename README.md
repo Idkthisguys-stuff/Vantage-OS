@@ -24,6 +24,13 @@ New V3 storage images support 256 files/folders, 255-byte paths and 1 MiB per fi
 Existing volumes keep their old limits; use the storage guide's explicit
 [migration command](docs/STORAGE.md#migrate-an-existing-data-image) for more capacity.
 
+The terminal's `net` command scans for and joins WPA2 or open Wi-Fi networks,
+remembers them, gets an address by DHCP, and can ping, look up names and fetch
+web pages (`net help` lists everything). On the Pi this needs the radio
+firmware, which `python tools/build.py` downloads and embeds, accepting its
+license. The simulator provides a virtual network. See
+[the network guide](docs/NETWORK.md); physical Wi-Fi validation is pending.
+
 ## Desktop simulator
 
 You can run the simulator on a Windows PC without a Raspberry Pi.
@@ -68,7 +75,8 @@ python tools/build.py test
 
 Add `-DVANTAGE_BUILD_SIMULATOR=ON` and an SDL2 package path to include the desktop
 application and rendering tests in the root build. Headless tests do not require
-SDL2. Use CTest labels such as `-L storage` or `-L scheduler` for a focused run.
+SDL2. Use CTest labels such as `-L storage`, `-L network` or `-L scheduler` for a
+focused run.
 
 See [architecture and ownership](docs/ARCHITECTURE.md) for the directory map and
 [contributing](CONTRIBUTING.md) for change and verification conventions.

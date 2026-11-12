@@ -30,6 +30,8 @@ uint32_t user_buffer_valid(uintptr_t buffer, size_t size) {
 
 void fb_wait_frame(void) {}
 uint32_t time_us(void) { return 123456; }
+uint32_t net_port_random(void) { return 4; }
+int net_entropy(void* data, unsigned int bytes) { (void)data; (void)bytes; return NET_UNAVAILABLE; }
 uint32_t touch_read(TouchEvent* event) {
     reads++;
     event->type = TOUCH_EVENT_DOWN;

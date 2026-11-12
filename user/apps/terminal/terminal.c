@@ -54,12 +54,51 @@ static void number(Terminal* t, uint64_t value) {
     while (count) put(t, digits[--count]);
 }
 
-static uint32_t command_is(const char* command, const char* word) {
-    while (*word && *command == *word) { command++; word++; }
-    return !*word && (!*command || *command == ' ');
+void terminal_write(Terminal* t, const char* text) { write(t, text); }
+void terminal_put(Terminal* t, char c) { put(t, c); }
+void terminal_number(Terminal* t, uint64_t value) { number(t, value); }
+void terminal_prompt(Terminal* t) {
+    t->dirty[t->row] = 1;
+    if (!t->editing) write(t, t->secret ? "Passphrase: " : "> ");
 }
 
-static void memory(Terminal* t) {
+void terminal_erase(void* memory, size_t bytes) {
+    volatile unsigned char* p = memory;
+    while (bytes--) *p++ = 0;
+}
+
+void* terminal_job_state(Terminal* t) {
+    terminal_erase(t->job.state, sizeof(t->job.state));
+    return t->job.state;
+}
+
+void terminal_job_run(Terminal* t, const TerminalJobType* type) {
+    t->job.type = type;
+    t->job.started = sys_time_us();
+}
+
+void terminal_job_end(Terminal* t) {
+    t->job.type = NULL;
+    terminal_erase(t->job.state, sizeof(t->job.state));
+    terminal_prompt(t);
+}
+
+void terminal_job_step(Terminal* t) {
+    if (t->job.type) t->job.type->step(t, t->job.state);
+}
+
+static void job_cancel(Terminal* t) {
+    if (t->job.type->cancel) t->job.type->cancel(t, t->job.state);
+    else { write(t, "Cancelled.\n"); terminal_job_end(t); }
+}
+
+void terminal_ask_passphrase(Terminal* t, TerminalSecretFn secret) {
+    t->secret = secret;
+    write(t, "Passphrase: ");
+}
+
+static void memory(Terminal* t, const char* args, uint32_t op) {
+    (void)args; (void)op;
     ConsoleInfo info = {0};
     if (!t->info || !t->info(t->context, &info)) {
         write(t, "Memory statistics unavailable.\n");
@@ -77,20 +116,23 @@ static void memory(Terminal* t) {
     } else write(t, "Memory statistics unavailable.\n");
 }
 
+const char* terminal_file_error_text(int error) {
+    if (error == FILE_UNAVAILABLE) return "Storage unavailable (not mounted)";
+    if (error == FILE_NOT_FOUND) return "File not found";
+    if (error == FILE_BAD) return "Invalid filename or request";
+    if (error == FILE_NO_SPACE) return "Storage or file capacity exhausted";
+    if (error == FILE_BUSY) return "File is busy";
+    if (error == FILE_IO_ERROR) return "Storage I/O failed; remount required";
+    if (error == FILE_CORRUPT) return "Storage is corrupt";
+    return "File operation failed";
+}
+
 static void file_error(Terminal* t, int error) {
-    const char* message = "File operation failed";
-    if (error == FILE_UNAVAILABLE) message = "Storage unavailable (not mounted)";
-    else if (error == FILE_NOT_FOUND) message = "File not found";
-    else if (error == FILE_BAD) message = "Invalid filename or request";
-    else if (error == FILE_NO_SPACE) message = "Storage or file capacity exhausted";
-    else if (error == FILE_BUSY) message = "File is busy";
-    else if (error == FILE_IO_ERROR) message = "Storage I/O failed; remount required";
-    else if (error == FILE_CORRUPT) message = "Storage is corrupt";
-    write(t, message);
+    write(t, terminal_file_error_text(error));
     write(t, ".\n");
 }
 
-static int file_path(Terminal* t, const char* argument, char path[FILE_PATH_MAX]) {
+int terminal_file_path(Terminal* t, const char* argument, char path[FILE_PATH_MAX]) {
     uint32_t length = 0;
     while (*argument == ' ') argument++;
     if (!*argument) return 0;
@@ -404,56 +446,95 @@ void terminal_touch(Terminal* t, const TouchEvent* event) {
     }
 }
 
+enum { DIR_LS, DIR_CD, DIR_MAKE, DIR_REMOVE, FILE_CAT, FILE_EDIT, FILE_REMOVE };
+
+static void directory(Terminal* t, const char* args, uint32_t op) {
+    FileDirectoryLong request = {0};
+    if (!*args && op == DIR_LS) memcpy(request.path, t->cwd, FILE_PATH_MAX);
+    else if (!*args && op == DIR_CD) memcpy(request.path, "/ram", 5);
+    else if (!terminal_file_path(t, args, request.path)) { write(t, "Usage: ls/cd/mkdir/rmdir path.\n"); return; }
+    if (op == DIR_LS) { list_files(t, request.path); return; }
+    request.operation = op == DIR_CD ? DIRECTORY_STAT : op == DIR_MAKE ? DIRECTORY_CREATE : DIRECTORY_REMOVE;
+    int result = sys_file_directory_long(&request);
+    if (result < 0) file_error(t, result);
+    else if (op == DIR_CD) {
+        if (request.type != FILE_DIRECTORY) file_error(t, FILE_BAD);
+        else memcpy(t->cwd, request.entry, FILE_PATH_MAX);
+    } else write(t, op == DIR_MAKE ? "Directory created.\n" : "Directory removed.\n");
+}
+
+static void file(Terminal* t, const char* args, uint32_t op) {
+    char path[FILE_PATH_MAX];
+    if (!terminal_file_path(t, args, path)) { write(t, "Usage: cat/edit/rm filename (or /ram/filename).\n"); return; }
+    if (op == FILE_REMOVE) {
+        int result = sys_file_remove(path);
+        if (result < 0) file_error(t, result); else write(t, "File deleted.\n");
+    } else open_text(t, path, op == FILE_EDIT);
+}
+
+static void clear(Terminal* t, const char* args, uint32_t op) {
+    (void)args; (void)op;
+    blank(t);
+    mirror(t, '\x1b');
+    mirror(t, '['); mirror(t, '2'); mirror(t, 'J');
+    mirror(t, '\x1b'); mirror(t, '['); mirror(t, 'H');
+}
+
+static void echo(Terminal* t, const char* args, uint32_t op) { (void)op; write(t, args); put(t, '\n'); }
+static void pwd(Terminal* t, const char* args, uint32_t op) { (void)args; (void)op; write(t, t->cwd); put(t, '\n'); }
+static void net(Terminal* t, const char* args, uint32_t op) { (void)op; terminal_net_command(t, args); }
+static void about(Terminal* t, const char* args, uint32_t op) {
+    (void)args; (void)op;
+    write(t, "Vantage-OS built-in shell.\nASCII text editor; files require mounted storage.\n");
+}
+static void help(Terminal* t, const char* args, uint32_t op);
+
+static const struct {
+    const char* name;
+    void (*run)(Terminal* t, const char* args, uint32_t op);
+    uint32_t op;
+    const char* help;
+} commands[] = {
+    {"help", help, 0, "Show commands"},
+    {"clear", clear, 0, "Clear the terminal"},
+    {"mem", memory, 0, "Memory statistics"},
+    {"echo", echo, 0, "Print text"},
+    {"pwd", pwd, 0, "Current directory"},
+    {"cd", directory, DIR_CD, "Change directory"},
+    {"mkdir", directory, DIR_MAKE, "Create directory"},
+    {"rmdir", directory, DIR_REMOVE, "Remove empty directory"},
+    {"ls", directory, DIR_LS, "List directory"},
+    {"cat", file, FILE_CAT, "Read a file"},
+    {"edit", file, FILE_EDIT, "Open text editor"},
+    {"rm", file, FILE_REMOVE, "Delete a file"},
+    {"net", net, 0, "Network and Wi-Fi ('net help')"},
+    {"about", about, 0, "About this shell"},
+};
+
+static void help(Terminal* t, const char* args, uint32_t op) {
+    (void)args; (void)op;
+    for (uint32_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
+        uint32_t width = 0;
+        for (; commands[i].name[width]; width++) put(t, commands[i].name[width]);
+        for (; width < 7; width++) put(t, ' ');
+        write(t, commands[i].help);
+        put(t, '\n');
+    }
+}
+
 static void execute(Terminal* t) {
     const char* command = t->command;
     while (*command == ' ') command++;
     if (!*command) return;
-    if (command_is(command, "help")) {
-        write(t, "help   Show commands\nclear  Clear the terminal\nmem    Memory statistics\necho   Print text\npwd    Current directory\ncd     Change directory\nmkdir  Create directory\nrmdir  Remove empty directory\nls     List directory\ncat    Read a file\nedit   Open text editor\nrm     Delete a file\nabout  About this shell\n");
-    } else if (command_is(command, "pwd")) { write(t, t->cwd); put(t, '\n'); }
-    else if (command_is(command, "ls") || command_is(command, "cd") ||
-             command_is(command, "mkdir") || command_is(command, "rmdir")) {
-        int ls = command_is(command, "ls"), cd = command_is(command, "cd");
-        int mkdir = command_is(command, "mkdir");
-        const char* arg = command + (ls || cd ? 2 : 5);
-        while (*arg == ' ') arg++;
-        FileDirectoryLong request = {0};
-        if (!*arg && ls) memcpy(request.path, t->cwd, FILE_PATH_MAX);
-        else if (!*arg && cd) memcpy(request.path, "/ram", 5);
-        else if (!file_path(t, arg, request.path)) { write(t, "Usage: ls/cd/mkdir/rmdir path.\n"); return; }
-        if (ls) { list_files(t, request.path); return; }
-        request.operation = cd ? DIRECTORY_STAT : mkdir ? DIRECTORY_CREATE : DIRECTORY_REMOVE;
-        int result = sys_file_directory_long(&request);
-        if (result < 0) file_error(t, result);
-        else if (cd) {
-            if (request.type != FILE_DIRECTORY) file_error(t, FILE_BAD);
-            else memcpy(t->cwd, request.entry, FILE_PATH_MAX);
-        } else write(t, mkdir ? "Directory created.\n" : "Directory removed.\n");
+    for (uint32_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
+        const char *name = commands[i].name, *args = command;
+        while (*name && *args == *name) { name++; args++; }
+        if (*name || (*args && *args != ' ')) continue;
+        while (*args == ' ') args++;
+        commands[i].run(t, args, commands[i].op);
+        return;
     }
-    else if (command_is(command, "cat") || command_is(command, "edit") || command_is(command, "rm")) {
-        char path[FILE_PATH_MAX];
-        int edit = command_is(command, "edit"), remove = command_is(command, "rm");
-        if (!file_path(t, command + (edit ? 4 : remove ? 2 : 3), path)) {
-            write(t, "Usage: cat/edit/rm filename (or /ram/filename).\n"); return;
-        }
-        if (remove) {
-            int result = sys_file_remove(path);
-            if (result < 0) file_error(t, result); else write(t, "File deleted.\n");
-        } else open_text(t, path, edit);
-    } else if (command_is(command, "clear")) {
-        blank(t);
-        mirror(t, '\x1b');
-        mirror(t, '['); mirror(t, '2'); mirror(t, 'J');
-        mirror(t, '\x1b'); mirror(t, '['); mirror(t, 'H');
-    } else if (command_is(command, "mem")) memory(t);
-    else if (command_is(command, "echo")) {
-        command += 4;
-        while (*command == ' ') command++;
-        write(t, command);
-        put(t, '\n');
-    } else if (command_is(command, "about")) {
-        write(t, "Vantage-OS built-in shell.\nASCII text editor; files require mounted storage.\n");
-    } else write(t, "Unknown command. Type 'help'.\n");
+    write(t, "Unknown command. Type 'help'.\n");
 }
 
 uint32_t terminal_init(Terminal* t, uint32_t columns, uint32_t rows,
@@ -464,6 +545,8 @@ uint32_t terminal_init(Terminal* t, uint32_t columns, uint32_t rows,
     t->length = t->overflow = 0;
     t->editing = t->document_size = 0;
     t->command[0] = 0;
+    memset(&t->job, 0, sizeof(t->job));
+    t->secret = NULL;
     memset(t->cwd, 0, sizeof(t->cwd));
     memcpy(t->cwd, "/ram", 5);
     t->input_limit = columns * (rows - 1) - 6; /* Reserve the longer edit prompt. */
@@ -491,13 +574,17 @@ void terminal_key(Terminal* t, const KeyEvent* event) {
         }
         editor_draw(t); return;
     }
+    if (t->job.type) {
+        if (event->type == KEY_CANCEL) { write(t, "^C\n"); job_cancel(t); }
+        return;
+    }
     t->dirty[t->row] = 1;
     if (event->type == KEY_TEXT && event->character >= 32 && event->character <= 126) {
         if (t->length < t->input_limit && !t->overflow) {
             char c = (char)event->character;
             t->command[t->length++] = c;
             t->command[t->length] = 0;
-            put(t, c);
+            put(t, t->secret ? '*' : c);
         } else t->overflow = 1;
     } else if (event->type == KEY_BACKSPACE && t->length && !t->overflow) {
         t->command[--t->length] = 0;
@@ -510,6 +597,18 @@ void terminal_key(Terminal* t, const KeyEvent* event) {
     } else if (event->type == KEY_ENTER || event->type == KEY_CANCEL) {
         if (event->type == KEY_CANCEL) write(t, "^C");
         put(t, '\n');
+        if (t->secret) {
+            TerminalSecretFn secret = t->secret;
+            t->secret = NULL;
+            if (event->type == KEY_CANCEL || t->overflow) {
+                write(t, t->overflow ? "Input too long; cancelled.\n" : "Cancelled.\n");
+            } else secret(t, t->job.state, t->command);
+            terminal_erase(t->command, sizeof(t->command));
+            t->length = t->overflow = 0;
+            if (!t->job.type && !t->secret) terminal_job_end(t);
+            t->dirty[t->row] = 1;
+            return;
+        }
         if (event->type == KEY_ENTER) {
             if (t->overflow) write(t, "Input too long; command discarded.\n");
             else execute(t);
@@ -517,14 +616,17 @@ void terminal_key(Terminal* t, const KeyEvent* event) {
         t->length = t->overflow = 0;
         t->command[0] = 0;
         if (t->editing) editor_draw(t);
-        else write(t, "> ");
+        else if (!t->job.type && !t->secret) {
+            terminal_erase(t->job.state, sizeof(t->job.state));
+            write(t, "> ");
+        }
     } else if (event->type == KEY_CLEAR) {
         uint32_t i;
         blank(t);
         mirror(t, '\x1b'); mirror(t, '['); mirror(t, '2'); mirror(t, 'J');
         mirror(t, '\x1b'); mirror(t, '['); mirror(t, 'H');
-        write(t, t->editing ? "edit> " : "> ");
-        for (i = 0; i < t->length; i++) put(t, t->command[i]);
+        write(t, t->editing ? "edit> " : t->secret ? "Passphrase: " : "> ");
+        for (i = 0; i < t->length; i++) put(t, t->secret ? '*' : t->command[i]);
     }
     t->dirty[t->row] = 1;
 }

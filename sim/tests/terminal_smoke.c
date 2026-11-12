@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
     glyph(renderer, 0, 4, 'h', FG, BG, 0);
     tap(0, 3); tap(0, 1); /* Shift + Q */
     terminal_app_step();
-    glyph(renderer, 2, 17, 'Q', FG, BG, 0); /* Directory commands add four help rows. */
+    glyph(renderer, 2, 18, 'Q', FG, BG, 0); /* One help row per command. */
     key(SDLK_c, KMOD_CTRL); text("clear"); key(SDLK_RETURN, KMOD_NONE); terminal_app_step();
 
     text("helx"); key(SDLK_BACKSPACE, KMOD_NONE); text("p"); key(SDLK_RETURN, KMOD_NONE);

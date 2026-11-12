@@ -5,7 +5,8 @@ for any reason selects the CPU renderer. CYW43455 Wi-Fi support is enabled by
 default but radio initialization is skipped until assets are supplied.
 **Neither driver is validated on a physical Pi.** Native controller/protocol
 models and linked ARM tests are software checks, not proof of GPU execution,
-wireless association or cache coherence. TCP/IP is separate.
+wireless association or cache coherence. The IPv4 stack, sockets and terminal
+commands built on the radio are described in [NETWORK.md](NETWORK.md).
 
 ## Builds
 
@@ -22,10 +23,40 @@ make BUILD_DIR=/path/to/cpu-build V3D=0    # CPU renderer only
 never touches the V3D, bridge or reset registers. The driver code stays linked
 in both images.
 
-For Wi-Fi, supply matching CYW43455 firmware, Pi 4 Model B NVRAM text and CLM
-regulatory data from a trusted source. The files and their redistribution
-licenses are not bundled. Choose the country for the board's actual location
-and the corresponding firmware regulatory revision explicitly:
+Wired Ethernet is probed at boot by default. `ETHERNET=0` (or
+`python tools/build.py --ethernet 0`) removes the probe: the image never
+touches the GENET registers and attaches no Ethernet link. The driver code
+stays linked.
+
+For Wi-Fi, the build needs CYW43455 firmware, Pi 4 Model B NVRAM text and CLM
+regulatory data. They are not bundled. A normal kernel build downloads the files
+Raspberry Pi OS uses on a Pi 4 Model B and embeds them:
+
+```sh
+python tools/build.py
+```
+
+`tools/fetch_wifi.py` downloads the files from Raspberry Pi's
+`firmware-nonfree` repository at a pinned commit, rejects any whose SHA-256
+differs from the pinned hash, and caches them in `out/wifi-firmware/`. The files
+are covered by the Cypress firmware license; building with them accepts it. Its
+text is saved as `out/wifi-firmware/LICENSE-cypress.txt`. Use `--wifi 0` to
+build without Wi-Fi.
+
+The radio's legal channels and transmit power depend on the country where the
+Pi is used. On the first build, the helper asks
+`www.cloudflare.com/cdn-cgi/trace` (or `ipinfo.io` if that fails) for the
+country of the network's public IP address and remembers it in
+`out/wifi-firmware/country`. A VPN or proxy can report the wrong country, and
+the Pi may be used elsewhere: pass `--wifi-country XX` or set
+`VANTAGE_WIFI_COUNTRY` to choose it, and `--wifi-country auto` to look it up
+again. If the lookup or a download fails, the build continues without Wi-Fi;
+with an explicit country it fails instead. `--wifi-regrev` selects a regulatory
+revision; the default, -1, uses the firmware's default for the country. Later
+builds reuse the cache and regenerate nothing.
+
+To use other files, choose the country and revision explicitly and embed them
+yourself:
 
 ```sh
 python tools/embed_wifi.py --firmware /path/to/brcmfmac43455-sdio.bin \
@@ -253,19 +284,178 @@ wrap, checked frame lengths, event decoding and four bounded receive slots.
 Malformed framing stops the transport. Glom aggregation is disabled; receiving
 an unsupported aggregation channel stops rather than misinterpreting it.
 
-`pi4_wifi_device()` returns the initialized kernel device. `wifi_join` accepts
-an explicit 1–32-byte SSID and an 8–63-byte ASCII WPA2-PSK passphrase. It sets
-CCMP/RSN parameters, requests firmware key offload and requires both link and
-successful key exchange, then verifies the associated SSID. Failed authentication
-does not fall back to an open network. Host-side key request buffers are scrubbed.
-The driver drains old notifications and resets join state at the SSID request.
-Frame transport stays unauthorized until that join has been verified.
-`wifi_send`/`wifi_receive` transport Ethernet frames through the firmware BDC
-header. Frame polling also runs after presentation.
+`pi4_wifi_device()` returns the initialized kernel device; after a successful
+boot, `platform/pi4/net.c` attaches it to the network service as its link.
+Boot keeps the radio powered while unassociated (`mpc` 0), selects active scans
+and subscribes to association, link, key-exchange, deauthentication and escan
+events.
 
-This stage has no automatic association, scan UI, WPA3, AP mode, roaming,
-power-saving policy, socket syscalls or TCP/IP. Booting firmware alone is not
-network connectivity. Keep credentials in caller-owned runtime memory.
+`wifi_join_start` accepts an explicit 1–32-byte SSID with either an 8–63-byte
+ASCII WPA2-PSK passphrase or, explicitly, no passphrase for an open network. For
+WPA2 it sets CCMP/RSN parameters and requests firmware key offload; for open
+networks it disables encryption and WPA authentication. It drains old
+notifications, requests the SSID and returns without waiting. `wifi_poll` then
+completes the join only after association, link and (WPA2) key-exchange events,
+and a read-back of the associated SSID; deauthentication or disassociation
+during the join fails it, and the 30 s limit times it out. `wifi_join_status`
+reports busy, connected, not associated or the failure. A failed WPA2 join never
+falls back to an open network. `wifi_join` remains as a blocking WPA2 wrapper.
+Host-side key request buffers and the pending SSID are scrubbed. Frame transport
+stays unauthorized until the join has been verified. `wifi_send`/`wifi_receive`
+transport Ethernet frames through the firmware BDC header.
+
+`wifi_scan_start` requests an escan (version 1 parameters: all channels, any BSS
+type, firmware dwell defaults). Each partial result must carry exactly one
+`bss_info` record whose length, SSID length and information-element range are
+consistent with the event; others are ignored. Hidden SSIDs are skipped. RSN and
+WPA elements classify security as open, WEP, WPA, WPA2, WPA3, WPA2/WPA3,
+802.1X or other; a truncated element list is "other". Results merge by BSSID,
+keep the strongest 16, and complete on the final event (or abort status), or
+after 15 s. `wifi_rssi` reads the connected signal strength.
+
+There is no WPA3 SAE, 802.1X, roaming, power-saving policy or AP mode.
+
+## BCM54213 Ethernet
+
+Wired Ethernet uses the BCM2711 GENET v5 MAC (`drivers/ethernet/genet.c`) and
+the board's BCM54213PE PHY on the UniMAC MDIO bus, connected over RGMII.
+**Physical Pi 4 validation is pending.** The register models and linked ARM
+tests below are software checks; they prove neither link establishment, RGMII
+timing nor DMA coherence on hardware.
+
+### Ownership and polling
+
+The ownership rules above apply: core 0, masked EL1, the identity MMU mapping
+(GENET at `0xfd580000` lies in the existing Device-memory peripheral blocks).
+`platform/pi4/ethernet.c` owns the only `Genet` context, a static 96 KiB
+object holding all DMA buffers, and exposes it to the network service as the
+Ethernet `NetLink`. The context stays reserved until reboot because its
+buffers remain programmed into the DMA rings. Nothing uses interrupts: GENET's
+interrupt controllers are masked and the network service drives the device
+through `poll`, `send`, `receive` and `carrier`. No call allocates or waits for
+a link.
+
+### Bring-up
+
+`genet_init` runs once from `pi4_drivers_start`, after Wi-Fi:
+
+1. The revision register must report GENET v5. Otherwise nothing is written and
+   boot continues without Ethernet.
+2. The MAC address comes from the firmware property tag `0x00010003`. A zero or
+   multicast address fails bring-up. The firmware answers with a 6-byte value
+   in an 8-byte buffer; the property layer accepts responses shorter than the
+   request buffer.
+3. Any DMA a previous owner (such as a network-booting bootloader) left running
+   is stopped and must report stopped within 10 ms. The UniMAC is soft-reset
+   with local loopback, the receive buffer is reset, counters are cleared, the
+   maximum frame is 1536 bytes, the receive status block is off and each
+   received frame is preceded by two alignment bytes. All GENET interrupts are
+   masked.
+4. The station address is programmed and the destination filter passes only
+   broadcast and the station address (no multicast, not promiscuous). The
+   hardware filter block is cleared.
+5. The port is external-GPHY RGMII with the MAC's internal transmit delay
+   disabled, as in U-Boot and Circle; the PHY's reset defaults provide the
+   clock delays.
+6. The PHY at MDIO address 1 must identify as `0x600d84aX`. It is reset (at
+   most 500 ms), advertises 10/100 Mbit/s half and full duplex and 1000 Mbit/s
+   half and full duplex without pause, and auto-negotiation is restarted.
+7. Only the default queue (ring 16) is used: 32 receive and 16 transmit
+   descriptors with 2 KiB buffers. The receive buffers are cleaned and
+   invalidated before receive DMA starts; then DMA and UniMAC transmit and
+   receive are enabled.
+
+Every MDIO transaction is bounded to 10 ms. Boot logs one of:
+
+```text
+[OK] Ethernet ready (MAC xx:xx:xx:xx:xx:xx)
+[INFO] Ethernet unavailable (no GENET v5 controller)
+[INFO] Ethernet unavailable (<HwResult>)
+[INFO] Ethernet disabled at build time (ETHERNET=0)
+```
+
+The ready line contains the board's MAC address; remove it from logs before
+sharing them publicly.
+
+### DMA
+
+GENET is a 40-bit-capable SCB bus master. In the Pi 4 firmware device tree the
+`scb` bus maps `0x7d580000` to `0xfd580000` and its `dma-ranges` map RAM one to
+one, so descriptors take ARM physical addresses, split into LO/HI words. The
+descriptors themselves are GENET registers. To transmit, the frame is copied
+into a free transmit buffer, padded with zeros to 60 bytes, cleaned from the
+cache, described (start and end of packet, hardware CRC) and published through
+the producer index. A received frame is found by comparing the hardware
+producer index with the consumer index; its descriptor status is checked, the
+received bytes are invalidated and copied out, and the consumer index returns
+the buffer. The CPU never writes a receive buffer. The 16-bit indices wrap; if
+the hardware-owned index does not reset, the driver adopts its value.
+
+### Link handling
+
+`genet_poll` reclaims completed transmissions, reports waiting frames and reads
+the PHY status at most every 100 ms. The latched-low link bit is read twice
+while the link is down, so a returned cable is seen in one check and a short
+drop is seen as a drop. On link up the negotiated mode is resolved from both
+sides' abilities (1000, then 100, then 10 Mbit/s; full before half duplex; a
+master/slave fault counts as no link). The UniMAC speed and half-duplex bits
+and the RGMII link bit are then programmed; pause frames are ignored. On link
+down the RGMII link bit is cleared. `genet_carrier` returns the last result
+without MDIO traffic. While the link is down, sends fail with `NET_OFFLINE`;
+frames already queued are left to the hardware.
+
+Receive frames without both start and end of packet, with an error flag
+(overrun, CRC, receive error, odd nibble, too long) or shorter than 14 or
+longer than 1514 bytes are dropped and counted. A full transmit ring returns
+`NET_BUSY`. `poll` reports the device lost (and it stays off until reboot, with
+DMA and the UniMAC stopped) after three consecutive failed PHY checks, after
+1 s of transmit without progress while the link is up, or when a hardware index
+claims more entries than the ring holds.
+
+### Validation
+
+`tests/native/drivers/genet.c` (`genet_ethernet`) models the GENET registers,
+ring 16, a BCM54213PE behind MDIO, the mailbox property and a CPU cache whose
+lines reach the device only when cleaned and return only when invalidated. It
+covers an absent or older controller, refused ownership, MAC failures,
+register and filter programming, PHY identity, reset timeout and
+auto-negotiation, link up and down at every speed and duplex, latched link
+drops, rate-limited MDIO, transmit padding and completion reclaim, a full
+transmit ring, receive error drops, ring and 16-bit index wrap, device
+discards, stuck MDIO and DMA, a transmit stall and inconsistent hardware
+indices. `tests/arm/ethernet_boot.py` runs the linked kernel's
+`pi4_drivers_start` against an MMIO model: the controller comes up without a
+cable and reports the MAC, then links, sends and receives through identity DMA
+addresses; a stuck MDIO bus is reported and boot continues; an `ETHERNET=0`
+image never touches the controller. `tests/arm/v3d_boot.py` and
+`tests/arm/wifi_boot.py` boot with GENET absent.
+
+```sh
+ctest --test-dir /path/to/driver-tests -R genet_ethernet --output-on-failure
+python tests/arm/ethernet_boot.py /path/to/v3d0-no-assets/kernel8.elf /path/to/v3d0-ethernet0/kernel8.elf -v
+```
+
+Physical acceptance is pending. Keep each result tied to the board revision,
+firmware version, commit, build options and the UART log (MAC removed):
+
+- [ ] Boot without a cable reaches the UI with `[OK] Ethernet ready`, and
+      without delay.
+- [ ] Link up at 1000, 100 and 10 Mbit/s (forced on the switch side) with the
+      reported speed; full and half duplex where the switch allows it.
+- [ ] Cable unplug and replug is detected within a second each way.
+- [ ] DHCP, ARP, ping and TCP over Ethernet against a controlled peer, with
+      sustained bidirectional traffic and no corrupted or lost frames at idle
+      load.
+- [ ] Boot after a network boot (bootloader DMA left active) still brings the
+      device up cleanly.
+- [ ] `ETHERNET=0` image boots and logs the build-time message.
+
+References: [U-Boot `drivers/net/bcmgenet.c`](https://github.com/u-boot/u-boot/blob/master/drivers/net/bcmgenet.c)
+(GPL-2.0+) and [Circle `lib/bcm54213.cpp`](https://github.com/rsta2/circle/blob/master/lib/bcm54213.cpp)
+(GPL-3.0) for registers and bring-up order;
+[Linux v6.12 GENET](https://github.com/torvalds/linux/tree/v6.12/drivers/net/ethernet/broadcom/genet)
+for behaviour only; the Pi 4 firmware device tree for the address, DMA ranges
+and PHY address.
 
 ## Verification
 
@@ -282,7 +472,9 @@ python tests/arm/wifi_boot.py /path/to/v3d0-no-assets/kernel8.elf /path/to/wifi0
 The native models decode GPU command packets and model SDHCI, backplane RAM,
 firmware responses and wireless events. Tests use synthetic data, not vendor
 firmware. They cover successful paths, bounds, ownership, counter/timer wrap,
-timeouts, malformed frames, authentication rejection and receive overflow.
+timeouts, malformed frames, authentication rejection, receive overflow, escan
+records and security classes, open and non-blocking joins, deauthentication
+during a join and RSSI.
 They do not model GPU microarchitecture, RF, firmware internals or physical DMA.
 
 The V3D model (`tests/support/v3d_model.c`) sits behind `HwOps`. It models
@@ -308,7 +500,7 @@ logs. Validate GPU self-test, color order and sustained mixed CPU/GPU rendering;
 compare pixels with the CPU path. Verify bounded failure and CPU fallback in a
 disposable build. Separately validate SDIO discovery, firmware readiness, WPA2
 join/rejection, link loss and bidirectional Ethernet traffic with a controlled
-test peer. TCP/IP testing follows when a network stack is integrated.
+test peer. Network-level checks are listed in [NETWORK.md](NETWORK.md#physical-acceptance-checklist).
 
 ## References and licenses
 

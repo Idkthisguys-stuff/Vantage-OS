@@ -97,6 +97,132 @@ int sys_file_remove(const char* path) {
     return (int)syscall(SYS_FILE_REMOVE_LONG, (uintptr_t)&request);
 }
 
+static void erase(void* memory, size_t bytes) {
+    volatile unsigned char* p = memory;
+    while (bytes--) *p++ = 0;
+}
+
+int sys_net_status(NetStatus* status) {
+    return (int)syscall(SYS_NET_STATUS, (uintptr_t)status);
+}
+
+int sys_net_scan(NetScan* request) {
+    return (int)syscall(SYS_NET_SCAN, (uintptr_t)request);
+}
+
+int sys_net_join(const char* ssid, const char* passphrase, uint32_t flags) {
+    NetJoin request = {0};
+    request.flags = flags;
+    uint32_t i;
+    if (!ssid) return NET_BAD;
+    for (i = 0; ssid[i]; i++) {
+        if (i == NET_SSID_MAX) return NET_BAD;
+        request.ssid[i] = ssid[i];
+    }
+    request.ssid_length = i;
+    for (i = 0; passphrase && passphrase[i]; i++) {
+        if (i == NET_PASSPHRASE_MAX) { erase(&request, sizeof(request)); return NET_BAD; }
+        request.passphrase[i] = passphrase[i];
+    }
+    request.passphrase_length = i;
+    int result = (int)syscall(SYS_NET_JOIN, (uintptr_t)&request);
+    erase(&request, sizeof(request));
+    return result;
+}
+
+int sys_net_leave(void) {
+    return (int)syscall(SYS_NET_LEAVE, 0);
+}
+
+int sys_net_profile(NetProfile* request) {
+    int result = (int)syscall(SYS_NET_PROFILE, (uintptr_t)request);
+    erase(request->passphrase, sizeof(request->passphrase));
+    return result;
+}
+
+int sys_net_time(NetTime* time) {
+    return (int)syscall(SYS_NET_TIME, (uintptr_t)time);
+}
+
+int sys_net_random(void* data, uint32_t length) {
+    NetRandom request;
+    unsigned char* out = data;
+    if (!data || !length) return NET_BAD;
+    for (uint32_t done = 0; done < length;) {
+        uint32_t part = length - done < NET_RANDOM_MAX ? length - done : NET_RANDOM_MAX;
+        request.length = part;
+        request.flags = 0;
+        int result = (int)syscall(SYS_NET_RANDOM, (uintptr_t)&request);
+        if (result != (int)part) { erase(&request, sizeof(request)); return result < 0 ? result : NET_IO; }
+        for (uint32_t i = 0; i < part; i++) out[done + i] = request.data[i];
+        done += part;
+    }
+    erase(&request, sizeof(request));
+    return (int)length;
+}
+
+int sys_net_resolve(const char* name, uint32_t* address) {
+    NetResolve request = {0};
+    if (!name || !address) return NET_BAD;
+    for (uint32_t i = 0;; i++) {
+        if (i == NET_NAME_MAX) return NET_BAD;
+        request.name[i] = name[i];
+        if (!name[i]) break;
+    }
+    int result = (int)syscall(SYS_NET_RESOLVE, (uintptr_t)&request);
+    if (result > 0) *address = request.address;
+    return result;
+}
+
+int64_t sys_net_socket(NetSocketCall* call) {
+    return (int64_t)syscall(SYS_NET_SOCKET, (uintptr_t)call);
+}
+
+int64_t sys_net_open(uint32_t type) {
+    NetSocketCall call = {0};
+    call.operation = NET_SOCKET_OPEN;
+    call.type = type;
+    return sys_net_socket(&call);
+}
+
+int sys_net_connect(uint64_t handle, uint32_t address, uint16_t port) {
+    NetSocketCall call = {0};
+    call.operation = NET_SOCKET_CONNECT;
+    call.handle = handle;
+    call.address = address;
+    call.port = port;
+    return (int)sys_net_socket(&call);
+}
+
+int sys_net_send(uint64_t handle, const void* data, uint32_t length) {
+    NetSocketCall call = {0};
+    if (length > NET_IO_MAX || (length && !data)) return NET_BAD;
+    call.operation = NET_SOCKET_SEND;
+    call.handle = handle;
+    call.length = length;
+    for (uint32_t i = 0; i < length; i++) call.data[i] = ((const unsigned char*)data)[i];
+    return (int)sys_net_socket(&call);
+}
+
+int sys_net_receive(uint64_t handle, void* data, uint32_t capacity) {
+    NetSocketCall call = {0};
+    if (!data || !capacity) return NET_BAD;
+    call.operation = NET_SOCKET_RECEIVE;
+    call.handle = handle;
+    call.length = capacity < NET_IO_MAX ? capacity : NET_IO_MAX;
+    int result = (int)sys_net_socket(&call);
+    if (result > (int)call.length) return NET_BAD;
+    for (int i = 0; i < result; i++) ((unsigned char*)data)[i] = call.data[i];
+    return result;
+}
+
+int sys_net_close(uint64_t handle) {
+    NetSocketCall call = {0};
+    call.operation = NET_SOCKET_CLOSE;
+    call.handle = handle;
+    return (int)sys_net_socket(&call);
+}
+
 uint32_t sys_touch_read(TouchEvent* event) {
     return (uint32_t)syscall(SYS_TOUCH_READ, (uint64_t)event);
 }
