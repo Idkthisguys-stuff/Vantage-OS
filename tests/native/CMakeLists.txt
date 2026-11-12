@@ -4,6 +4,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(CTest)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/VantageHost.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/VantageTLS.cmake")
 
 if(NOT BUILD_TESTING)
   return()
@@ -50,6 +51,8 @@ vantage_native_test(render_test render_backends drivers
   "${ROOT}/drivers/video/v3d.c" "${ROOT}/drivers/hw/wait.c")
 vantage_native_test(wifi_test wifi_firmware_and_frames drivers
   drivers/wifi.c "${ROOT}/drivers/wifi/cyw43455.c" "${ROOT}/drivers/wifi/nvram.c")
+vantage_native_test(genet_test genet_ethernet drivers
+  drivers/genet.c "${ROOT}/drivers/ethernet/genet.c" "${ROOT}/drivers/hw/wait.c")
 vantage_native_test(sdio_test sdio_host drivers
   drivers/sdio.c "${ROOT}/drivers/wifi/sdio.c" "${ROOT}/drivers/hw/wait.c")
 vantage_native_test(sd_controller_test sd_controller drivers
@@ -108,10 +111,22 @@ if(MSVC)
 endif()
 
 vantage_native_test(terminal_test terminal_model user
-  user/terminal.c "${ROOT}/user/lib/user_lib.c" "${ROOT}/user/apps/terminal/terminal.c")
+  user/terminal.c "${ROOT}/user/lib/user_lib.c" "${ROOT}/user/apps/terminal/terminal.c"
+  "${ROOT}/user/apps/terminal/net_cmd.c" "${ROOT}/user/apps/terminal/net_get.c"
+  "${ROOT}/user/apps/terminal/net_profiles.c" "${ROOT}/user/apps/terminal/net_tools.c")
+set(NET_SOURCES "${ROOT}/kernel/net/dhcp.c" "${ROOT}/kernel/net/dns.c" "${ROOT}/kernel/net/ip.c"
+  "${ROOT}/kernel/net/net_syscall.c" "${ROOT}/kernel/net/profile.c" "${ROOT}/kernel/net/service.c"
+  "${ROOT}/kernel/net/sntp.c" "${ROOT}/kernel/net/socket.c" "${ROOT}/kernel/net/tcp.c")
 vantage_native_test(user_memory_test user_memory user
   user/memory.c "${ROOT}/arch/armv8/mmu_tables.c" "${ROOT}/kernel/syscall/dispatch.c"
-  ${FILE_SOURCES} "${ROOT}/kernel/fs/file_syscall.c")
+  ${FILE_SOURCES} "${ROOT}/kernel/fs/file_syscall.c" ${NET_SOURCES})
+vantage_native_test(net_stack_test network_stack network
+  net/stack.c ${NET_SOURCES} "${ROOT}/sim/platform/net_peer.c" "${ROOT}/sim/platform/net_sim.c")
+target_link_libraries(net_stack_test PRIVATE vantage_tls)
+vantage_native_test(tls_test tls_client network
+  net/tls.c ${NET_SOURCES} "${ROOT}/sim/platform/net_peer.c" "${ROOT}/sim/platform/net_sim.c"
+  "${ROOT}/user/lib/user_lib.c")
+target_link_libraries(tls_test PRIVATE vantage_tls)
 vantage_native_test(abi_test syscall_abi user user/abi.c)
 
 add_test(NAME python_tools COMMAND "${Python3_EXECUTABLE}" -B -m unittest discover

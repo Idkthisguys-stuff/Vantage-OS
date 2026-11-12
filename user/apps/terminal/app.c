@@ -155,6 +155,7 @@ void terminal_app_init(void) {
         rows = keyboard_top;
     }
     terminal_init(&terminal, columns, rows, info, output, NULL);
+    terminal_net_startup();
 }
 
 void terminal_app_step(void) {
@@ -166,6 +167,7 @@ void terminal_app_step(void) {
         terminal_touch(&terminal, &touch);
         keyboard_touch(&touch);
     }
+    terminal_job_step(&terminal);
     if (keyboard_pressed == 37) {
         uint32_t now = sys_time_us();
         if (now - keyboard_repeat_time >= keyboard_repeat_delay) {

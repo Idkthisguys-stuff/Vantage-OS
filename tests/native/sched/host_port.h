@@ -184,6 +184,10 @@ void files_release(uint64_t owner) {
     released++;
     last_released = owner;
 }
+void net_release(uint64_t owner) {
+    /* Sockets are released with files, for the same owner, on core 0. */
+    CHECK(owner == last_released && task_services_allowed() && core_id == 0);
+}
 
 /* The user half each modeled core has installed; 0 is kernel-only. */
 static uint64_t host_root[TASK_CORES];

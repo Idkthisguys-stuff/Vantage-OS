@@ -2,6 +2,7 @@
 #include "internal.h"
 #include <vantage/arch/mmu.h>
 #include <vantage/kernel/files.h>
+#include <vantage/kernel/net.h>
 #include <vantage/kernel/parallel_port.h>
 #include <vantage/kernel/user_access.h>
 
@@ -190,6 +191,7 @@ int process_reap(ProcessId id, int* status) {
     if (status) *status = process->status;
     sched_unlock();
     files_release(process->id);
+    net_release(process->id);
     discard(process);
     return TASK_OK;
 }

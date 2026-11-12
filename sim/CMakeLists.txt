@@ -8,6 +8,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/VantageHost.cmake")
 include("${VANTAGE_ROOT}/cmake/VantageSDL.cmake")
+include("${VANTAGE_ROOT}/cmake/VantageTLS.cmake")
 
 # Share application and kernel services; replace only the platform/transport.
 add_library(vantage_sim_core STATIC
@@ -16,14 +17,33 @@ add_library(vantage_sim_core STATIC
   "${VANTAGE_ROOT}/kernel/fs/storage.c"
   "${VANTAGE_ROOT}/kernel/fs/block_store.c"
   "${VANTAGE_ROOT}/kernel/fs/file_syscall.c"
+  "${VANTAGE_ROOT}/kernel/net/dhcp.c"
+  "${VANTAGE_ROOT}/kernel/net/dns.c"
+  "${VANTAGE_ROOT}/kernel/net/ip.c"
+  "${VANTAGE_ROOT}/kernel/net/net_syscall.c"
+  "${VANTAGE_ROOT}/kernel/net/profile.c"
+  "${VANTAGE_ROOT}/kernel/net/service.c"
+  "${VANTAGE_ROOT}/kernel/net/sntp.c"
+  "${VANTAGE_ROOT}/kernel/net/socket.c"
+  "${VANTAGE_ROOT}/kernel/net/tcp.c"
   "${VANTAGE_ROOT}/kernel/ui/canvas.c"
   "${VANTAGE_ROOT}/kernel/ui/window_manager.c"
   "${VANTAGE_ROOT}/user/apps/terminal/terminal.c"
   "${VANTAGE_ROOT}/user/apps/terminal/app.c"
+  "${VANTAGE_ROOT}/user/apps/terminal/net_cmd.c"
+  "${VANTAGE_ROOT}/user/apps/terminal/net_get.c"
+  "${VANTAGE_ROOT}/user/apps/terminal/net_profiles.c"
+  "${VANTAGE_ROOT}/user/apps/terminal/net_tools.c"
   "${VANTAGE_ROOT}/user/lib/user_lib.c"
-  platform/display_sim.c)
+  platform/display_sim.c
+  platform/net_peer.c
+  platform/net_sim.c
+  platform/random_host.c)
 vantage_host_target(vantage_sim_core)
-target_link_libraries(vantage_sim_core PUBLIC vantage_sdl)
+target_link_libraries(vantage_sim_core PUBLIC vantage_sdl vantage_tls)
+if(WIN32)
+  target_link_libraries(vantage_sim_core PUBLIC bcrypt)
+endif()
 
 add_executable(vantage_sim main.c platform/storage_host.c)
 vantage_host_target(vantage_sim)
@@ -67,6 +87,15 @@ if(BUILD_TESTING)
   add_test(NAME terminal_capture_reboot COMMAND "${Python3_EXECUTABLE}" -B
     "${VANTAGE_ROOT}/tests/tools/terminal_capture_roundtrip.py" "$<TARGET_FILE:terminal_capture>")
   set_tests_properties(terminal_capture_reboot PROPERTIES LABELS "simulator;storage" TIMEOUT 120)
+
+  add_executable(terminal_network tests/terminal_network.c platform/storage_host.c)
+  vantage_test_target(terminal_network)
+  target_link_libraries(terminal_network PRIVATE vantage_sim_core)
+  vantage_copy_sdl_runtime(terminal_network)
+  add_test(NAME terminal_network COMMAND "${Python3_EXECUTABLE}" -B
+    "${VANTAGE_ROOT}/tests/tools/terminal_network_storage.py" "$<TARGET_FILE:terminal_network>")
+  set_tests_properties(terminal_network PROPERTIES LABELS "simulator;network;storage"
+    ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 60)
 
   add_executable(parallel_test tests/parallel.c
     "${VANTAGE_ROOT}/kernel/parallel/worker.c" "${VANTAGE_ROOT}/kernel/ui/raster.c")

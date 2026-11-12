@@ -1,9 +1,11 @@
 #include <vantage/abi/syscall.h>
 #include <vantage/abi/console.h>
+#include <vantage/abi/net.h>
 #include <vantage/kernel/syscall.h>
 #include <vantage/kernel/canvas.h>
 #include <vantage/kernel/platform.h>
 #include <vantage/kernel/files.h>
+#include <vantage/kernel/net.h>
 #include <vantage/kernel/user_access.h>
 #include <vantage/drivers/key.h>
 #include <vantage/drivers/touch.h>
@@ -38,18 +40,20 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     if (!task_services_allowed()) {
         if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_DIRECTORY_LONG)
             return (uint64_t)(int64_t)FILE_UNAVAILABLE;
+        if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
+            return (uint64_t)(int64_t)NET_UNAVAILABLE;
         return 0;
     }
 #endif
-    if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_DIRECTORY_LONG) {
 #ifdef VANTAGE_SIM
-        const uint64_t owner = 1; /* One host app, without emulated task contexts. */
+    const uint64_t owner = 1; /* One host app, without emulated task contexts. */
 #else
-        /* Handles belong to the calling process, or to a kernel task. */
-        const uint64_t owner = process_current() ? process_current() : task_current();
+    const uint64_t owner = process_current() ? process_current() : task_current();
 #endif
+    if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_DIRECTORY_LONG)
         return (uint64_t)handle_file_call(syscall_id, (uintptr_t)arg0, owner);
-    }
+    if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
+        return (uint64_t)handle_net_call(syscall_id, (uintptr_t)arg0, owner);
     if (syscall_id == SYS_TOUCH_READ) {
         TouchEvent event;
         if (!writable(arg0, sizeof(event), sizeof(uint32_t))) return 0;
@@ -74,7 +78,9 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     else if (syscall_id == SYS_CANVAS_PRESENT) {
         // Present Canvas
         canvas_present();
-#ifndef VANTAGE_SIM
+#ifdef VANTAGE_SIM
+        net_poll();
+#else
         pi4_drivers_poll();
         task_yield();
 #endif
@@ -105,7 +111,9 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     }
     else if (syscall_id == SYS_FRAME_WAIT) {
         fb_wait_frame();
-#ifndef VANTAGE_SIM
+#ifdef VANTAGE_SIM
+        net_poll();
+#else
         pi4_drivers_poll();
         task_yield();
 #endif

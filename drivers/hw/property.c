@@ -35,7 +35,8 @@ int property_call(PropertyMailbox* mailbox, const HwOps* io, uint32_t tag,
             mailbox->state = 0;
             if (mailbox->words[0] != (count + 6) * 4 || mailbox->words[1] != 0x80000000U ||
                 mailbox->words[2] != tag || mailbox->words[3] != count * 4 ||
-                mailbox->words[4] != (0x80000000U | count * 4) ||
+                /* Values may be shorter than the buffer (the 6-byte MAC address). */
+                !(mailbox->words[4] & 0x80000000U) || (mailbox->words[4] & 0x7fffffffU) > count * 4 ||
                 mailbox->words[5 + count] != 0) return HW_PROTOCOL;
             for (unsigned int i = 0; i < count; i++) values[i] = mailbox->words[5 + i];
             return HW_OK;

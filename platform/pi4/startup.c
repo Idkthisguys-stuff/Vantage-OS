@@ -14,6 +14,9 @@
 #ifndef VANTAGE_WIFI_ASSETS
 #define VANTAGE_WIFI_ASSETS 0
 #endif
+#ifndef VANTAGE_ETHERNET
+#define VANTAGE_ETHERNET 0
+#endif
 
 #if VANTAGE_WIFI && VANTAGE_WIFI_ASSETS
 static Sdio sdio;
@@ -21,7 +24,7 @@ static Wifi wifi;
 extern const WifiFirmware* pi4_wifi_firmware(void);
 #endif
 
-#if VANTAGE_V3D || (VANTAGE_WIFI && VANTAGE_WIFI_ASSETS)
+#if VANTAGE_V3D || (VANTAGE_WIFI && VANTAGE_WIFI_ASSETS) || VANTAGE_ETHERNET
 static void report(const char* prefix, int error) {
     char digits[12]; unsigned int used = 0;
     uint32_t value = (uint32_t)(error < 0 ? -(int64_t)error : error);
@@ -97,38 +100,64 @@ static void gpu_start(void) {
 }
 #endif
 
+#if VANTAGE_ETHERNET
+static const NetLink* ethernet_start(void) {
+    const NetLink* link = NULL;
+    int result = pi4_ethernet_start(pi4_hardware_ops(), &link);
+    if (result == HW_OK) {
+        static const char hex[] = "0123456789abcdef";
+        unsigned char mac[6];
+        char text[18];
+        link->address(link->context, mac);
+        for (unsigned int i = 0; i < 6; i++) {
+            text[i * 3] = hex[mac[i] >> 4];
+            text[i * 3 + 1] = hex[mac[i] & 15];
+            text[i * 3 + 2] = i < 5 ? ':' : 0;
+        }
+        uart_writeText("[OK] Ethernet ready (MAC ");
+        uart_writeText(text);
+        uart_writeText(")\n");
+    } else if (result == HW_OFF) uart_writeText("[INFO] Ethernet unavailable (no GENET v5 controller)\n");
+    else report("[INFO] Ethernet unavailable (", result);
+    return link;
+}
+#endif
+
 void pi4_drivers_start(void) {
 #if VANTAGE_V3D
     gpu_start();
 #else
     uart_writeText("[INFO] V3D disabled at build time (V3D=0); CPU rendering backend selected\n");
 #endif
+    if (pi4_rng_start(pi4_hardware_ops()) == HW_OK) uart_writeText("[OK] Hardware RNG ready\n");
+    else uart_writeText("[WARN] Hardware RNG unavailable; network identifiers use a weak timer-based generator\n");
+    const NetLink* wifi_link = NULL;
 #if VANTAGE_WIFI && VANTAGE_WIFI_ASSETS
     int wifi_result = sdio_init(&sdio, pi4_hardware_ops());
     if (wifi_result == HW_OK) {
         WifiBus bus = wifi_sdio_bus(&sdio);
         wifi_result = wifi_boot(&wifi, &bus, pi4_wifi_firmware());
-        if (wifi_result == HW_OK)
-            uart_writeText("[OK] CYW43455 firmware ready; network association not requested\n");
-        else report("[ERR] CYW43455 firmware initialization failed (", wifi_result);
+        if (wifi_result == HW_OK) {
+            wifi_link = pi4_net_link(&wifi);
+            uart_writeText("[OK] CYW43455 firmware ready; use 'net join' to connect\n");
+        } else report("[ERR] CYW43455 firmware initialization failed (", wifi_result);
     } else report("[ERR] WLAN SDIO initialization failed (", wifi_result);
 #elif VANTAGE_WIFI
     uart_writeText("[INFO] Wi-Fi skipped: supply firmware, NVRAM and CLM via tools/embed_wifi.py\n");
 #else
     uart_writeText("[INFO] Wi-Fi disabled at build time (WIFI=0)\n");
 #endif
+#if VANTAGE_ETHERNET
+    const NetLink* eth_link = ethernet_start();
+#else
+    const NetLink* eth_link = NULL;
+    uart_writeText("[INFO] Ethernet disabled at build time (ETHERNET=0)\n");
+#endif
+    net_attach(wifi_link, eth_link);
 }
 
 void pi4_drivers_poll(void) {
-#if VANTAGE_WIFI && VANTAGE_WIFI_ASSETS
-    if (wifi.state == 1) {
-        for (unsigned int i = 0; i < 8; i++) {
-            int result = wifi_poll(&wifi);
-            if (result < 0) { uart_writeText("[ERR] WLAN transport stopped\n"); break; }
-            if (!result) break;
-        }
-    }
-#endif
+    net_poll();
 }
 
 Wifi* pi4_wifi_device(void) {
