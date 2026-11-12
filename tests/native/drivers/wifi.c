@@ -12,9 +12,9 @@ typedef struct {
     unsigned char incoming[32][WIFI_PACKET_MAX], outgoing[WIFI_PACKET_MAX];
     unsigned int incoming_bytes[32], head, queued, offset, sent;
     uint32_t clock, window;
-    unsigned int sequence, uploads, released, country, commands, joins;
+    unsigned int sequence, uploads, released, country, commands, joins, scans, wsec, wpa_auth, mpc, join_iovars;
     unsigned char ssid[36], country_data[12];
-    int owner, mode, reject_wpa, stale_events, no_join_events;
+    int owner, mode, reject_wpa, stale_events, no_join_events, deauth_join, scan_set, missing, reject_join_iovar;
 } Radio;
 static Radio radio;
 static uint32_t get32(const unsigned char* p) {
@@ -43,13 +43,65 @@ static void enqueue(unsigned int channel, const unsigned char* payload, unsigned
     memcpy(p + 12, payload, bytes);
     radio.incoming_bytes[slot] = (bytes + 12 + 3U) & ~3U; radio.queued++;
 }
-static void event(unsigned int type, unsigned int status, unsigned int flags) {
-    unsigned char p[76] = {0}; p[0] = 0x20; /* BDC */
+static void event_data(unsigned int type, unsigned int status, unsigned int flags,
+                       const unsigned char* data, unsigned int bytes) {
+    unsigned char p[1024] = {0}; p[0] = 0x20; /* BDC */
     unsigned char* frame = p + 4;
+    CHECK(bytes <= sizeof(p) - 76);
     frame[12] = 0x88; frame[13] = 0x6c; frame[14] = 0x80; frame[15] = 1;
     frame[20] = 0x10; frame[21] = 0x18; frame[23] = 1; frame[25] = 2; frame[27] = (unsigned char)flags;
-    putbe(frame + 28, type); putbe(frame + 32, status);
-    enqueue(1, p, sizeof(p));
+    putbe(frame + 28, type); putbe(frame + 32, status); putbe(frame + 44, bytes);
+    if (bytes) memcpy(frame + 72, data, bytes);
+    enqueue(1, p, 76 + bytes);
+}
+static void event(unsigned int type, unsigned int status, unsigned int flags) { event_data(type, status, flags, NULL, 0); }
+
+/* brcmf_escan_result with one brcmf_bss_info record. */
+static void bss(unsigned int last, int rssi, unsigned int channel, unsigned int capability, const char* ssid,
+                unsigned int ssid_bytes, const unsigned char* ie, unsigned int ie_bytes, int corrupt) {
+    unsigned char d[512] = {0};
+    unsigned int length = 128 + ie_bytes;
+    put32(d, 12 + length); put32(d + 4, 109); d[10] = 1;
+    unsigned char* b = d + 12;
+    put32(b, 109); put32(b + 4, length);
+    b[8] = 0x02; b[9] = 0x11; b[13] = (unsigned char)last;
+    b[16] = (unsigned char)capability; b[18] = (unsigned char)ssid_bytes;
+    memcpy(b + 19, ssid, ssid_bytes);
+    put16(b + 72, channel | 0x1000U); b[88] = (unsigned char)(corrupt == 2 ? 0 : channel);
+    put16(b + 78, (unsigned int)(rssi & 0xffff));
+    put16(b + 116, corrupt == 1 ? length + 4 : 128); put32(b + 120, ie_bytes);
+    memcpy(b + 128, ie, ie_bytes);
+    event_data(69, 8, 0, d, 12 + length);
+}
+static const unsigned char rsn_psk[] = {48, 20, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 2, 0, 0};
+static const unsigned char rsn_sae[] = {48, 20, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 8, 0, 0};
+static const unsigned char rsn_mixed[] = {48, 24, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 4, 2, 0,
+                                          0, 0x0f, 0xac, 2, 0, 0x0f, 0xac, 8, 0, 0};
+static const unsigned char rsn_8021x[] = {48, 20, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 1, 0, 0};
+static const unsigned char wpa_vendor[] = {221, 6, 0, 0x50, 0xf2, 1, 1, 0};
+static const unsigned char truncated[] = {48, 40, 1, 0};
+static void scan_results(void) {
+    radio.scans++;
+    if (radio.scan_set == 1) {
+        bss(1, -50, 6, 0x11, "home", 4, rsn_psk, sizeof(rsn_psk), 0);
+        bss(1, -40, 6, 0x11, "home", 4, rsn_psk, sizeof(rsn_psk), 0);    /* Same BSSID, stronger. */
+        bss(2, -70, 11, 0x01, "cafe", 4, NULL, 0, 0);
+        bss(3, -60, 1, 0x01, "\0\0\0", 3, NULL, 0, 0);                 /* Hidden. */
+        bss(4, -30, 1, 0x11, "broken", 6, NULL, 0, 1);                    /* IEs past the record. */
+        bss(5, -65, 36, 0x11, "sae", 3, rsn_sae, sizeof(rsn_sae), 2);
+        bss(6, -66, 40, 0x11, "mixed", 5, rsn_mixed, sizeof(rsn_mixed), 0);
+        bss(7, -67, 44, 0x11, "corp", 4, rsn_8021x, sizeof(rsn_8021x), 0);
+        bss(8, -68, 3, 0x11, "legacy", 6, wpa_vendor, sizeof(wpa_vendor), 0);
+        bss(9, -69, 4, 0x11, "wep", 3, NULL, 0, 0);
+        bss(10, -71, 5, 0x11, "odd", 3, truncated, sizeof(truncated), 0);
+        event(69, 0, 0);
+    } else if (radio.scan_set == 2) {
+        for (unsigned int i = 0; i < 20; i++) bss(20 + i, -90 + (int)i, 1, 0x01, "many", 4, NULL, 0, 0);
+        event(69, 0, 0);
+    } else if (radio.scan_set == 3) {
+        bss(1, -50, 6, 0x01, "aborted", 7, NULL, 0, 0);
+        event(69, 4, 0);                                                    /* Aborted scan. */
+    }
 }
 static void transmit(void) {
     unsigned char* p = radio.outgoing;
@@ -77,19 +129,48 @@ static void transmit(void) {
             memcpy(radio.country_data, p + 28 + 8, 12);
         }
         if (!strcmp(name, "sup_wpa") && radio.reject_wpa) put32(response + 12, 23);
+        if (!strcmp(name, "wpa_auth")) radio.wpa_auth = get32(p + 28 + sizeof("wpa_auth"));
+        if (!strcmp(name, "mpc")) radio.mpc = get32(p + 28 + sizeof("mpc")) + 1;
+        if (!strcmp(name, "escan")) {
+            const unsigned char* e = p + 28 + sizeof("escan");
+            CHECK(get32(e) == 1 && get16(e + 4) == 1 && e[50] == 2 && e[44] == 0xff && get32(e + 52) == 0xffffffffU);
+            CHECK(payload == sizeof("escan") + 72);
+        }
         if (!strcmp(name, "clmload")) {
             const unsigned char* chunk = p + 28 + sizeof("clmload");
             CHECK((get16(chunk) & 0x1000U) && get16(chunk + 2) == 2 && get32(chunk + 4) <= 1024);
         }
+        if (!strcmp(name, "join")) {
+            /* brcmf_ext_join_params_le without chanspecs: SSID, active join
+             * scan with default timing, any BSSID. */
+            const unsigned char* e = p + 28 + sizeof("join");
+            CHECK(payload == sizeof("join") + 68 && radio.country && get32(e) >= 1 && get32(e) <= 32);
+            CHECK(e[36] == 0 && !e[37] && !e[38] && !e[39]);
+            for (unsigned int offset = 40; offset < 56; offset += 4) CHECK(get32(e + offset) == 0xffffffffU);
+            for (unsigned int i = 56; i < 62; i++) CHECK(e[i] == 0xff);
+            CHECK(!e[62] && !e[63] && !get32(e + 64));
+            radio.join_iovars++;
+            if (radio.reject_join_iovar) put32(response + 12, 23);
+            else { memcpy(radio.ssid, e, 36); radio.joins++; }
+        }
     } else if (command == 26) {
         CHECK(radio.country); memcpy(radio.ssid, p + 28, 36); radio.joins++;
     } else if (command == 25) { memcpy(response + 16, radio.ssid, 36); bytes = 36; }
+    else if (command == 134) radio.wsec = get32(p + 28);
+    else if (command == 127) { put32(response + 16, (uint32_t)-55); bytes = 12; }
     else if (command == 2) CHECK(radio.country);
     else if (command == 268) CHECK(get16(p + 28) == 8 && get16(p + 30) == 1);
     /* SET replies can echo the original length without returning a payload. */
     put32(response + 4, (flags & 2) ? payload : bytes);
     if (radio.mode != 1) enqueue(0, response, bytes + 16);
-    if (command == 26 && radio.mode != 1 && !radio.no_join_events) { event(0, 0, 0); event(16, 0, 1); event(46, 6, 0); }
+    int joined = command == 26 || (command == 263 && !strcmp((const char*)p + 28, "join") && !radio.reject_join_iovar);
+    if (joined && radio.mode != 1 && radio.deauth_join) { event(0, 0, 0); event(5, 0, 0); }
+    else if (joined && radio.mode != 1 && radio.missing) event(0, 3, 0);   /* No networks found. */
+    else if (joined && radio.mode != 1 && !radio.no_join_events) {
+        event(0, 0, 0); event(16, 0, 1);
+        if (radio.wsec) event(46, 6, 0);
+    }
+    if (command == 263 && !strcmp((const char*)p + 28, "escan")) scan_results();
     if (command == 52 && radio.stale_events) { event(0, 0, 0); event(16, 0, 1); event(46, 6, 0); }
 }
 static int direct(void* context, unsigned int fn, uint32_t address, int write, uint8_t* value) {
@@ -213,6 +294,98 @@ int main(void) {
     initialize(0); CHECK(boot() == HW_OK); radio.stale_events = radio.no_join_events = 1;
     CHECK(wifi_join(&wifi, (const unsigned char*)"test", 4, (const unsigned char*)"testpass", 8) == HW_TIMEOUT);
     CHECK(!wifi.connected && wifi_send(&wifi, frame, sizeof(frame)) == HW_OFF);
+    /* Scans: escan parameters, record validation, security classes, merging. */
+    initialize(0); CHECK(boot() == HW_OK && radio.mpc == 1);
+    CHECK(wifi_scan_status(&wifi) == HW_OFF);
+    radio.scan_set = 1;
+    CHECK(wifi_scan_start(&wifi) == HW_OK && wifi_scan_status(&wifi) == HW_BUSY && radio.scans == 1);
+    for (unsigned int i = 0; i < 40 && wifi_scan_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_scan_status(&wifi) == HW_OK && wifi.bss_count == 8);
+    const struct { const char* ssid; int rssi; unsigned int channel, security; } expected[] = {
+        {"home", -40, 6, WIFI_WPA2}, {"cafe", -70, 11, WIFI_OPEN}, {"sae", -65, 36, WIFI_WPA3},
+        {"mixed", -66, 40, WIFI_WPA2_WPA3}, {"corp", -67, 44, WIFI_ENTERPRISE}, {"legacy", -68, 3, WIFI_WPA},
+        {"wep", -69, 4, WIFI_WEP}, {"odd", -71, 5, WIFI_OTHER}};
+    for (unsigned int i = 0; i < 8; i++) {
+        const WifiBss* b = &wifi.bss[i];
+        CHECK(b->ssid_bytes == strlen(expected[i].ssid) && !memcmp(b->ssid, expected[i].ssid, b->ssid_bytes));
+        CHECK(b->rssi == expected[i].rssi && b->channel == expected[i].channel && b->security == expected[i].security);
+    }
+    radio.scan_set = 2;
+    CHECK(wifi_scan_start(&wifi) == HW_OK);
+    for (unsigned int i = 0; i < 40 && wifi_scan_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi.bss_count == WIFI_SCAN_LIMIT);
+    for (unsigned int i = 0; i < WIFI_SCAN_LIMIT; i++) CHECK(wifi.bss[i].rssi >= -90 + 4);  /* Strongest kept. */
+    radio.scan_set = 3;
+    CHECK(wifi_scan_start(&wifi) == HW_OK);
+    for (unsigned int i = 0; i < 40 && wifi_scan_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_scan_status(&wifi) == HW_OK && wifi.bss_count == 1);
+    radio.scan_set = 0;
+    CHECK(wifi_scan_start(&wifi) == HW_OK);
+    for (unsigned int i = 0; i < 20000 && wifi_scan_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_scan_status(&wifi) == HW_OK && !wifi.bss_count);  /* No completion event: 15 s limit. */
+
+    /* Non-blocking WPA2 join, RSSI, and frames only after verification. */
+    CHECK(wifi_rssi(&wifi, &(int32_t){0}) == HW_OFF);
+    CHECK(wifi_join_start(&wifi, (const unsigned char*)"test", 4, (const unsigned char*)"testpass", 8, 0) == HW_OK);
+    CHECK(wifi_join_status(&wifi) == HW_BUSY && radio.wsec == 4 && radio.wpa_auth == 128);
+    CHECK(wifi_send(&wifi, frame, sizeof(frame)) == HW_OFF);
+    for (unsigned int i = 0; i < 10 && wifi_join_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_join_status(&wifi) == HW_OK && wifi.connected);
+    int32_t rssi = 0;
+    CHECK(wifi_rssi(&wifi, &rssi) == HW_OK && rssi == -55);
+    CHECK(wifi_rssi(&wifi, NULL) == HW_INVALID);
+    event(16, 0, 0);
+    CHECK(wifi_poll(&wifi) == HW_OK && wifi_join_status(&wifi) == HW_OFF);
+    /* Explicit open network: no encryption, no key-exchange event required. */
+    CHECK(wifi_join_start(&wifi, (const unsigned char*)"cafe", 4, NULL, 0, 0) == HW_OK);
+    CHECK(radio.wsec == 0 && radio.wpa_auth == 0);
+    for (unsigned int i = 0; i < 10 && wifi_join_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_join_status(&wifi) == HW_OK && wifi.open && !wifi.keyed);
+    CHECK(wifi_send(&wifi, frame, sizeof(frame)) == HW_OK);
+    CHECK(wifi_join_start(&wifi, (const unsigned char*)"x", 1, (const unsigned char*)"short", 5, 0) == HW_INVALID);
+    CHECK(wifi_join_start(&wifi, (const unsigned char*)"x", 1, NULL, 9, 0) == HW_INVALID);
+    CHECK(wifi_join(&wifi, (const unsigned char*)"x", 1, NULL, 0) == HW_INVALID);  /* Blocking API stays WPA2-only. */
+    /* Deauthentication while joining fails the join; disconnect cancels one. */
+    radio.deauth_join = 1;
+    CHECK(wifi_join_start(&wifi, (const unsigned char*)"test", 4, (const unsigned char*)"testpass", 8, 0) == HW_OK);
+    for (unsigned int i = 0; i < 10 && wifi_join_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_join_status(&wifi) == HW_IO && !wifi.connected);
+    radio.deauth_join = 0; radio.no_join_events = 1;
+    CHECK(wifi_join_start(&wifi, (const unsigned char*)"test", 4, (const unsigned char*)"testpass", 8, 0) == HW_OK);
+    CHECK(wifi_disconnect(&wifi) == HW_OK && wifi_join_status(&wifi) == HW_OFF);
+    for (unsigned int i = 0; i < sizeof(wifi.join_ssid); i++) CHECK(!wifi.join_ssid[i]);
+    /* Hidden networks: the "join" iovar names the SSID for directed probes. */
+    radio.no_join_events = 0;
+    unsigned int joins = radio.joins, iovars = radio.join_iovars;
+    const unsigned char* secret = (const unsigned char*)"secret";
+    CHECK(wifi_join_start(&wifi, secret, 6, (const unsigned char*)"testpass", 8, 2) == HW_INVALID);
+    CHECK(wifi_join_start(&wifi, secret, 6, (const unsigned char*)"testpass", 8, WIFI_JOIN_HIDDEN) == HW_OK);
+    CHECK(radio.join_iovars == iovars + 1 && radio.joins == joins + 1 && radio.wsec == 4);
+    CHECK(get32(radio.ssid) == 6 && !memcmp(radio.ssid + 4, "secret", 6));
+    for (unsigned int i = 0; i < 10 && wifi_join_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_join_status(&wifi) == HW_OK && wifi.connected && wifi.keyed && !wifi.join_missing);
+    /* "No networks" ends a hidden or broadcast join with join_missing set. */
+    radio.missing = 1;
+    CHECK(wifi_join_start(&wifi, secret, 6, (const unsigned char*)"testpass", 8, WIFI_JOIN_HIDDEN) == HW_OK);
+    for (unsigned int i = 0; i < 10 && wifi_join_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_join_status(&wifi) == HW_IO && wifi.join_missing && !wifi.connected);
+    iovars = radio.join_iovars;
+    CHECK(wifi_join_start(&wifi, (const unsigned char*)"test", 4, (const unsigned char*)"testpass", 8, 0) == HW_OK);
+    CHECK(!wifi.join_missing && radio.join_iovars == iovars);
+    for (unsigned int i = 0; i < 10 && wifi_join_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_join_status(&wifi) == HW_IO && wifi.join_missing);
+    CHECK(wifi_disconnect(&wifi) == HW_OK && !wifi.join_missing && wifi_join_status(&wifi) == HW_OFF);
+    radio.missing = 0;
+    /* Firmware that rejects the "join" iovar gets SET_SSID instead. */
+    radio.reject_join_iovar = 1;
+    joins = radio.joins; iovars = radio.join_iovars;
+    CHECK(wifi_join_start(&wifi, secret, 6, NULL, 0, WIFI_JOIN_HIDDEN) == HW_OK);
+    CHECK(radio.join_iovars == iovars + 1 && radio.joins == joins + 1 && radio.wsec == 0);
+    for (unsigned int i = 0; i < 10 && wifi_join_status(&wifi) == HW_BUSY; i++) CHECK(wifi_poll(&wifi) >= 0);
+    CHECK(wifi_join_status(&wifi) == HW_OK && wifi.open && wifi.connected);
+    radio.reject_join_iovar = 0;
+    puts("PASS: hidden joins by directed probe, SET_SSID fallback, network-not-found");
     puts("PASS: modeled CYW43455 boot/readback, CLM/country, WPA2 offload, frames, wrap, bounds and errors");
+    puts("PASS: escan records, security classes, merge/limit/abort/timeout, non-blocking and open joins, deauth, RSSI");
     return 0;
 }

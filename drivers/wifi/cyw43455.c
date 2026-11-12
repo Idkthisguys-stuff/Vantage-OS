@@ -184,6 +184,78 @@ static int fifo(Wifi* w, int write, unsigned char* data, unsigned int bytes) {
     return HW_OK;
 }
 
+/* RSN/WPA information elements decide what the station can offer. */
+static uint8_t security(unsigned int capability, const unsigned char* ie, uint32_t bytes) {
+    int rsn = 0, wpa = 0, psk = 0, sae = 0, dot1x = 0, other = 0;
+    for (uint32_t offset = 0; offset + 2 <= bytes;) {
+        unsigned int id = ie[offset], length = ie[offset + 1];
+        if (length > bytes - offset - 2) return WIFI_OTHER;  /* Truncated element list. */
+        const unsigned char* body = ie + offset + 2;
+        if (id == 48 && length >= 8) {
+            rsn = 1;
+            unsigned int pairwise = le16(body + 6), position = 8 + pairwise * 4;
+            if (pairwise > 16 || position + 2 > length) { other = 1; goto next; }
+            unsigned int suites = le16(body + position);
+            position += 2;
+            if (suites > 16 || position + suites * 4 > length) { other = 1; goto next; }
+            for (unsigned int i = 0; i < suites; i++, position += 4) {
+                const unsigned char* suite = body + position;
+                if (suite[0] != 0 || suite[1] != 0x0f || suite[2] != 0xac) { other = 1; continue; }
+                if (suite[3] == 2 || suite[3] == 6) psk = 1;
+                else if (suite[3] == 8) sae = 1;
+                else if (suite[3] == 1 || suite[3] == 5) dot1x = 1;
+                else other = 1;
+            }
+        } else if (id == 221 && length >= 4 && body[0] == 0 && body[1] == 0x50 && body[2] == 0xf2 && body[3] == 1) {
+            wpa = 1;
+        }
+    next:
+        offset += 2 + length;
+    }
+    if (rsn) {
+        if (psk && sae) return WIFI_WPA2_WPA3;
+        if (psk) return WIFI_WPA2;
+        if (sae) return WIFI_WPA3;
+        return dot1x && !other ? WIFI_ENTERPRISE : WIFI_OTHER;
+    }
+    if (wpa) return WIFI_WPA;
+    return (capability & 0x10U) ? WIFI_WEP : WIFI_OPEN;
+}
+
+/* One brcmf_escan_result carrying exactly one brcmf_bss_info record. */
+static void scan_event(Wifi* w, uint32_t status, const unsigned char* d, uint32_t bytes) {
+    if (status != 8) { w->scanning = 0; w->scanned = 1; return; }
+    if (!w->scanning || bytes < 12 + 128) return;
+    uint32_t buffer = le32(d);
+    if (buffer < 12 + 128 || buffer > bytes || le16(d + 10) != 1) return;
+    const unsigned char* b = d + 12;
+    uint32_t length = le32(b + 4), ie_length = le32(b + 120);
+    unsigned int ie_offset = le16(b + 116), ssid_bytes = b[18];
+    if (length != buffer - 12 || length < 128 || ie_offset < 128 || ie_offset > length ||
+        ie_length > length - ie_offset || !ssid_bytes || ssid_bytes > 32) return;
+    unsigned int zero = 1;
+    for (unsigned int i = 0; i < ssid_bytes; i++) zero &= !b[19 + i];
+    if (zero) return; /* Hidden networks cannot be joined by name. */
+    WifiBss bss = {0};
+    memcpy(bss.bssid, b + 8, 6);
+    bss.ssid_bytes = (uint8_t)ssid_bytes;
+    memcpy(bss.ssid, b + 19, ssid_bytes);
+    bss.channel = b[88] ? b[88] : (uint8_t)le16(b + 72);
+    bss.rssi = (int16_t)le16(b + 78);
+    bss.security = security(le16(b + 16), b + ie_offset, ie_length);
+    unsigned int slot = w->bss_count, weakest = 0;
+    for (unsigned int i = 0; i < w->bss_count; i++) {
+        if (!memcmp(w->bss[i].bssid, bss.bssid, 6)) { slot = i; break; }
+        if (w->bss[i].rssi < w->bss[weakest].rssi) weakest = i;
+    }
+    if (slot == WIFI_SCAN_LIMIT) {
+        if (bss.rssi <= w->bss[weakest].rssi) return;
+        slot = weakest;
+    }
+    if (slot == w->bss_count) w->bss_count++;
+    w->bss[slot] = bss;
+}
+
 static void event(Wifi* w, const unsigned char* p, unsigned int bytes) {
     /* Ethernet + Broadcom vendor header + versioned big-endian wl_event_msg. */
     if (bytes < 72 || p[12] != 0x88 || p[13] != 0x6c || p[19] != 0 || p[20] != 0x10 || p[21] != 0x18 ||
@@ -198,11 +270,13 @@ static void event(Wifi* w, const unsigned char* p, unsigned int bytes) {
         if (status == 6) w->keyed = 1;
         else if (status == 7) { w->keyed = w->connected = 0; w->join_error = 1; }
     } else if (type == 0) {
-        if (status) { w->join_error = 1; w->connected = 0; }
+        /* SET_SSID status 3 (BRCMF_E_STATUS_NO_NETWORKS): nothing answered. */
+        if (status) { w->join_error = 1; w->connected = 0; w->join_missing = status == 3; }
         else w->associated = 1;
-    }
+    } else if (type == 69) scan_event(w, status, p + 72, length);
     else if (type == 5 || type == 6 || type == 11 || type == 12) {
         w->link = w->keyed = w->connected = 0; w->rx_count = w->rx_head = 0;
+        if (w->joining) w->join_error = 1;
     }
 }
 
@@ -246,7 +320,7 @@ static int pump(Wifi* w) {
         if (skip > bytes) return HW_PROTOCOL;
         p += skip; bytes -= skip;
         if (channel == 1) event(w, p, bytes);
-        else if (bytes >= 14 && bytes <= WIFI_FRAME_MAX && w->connected && w->link && w->keyed) {
+        else if (bytes >= 14 && bytes <= WIFI_FRAME_MAX && w->connected && w->link && (w->keyed || w->open)) {
             if (w->rx_count == 4) w->dropped++;
             else {
                 unsigned int slot = (w->rx_head + w->rx_count) % 4;
@@ -414,8 +488,11 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
         (f->country_revision >= 0 && le32(applied_country + 4) != (uint32_t)f->country_revision) ||
         var_int(w, "bus:txglom", 0) != HW_OK || command_int(w, 86, 0) != HW_OK ||
         command_int(w, 20, 1) != HW_OK || var_int(w, "roam_off", 1) != HW_OK) return fail(w, HW_IO);
+    /* Keep the radio powered while unassociated so scans can run; select
+     * active probing for scans. */
+    if (var_int(w, "mpc", 0) != HW_OK || command_int(w, 49, 0) != HW_OK) return fail(w, HW_IO);
     unsigned char mask[16] = {0};
-    const unsigned int events[] = {0, 5, 6, 11, 12, 16, 46};
+    const unsigned int events[] = {0, 5, 6, 11, 12, 16, 46, 69};
     for (unsigned int i = 0; i < sizeof(events) / sizeof(events[0]); i++) mask[events[i] / 8] |= (uint8_t)(1U << (events[i] % 8));
     if (variable(w, "event_msgs", 1, mask, sizeof(mask), NULL, 0, NULL) != HW_OK ||
         variable(w, "cur_etheraddr", 0, NULL, 0, w->mac, 6, &actual) != HW_OK || actual != 6 ||
@@ -432,32 +509,81 @@ static int enter(Wifi* w) {
     w->busy = 1;
     return HW_OK;
 }
+/* Called with the driver entered. A completed join is verified against the
+ * firmware's current SSID before frame transport is authorized. */
+static void join_finish(Wifi* w, int result) {
+    w->joining = 0;
+    w->join_result = result;
+    erase(w->join_ssid, sizeof(w->join_ssid));
+    if (result == HW_OK) return;
+    w->link = w->keyed = w->connected = 0; w->rx_count = w->rx_head = 0;
+    if (w->state == 1) (void)control(w, 52, 1, NULL, 0, NULL, 0, NULL);
+}
+
+static void join_progress(Wifi* w) {
+    if (!w->joining || w->state != 1) return;
+    if (w->join_error) { join_finish(w, HW_IO); return; }
+    if (w->associated && w->link && (w->open || w->keyed)) {
+        unsigned char current[36] = {0}; unsigned int actual = 0;
+        int result = control(w, 25, 0, NULL, 0, current, sizeof(current), &actual);
+        if (result == HW_OK && w->associated && w->link && (w->open || w->keyed) && !w->join_error &&
+            actual == sizeof(current) && le32(current) == w->join_ssid_bytes &&
+            !memcmp(current + 4, w->join_ssid, w->join_ssid_bytes)) {
+            w->connected = 1;
+            join_finish(w, HW_OK);
+        } else join_finish(w, result == HW_OK || result == HW_IO ? HW_PROTOCOL : result);
+        return;
+    }
+    if (w->bus.time_us(w->bus.context) - w->join_start >= 30000000U) join_finish(w, HW_TIMEOUT);
+}
+
+static void scan_progress(Wifi* w) {
+    if (w->scanning && w->bus.time_us(w->bus.context) - w->scan_start >= 15000000U) {
+        w->scanning = 0; w->scanned = 1;
+    }
+}
+
 int wifi_poll(Wifi* w) {
     int result = enter(w);
     if (result != HW_OK) return result;
     result = pump(w);
+    if (result >= 0) {
+        join_progress(w);
+        scan_progress(w);
+        if (w->state != 1) result = w->error;
+    }
     w->busy = 0;
     return result < 0 ? fail(w, result) : result;
 }
 
-int wifi_join(Wifi* w, const unsigned char* ssid, unsigned int ssid_bytes,
-               const unsigned char* passphrase, unsigned int passphrase_bytes) {
-    if (!ssid || !ssid_bytes || ssid_bytes > 32 || !passphrase || passphrase_bytes < 8 || passphrase_bytes > 63)
+int wifi_join_start(Wifi* w, const unsigned char* ssid, unsigned int ssid_bytes,
+                     const unsigned char* passphrase, unsigned int passphrase_bytes, unsigned int flags) {
+    if (!ssid || !ssid_bytes || ssid_bytes > 32 || (passphrase_bytes && !passphrase) ||
+        (passphrase_bytes && (passphrase_bytes < 8 || passphrase_bytes > 63)) || (flags & ~WIFI_JOIN_HIDDEN))
         return HW_INVALID;
     for (unsigned int i = 0; i < passphrase_bytes; i++) if (passphrase[i] < 32 || passphrase[i] > 126) return HW_INVALID;
     int result = enter(w);
     if (result != HW_OK) return result;
+    w->joining = 0; w->join_missing = 0;
     w->link = w->keyed = w->connected = 0; w->secure = 1; w->join_error = 0; w->rx_count = w->rx_head = 0;
+    w->open = !passphrase_bytes;
     unsigned char pmk[68] = {0}, target[36] = {0};
     static const unsigned char rsn[] = {0x30, 0x14, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 4,
                                         1, 0, 0, 0x0f, 0xac, 2, 0, 0};
-    put16(pmk, passphrase_bytes); put16(pmk + 2, 1); memcpy(pmk + 4, passphrase, passphrase_bytes);
     put32(target, ssid_bytes); memcpy(target + 4, ssid, ssid_bytes);
-    if (control(w, 52, 1, NULL, 0, NULL, 0, NULL) != HW_OK ||
-        command_int(w, 22, 0) != HW_OK || command_int(w, 134, 4) != HW_OK || var_int(w, "wpa_auth", 128) != HW_OK ||
-        variable(w, "wpaie", 1, rsn, sizeof(rsn), NULL, 0, NULL) != HW_OK || var_int(w, "sup_wpa", 1) != HW_OK ||
-        control(w, 268, 1, pmk, sizeof(pmk), NULL, 0, NULL) != HW_OK) result = HW_IO;
-    else {
+    if (w->open) {
+        /* Explicitly requested: open system authentication without encryption. */
+        if (control(w, 52, 1, NULL, 0, NULL, 0, NULL) != HW_OK || command_int(w, 22, 0) != HW_OK ||
+            command_int(w, 134, 0) != HW_OK || var_int(w, "wpa_auth", 0) != HW_OK ||
+            var_int(w, "sup_wpa", 0) != HW_OK) result = HW_IO;
+    } else {
+        put16(pmk, passphrase_bytes); put16(pmk + 2, 1); memcpy(pmk + 4, passphrase, passphrase_bytes);
+        if (control(w, 52, 1, NULL, 0, NULL, 0, NULL) != HW_OK ||
+            command_int(w, 22, 0) != HW_OK || command_int(w, 134, 4) != HW_OK || var_int(w, "wpa_auth", 128) != HW_OK ||
+            variable(w, "wpaie", 1, rsn, sizeof(rsn), NULL, 0, NULL) != HW_OK || var_int(w, "sup_wpa", 1) != HW_OK ||
+            control(w, 268, 1, pmk, sizeof(pmk), NULL, 0, NULL) != HW_OK) result = HW_IO;
+    }
+    if (result == HW_OK) {
         /* Configuration commands may have drained events from a previous
          * association. Only events after this request can satisfy this join. */
         for (unsigned int drained = 0; drained < 64; drained++) {
@@ -466,44 +592,107 @@ int wifi_join(Wifi* w, const unsigned char* ssid, unsigned int ssid_bytes,
             if (!old) break;
             if (drained == 63) { result = HW_BUSY; goto join_done; }
         }
-        w->link = w->keyed = w->associated = w->join_error = 0;
-        if (control(w, 26, 1, target, sizeof(target), NULL, 0, NULL) != HW_OK) {
+        w->link = w->keyed = w->associated = w->join_error = w->join_missing = 0;
+        int requested = HW_IO;
+        if (flags & WIFI_JOIN_HIDDEN) {
+            /* brcmf_ext_join_params_le up to an empty chanspec list: the SSID
+             * with an active join scan, so the firmware sends directed probe
+             * requests. Firmware without the "join" iovar falls back to
+             * SET_SSID, as brcmf_cfg80211_connect does. */
+            unsigned char join[68] = {0};
+            memcpy(join, target, sizeof(target));
+            for (unsigned int offset = 40; offset < 56; offset += 4) put32(join + offset, 0xffffffffU);
+            memset(join + 56, 0xff, 6);
+            requested = variable(w, "join", 1, join, sizeof(join), NULL, 0, NULL);
+        }
+        if (requested == HW_IO && w->state == 1) requested = control(w, 26, 1, target, sizeof(target), NULL, 0, NULL);
+        if (requested != HW_OK) {
             result = HW_IO;
             goto join_done;
         }
-        uint32_t start = w->bus.time_us(w->bus.context);
-        result = HW_TIMEOUT;
-        for (unsigned int i = 0; i < 1000000U && !w->join_error; i++) {
-            int polled = pump(w);
-            if (polled < 0) { result = fail(w, polled); break; }
-            if (w->associated && w->link && w->keyed) {
-                unsigned char current[36] = {0}; unsigned int actual;
-                result = control(w, 25, 0, NULL, 0, current, sizeof(current), &actual);
-                if (result == HW_OK && w->associated && w->link && w->keyed && !w->join_error &&
-                    actual == sizeof(current) && le32(current) == ssid_bytes &&
-                    !memcmp(current + 4, ssid, ssid_bytes)) { w->connected = 1; break; }
-                result = HW_PROTOCOL;
-                break;
-            }
-            if (w->bus.time_us(w->bus.context) - start >= 30000000U) break;
-        }
-        if (w->join_error) result = HW_IO;
+        memcpy(w->join_ssid, ssid, ssid_bytes);
+        w->join_ssid_bytes = ssid_bytes;
+        w->join_start = w->bus.time_us(w->bus.context);
+        w->joining = 1;
+        w->join_result = HW_BUSY;
     }
 join_done:
     erase(pmk, sizeof(pmk)); erase(w->tx, sizeof(w->tx)); erase(w->control, sizeof(w->control));
     if (result != HW_OK) {
         w->link = w->keyed = w->connected = 0;
+        w->join_result = result;
         if (w->state == 1) (void)control(w, 52, 1, NULL, 0, NULL, 0, NULL);
     }
     w->busy = 0;
     return result;
 }
 
+int wifi_join_status(const Wifi* w) {
+    if (!w) return HW_INVALID;
+    if (w->state != 1) return w->state == -1 ? w->error : HW_OFF;
+    if (w->joining) return HW_BUSY;
+    if (w->connected && w->link && (w->open || w->keyed)) return HW_OK;
+    return w->join_result < 0 ? w->join_result : HW_OFF;
+}
+
+int wifi_join(Wifi* w, const unsigned char* ssid, unsigned int ssid_bytes,
+               const unsigned char* passphrase, unsigned int passphrase_bytes) {
+    if (!passphrase || passphrase_bytes < 8) return HW_INVALID;
+    int result = wifi_join_start(w, ssid, ssid_bytes, passphrase, passphrase_bytes, 0);
+    for (unsigned int i = 0; result == HW_OK && i < 1000000U; i++) {
+        int polled = wifi_poll(w);
+        if (polled < 0) return polled;
+        int status = wifi_join_status(w);
+        if (status != HW_BUSY) return status;
+    }
+    if (result != HW_OK) return result;
+    if (enter(w) == HW_OK) { join_finish(w, HW_TIMEOUT); w->busy = 0; }
+    return HW_TIMEOUT;
+}
+
 int wifi_disconnect(Wifi* w) {
     int result = enter(w);
     if (result != HW_OK) return result;
     result = control(w, 52, 1, NULL, 0, NULL, 0, NULL);
+    w->joining = 0; w->join_result = HW_OFF; w->join_missing = 0;
+    erase(w->join_ssid, sizeof(w->join_ssid));
     w->link = w->keyed = w->connected = 0; w->rx_count = w->rx_head = 0; w->busy = 0;
+    return result;
+}
+
+int wifi_scan_start(Wifi* w) {
+    int result = enter(w);
+    if (result != HW_OK) return result;
+    /* brcmf_escan_params_le, version 1: all channels, any BSS type, defaults. */
+    unsigned char params[72] = {0};
+    put32(params, 1); put16(params + 4, 1); put16(params + 6, 0x1234);
+    memset(params + 44, 0xff, 6);
+    params[50] = 2;
+    for (unsigned int offset = 52; offset < 68; offset += 4) put32(params + offset, 0xffffffffU);
+    w->bss_count = 0; w->scanned = 0; w->scanning = 1;
+    w->scan_start = w->bus.time_us(w->bus.context);
+    result = variable(w, "escan", 1, params, sizeof(params), NULL, 0, NULL);
+    if (result != HW_OK) { w->scanning = 0; if (w->state == 1) result = HW_IO; }
+    w->busy = 0;
+    return result;
+}
+
+int wifi_scan_status(const Wifi* w) {
+    if (!w) return HW_INVALID;
+    if (w->state != 1) return HW_OFF;
+    return w->scanning ? HW_BUSY : w->scanned ? HW_OK : HW_OFF;
+}
+
+int wifi_rssi(Wifi* w, int32_t* dbm) {
+    if (!dbm) return HW_INVALID;
+    int result = enter(w);
+    if (result != HW_OK) return result;
+    if (!w->connected) { w->busy = 0; return HW_OFF; }
+    unsigned char value[12] = {0}; unsigned int actual = 0;
+    result = control(w, 127, 0, NULL, 0, value, sizeof(value), &actual);
+    if (result == HW_OK && actual >= 4) *dbm = (int32_t)le32(value);
+    else if (result == HW_OK) result = HW_PROTOCOL;
+    w->busy = 0;
     return result;
 }
 
@@ -511,9 +700,9 @@ int wifi_send(Wifi* w, const void* ethernet, unsigned int bytes) {
     if (!ethernet || bytes < 14 || bytes > WIFI_FRAME_MAX) return HW_INVALID;
     int result = enter(w);
     if (result != HW_OK) return result;
-    if (!w->connected || !w->link || !w->keyed) { w->busy = 0; return HW_OFF; }
+    if (!w->connected || !w->link || !(w->keyed || w->open)) { w->busy = 0; return HW_OFF; }
     result = credit(w, 2);
-    if (result == HW_OK && (!w->connected || !w->link || !w->keyed)) result = HW_OFF;
+    if (result == HW_OK && (!w->connected || !w->link || !(w->keyed || w->open))) result = HW_OFF;
     if (result == HW_OK) {
         memset(w->tx, 0, (bytes + 16 + 3U) & ~3U); header(w, bytes + 16, 2); w->tx[12] = 0x20;
         memcpy(w->tx + 16, ethernet, bytes);
