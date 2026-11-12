@@ -14,10 +14,12 @@ the usual `CMAKE_PREFIX_PATH`. On Windows it also checks the portable tools in
 `%LOCALAPPDATA%/Temp/opencode/vantage-gnu-tools`. Run `python tools/build.py --help` for feature,
 output and tool overrides. Direct `make` and CMake remain available.
 
-V3D, Wi-Fi and storage support default on. Wi-Fi needs locally supplied licensed
-firmware, board NVRAM, CLM, country and revision; generate C with
-`tools/embed_wifi.py` and pass `--wifi-firmware-c`. Without it, radio startup
-is skipped. Storage skips SD until `--sd-base-clock-hz` and
+V3D, Wi-Fi and storage support default on. Wi-Fi needs licensed firmware, board
+NVRAM, CLM and a country. Kernel builds download and embed the pinned Pi 4
+Model B files, accept their license and look up the country from the public IP
+address; `--wifi-country XX` sets it. Alternatively generate C from your own
+files with `tools/embed_wifi.py` and pass `--wifi-firmware-c`. If the download
+fails, radio startup is skipped. See [HARDWARE.md](HARDWARE.md#builds). Storage skips SD until `--sd-base-clock-hz` and
 `--storage-partition` are supplied after confirming the SD handoff described in
 [SD.md](SD.md). The primary index is zero-based (0–3). The filesystem must
 already be provisioned. Mount failure is nonfatal; there is no RAM fallback or
@@ -43,7 +45,9 @@ is separate in `kernel/boot/main.c`. The simulator defines
 to the same `handle_sys_call` dispatcher. `sim/main.c` starts the shared
 `user_task` on desktop. This simulates the application, not ARM privilege levels
 or memory protection; the Raspberry Pi build still uses its ARM startup and
-`svc` instructions.
+`svc` instructions. Both targets share the `kernel/net` service: the Pi attaches
+the CYW43455 through `platform/pi4/net.c`, and the simulator attaches the
+virtual network in `sim/platform/net_sim.c` and `net_peer.c`.
 
 ## Tests
 
@@ -359,6 +363,36 @@ embedded terminal's editor, and cover copied payloads, automatic cleanup when
 a process exits and malformed requests, using modeled exception entry.
 Physical SD read/write/erase and reboot-persistence acceptance remain pending.
 
+## Application networking
+
+Apps use `sys_net_*` from `<vantage/user.h>`; see [NETWORK.md](NETWORK.md) for
+the system calls, limits and error values. Calls never block, so poll between
+frames: `sys_frame_wait` also services the network.
+
+```c
+uint32_t address;
+while (sys_net_resolve("vantage.test", &address) == NET_AGAIN) sys_frame_wait();
+int64_t handle = sys_net_open(NET_TCP);
+int result;
+while ((result = sys_net_connect((uint64_t)handle, address, 80)) == NET_AGAIN) sys_frame_wait();
+if (result == 0) {
+    static const char request[] = "GET / HTTP/1.0\r\n\r\n";
+    sys_net_send((uint64_t)handle, request, sizeof(request) - 1);
+    unsigned char data[512];
+    while ((result = sys_net_receive((uint64_t)handle, data, sizeof(data))) != 0) {
+        if (result == NET_AGAIN) { sys_frame_wait(); continue; }
+        if (result < 0) break;
+        /* use result bytes */
+    }
+}
+sys_net_close((uint64_t)handle);
+```
+
+Sockets belong to the calling process and are closed when it is reaped.
+`network_stack` (label `network`) runs the production stack against the
+virtual network with injected loss, duplication, reordering and latency;
+`tests/arm/network.py` checks the linked syscall boundary.
+
 ## Touch events
 
 `sys_touch_read(&event)` returns 1 when a `TouchEvent` is available, or 0 with
@@ -420,7 +454,9 @@ See [the terminal guide](TERMINAL.md) for commands and input setup.
   have no flow control.
 
 The shell accepts printable ASCII and has no history, scrollback, cursor
-navigation, Unicode, quoting, pipelines or executable loading. The editor has
+navigation, Unicode, quoting (other than `net join` SSIDs), pipelines or
+executable loading. Network commands (`user/apps/terminal/net_*.c`) run as
+jobs across application steps; while one runs, only Cancel is accepted. The editor has
 separate touch navigation. The terminal is the only program; there are no
 PTYs and no way to start other programs from it.
 
@@ -446,6 +482,15 @@ is `<build>/sim/Release/terminal_capture.exe`; on single-config builds it is
 BMP hashes. These are SDL software-renderer captures, not Pi photographs.
 The [integration validation record](validation/system-integration/README.md)
 links the recorded commands, logs, JUnit reports and lossless PNG copies.
+
+`terminal_network` drives the real SDL application through `wifi scan`, a
+masked passphrase, DHCP, `net ping`, `net lookup`, `net get` and `net leave` on the virtual
+network, checking results through the network status and the virtual network's
+counters. Given an output prefix it saves 480x800 frame captures:
+
+```sh
+SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software <build>/sim/terminal_network out/net/terminal
+```
 
 `editor_touch` drives SDL touch events through the application to exercise line
 selection, on-screen text input, Save, New/Drop, drag cancellation, exit
