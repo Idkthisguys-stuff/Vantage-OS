@@ -20,13 +20,13 @@ class BuildConfigTests(unittest.TestCase):
             return subprocess.run([make, '-n', *args], cwd=ROOT, capture_output=True, text=True)
         default = invoke()
         self.assertEqual(default.returncode, 0, default.stderr)
-        for flag in ('-DVANTAGE_WIFI=1', '-DVANTAGE_WIFI_ASSETS=0',
+        for flag in ('-DVANTAGE_WIFI=1', '-DVANTAGE_WIFI_ASSETS=0', '-DVANTAGE_ETHERNET=1',
                      '-DVANTAGE_STORAGE=1', '-DVANTAGE_STORAGE_VALIDATION=0',
                      '-DSTORAGE_PARTITION=-1'):
             self.assertIn(flag, default.stdout)
         for args in (('STORAGE_VALIDATION=1',),
                      ('STORAGE_VALIDATION=1', 'SD_BASE_CLOCK_HZ=100000000'),
-                     ('STORAGE_PARTITION=foo',), ('STORAGE=0', 'STORAGE_VALIDATION=1')):
+                     ('STORAGE_PARTITION=foo',), ('STORAGE=0', 'STORAGE_VALIDATION=1'), ('ETHERNET=2',)):
             self.assertNotEqual(invoke(*args).returncode, 0, args)
 
     def test_unchanged_configuration_keeps_timestamp_and_changed_flags_replace_it(self):

@@ -21,7 +21,8 @@ class BuildHelperTests(unittest.TestCase):
 
     def test_argument_validation(self):
         for args in (['--jobs', '0'], ['--storage-partition', '4'],
-                     ['--sd-base-clock-hz', '1'], ['--v3d', 'yes'], ['test', '--sdl', 'x']):
+                     ['--sd-base-clock-hz', '1'], ['--v3d', 'yes'], ['--ethernet', '2'],
+                     ['test', '--ethernet', '0'], ['test', '--sdl', 'x']):
             result = subprocess.run([sys.executable, str(ROOT / 'tools/build.py'), *args],
                                     capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, args)
@@ -31,6 +32,7 @@ class BuildHelperTests(unittest.TestCase):
         args = build.parser().parse_args([])
         self.assertEqual(args.target, 'kernel')
         self.assertIsNone(args.wifi)
+        self.assertIsNone(args.ethernet)
         self.assertIsNone(args.storage_validation)
 
 
