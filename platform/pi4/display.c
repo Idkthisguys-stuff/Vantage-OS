@@ -11,7 +11,7 @@
 
 #include <vantage/platform/pi4/io.h>
 
-static volatile uint32_t mbox[36] __attribute__((aligned(64)));
+static volatile uint32_t mbox[40] __attribute__((aligned(64)));
 
 static uint32_t* fbBase;
 static uint32_t fbPitch;
@@ -79,7 +79,7 @@ uint32_t* fb_init(uint32_t width, uint32_t height) {
         mm_halt("[ERR] Invalid or repeated framebuffer initialization\n");
     }
 
-    mbox[0] = 35 * 4;
+    mbox[0] = 39 * 4;
     mbox[1] = 0;
 
     mbox[2] = 0x00048003;
@@ -121,7 +121,12 @@ uint32_t* fb_init(uint32_t width, uint32_t height) {
     mbox[32] = 0;
     mbox[33] = 0;
 
-    mbox[34] = 0;
+    mbox[34] = 0x00048007;
+    mbox[35] = 4;
+    mbox[36] = 0;
+    mbox[37] = 2;
+
+    mbox[38] = 0;
 
     if (!mbox_call(MBOX_CH_PROP) || mbox[20] != 32 || mbox[28] == 0) {
         mm_halt("[ERR] Firmware framebuffer request failed\n");
