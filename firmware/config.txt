@@ -10,3 +10,5 @@ display_auto_detect=1
 dtoverlay=vc4-fkms-v3d
 dtparam=i2c_arm=on
 dtparam=i2c_vc=on
+framebuffer_width=480
+framebuffer_height=800

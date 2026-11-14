@@ -1,5 +1,6 @@
 #include "terminal.h"
 #include <vantage/user.h>
+#include <vantage/platform/pi4/io.h>
 
 static Terminal terminal;
 static uint32_t keyboard_columns;
@@ -142,19 +143,32 @@ void terminal_app_init(void) {
     uint32_t columns, rows;
     sys_canvas_set_color(RGB(16, 20, 28));
     sys_canvas_clear();
-    if (!sys_console_info(&settings)) return;
-    columns = settings.columns < TEXT_MAX_COLUMNS ? settings.columns : TEXT_MAX_COLUMNS;
-    rows = settings.rows < TERMINAL_MAX_ROWS ? settings.rows : TERMINAL_MAX_ROWS;
+    
+    if (!sys_console_info(&settings)) {
+        columns = 60;
+        rows = 50;
+    } else {
+        columns = settings.columns < TEXT_MAX_COLUMNS ? settings.columns : TEXT_MAX_COLUMNS;
+        rows = settings.rows < TERMINAL_MAX_ROWS ? settings.rows : TERMINAL_MAX_ROWS;
+    }
+
     keyboard_columns = 0;
     keyboard_shift = keyboard_dirty = 0;
     keyboard_pressed = NO_KEY;
+    
     if (columns >= 50 && rows >= KEYBOARD_ROWS + 4) {
         keyboard_columns = columns;
         keyboard_top = rows - KEYBOARD_ROWS;
         keyboard_dirty = 1;
         rows = keyboard_top;
     }
-    terminal_init(&terminal, columns, rows, info, output, NULL);
+
+    if (!terminal_init(&terminal, columns, rows, info, output, NULL)) {
+        const char *msg = "[ERR] Failed to init terminal\n";
+        sys_console_write(msg, 29);
+        return;
+    }
+    
     terminal_net_startup();
 }
 

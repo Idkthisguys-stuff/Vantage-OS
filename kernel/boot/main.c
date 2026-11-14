@@ -23,8 +23,8 @@ unsigned int secondary_core_start(unsigned int core_id);
 void main(uintptr_t dtb) {
     uart_init();
     if (!mm_prepare(dtb, (uintptr_t)_end))
-        mm_halt("[ERR] Firmware memory discovery failed; boot halted\n");
-    uart_writeText("[OK] Firmware RAM and reservations discovered\n");
+        mm_halt("\n[ERR] Firmware memory discovery failed; boot halted\n\n");
+    uart_writeText("\n[OK] Firmware RAM and reservations discovered\n\n");
     for (unsigned int core = 1; core < 4; core++) {
         if (secondary_core_start(core)) {
             if (core == 1) uart_writeText("[OK] Core 1 entry reached\n");
