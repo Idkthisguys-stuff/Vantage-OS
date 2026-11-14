@@ -26,8 +26,8 @@ SECTIONS {
         . = ALIGN(0x1000);
     } :rodata
     .data ALIGN(0x1000) : {
-        *(.data .data.*)
-        . = .;
+        *(.data .data.* .got .got.plt .igot.plt)
+        . = ALIGN(0x1000);
     } :data
     .bss (NOLOAD) : {
         *(.bss .bss.*)

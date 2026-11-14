@@ -3,3 +3,6 @@ kernel=kernel8.img
 enable_uart=1
 disable_splash=1
 gpu_mem=128
+core_freq=500
+force_turbo=1
+dtparam=sd_poll_once=on

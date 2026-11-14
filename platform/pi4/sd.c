@@ -1,6 +1,7 @@
 #include <vantage/platform/pi4/sd.h>
 #include <vantage/kernel/task.h>
 #include <vantage/platform/pi4/timer.h>
+#include <vantage/platform/pi4/io.h>
 
 #define EMMC2_BASE 0xfe340000ULL
 
@@ -36,7 +37,10 @@ static void host_delay(void* context, uint32_t microseconds) { (void)context; wa
 
 int sd_init(uint32_t base_clock_hz) {
     const SdIo io = {NULL, host_read, host_write, host_time, host_delay};
-    if (!owner()) return SD_INVALID;
+    if (!owner()) {
+        uart_writeText("[ERR] Invalid SD owner\n");
+        return SD_INVALID;
+    }
     return sd_card_init(&boot_card, &io, base_clock_hz);
 }
 

@@ -172,7 +172,13 @@ int sd_card_init(SdCard* card, const SdIo* io, uint32_t base_clock_hz) {
     write_reg(card, CLOCK, RESET_ALL);
     result = wait_bits(card, CLOCK, RESET_ALL, 0, COMMAND_TIMEOUT_US);
     if (result) return invalidate(card, result);
-    write_reg(card, HOST, read_reg(card, HOST) & ~(BIT(1) | BIT(2) | BIT(5)));
+
+    // It takes a miracle to read and understand this :/
+
+    uint32_t host_val = read_reg(card, HOST);
+    host_val |= (0x0F << 8);
+    host_val &= ~(BIT(1) | BIT(2) | BIT(5));
+    write_reg(card, HOST, host_val);
     write_reg(card, STATUS_ENABLE, IRQ_COMMAND | IRQ_TRANSFER | IRQ_READ | IRQ_WRITE | IRQ_ERRORS);
     result = set_clock(card, 400000);
     if (result) return invalidate(card, result);

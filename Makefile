@@ -95,7 +95,7 @@ partition: all
 	rm -f card-copy.img
 	truncate -s 300M card-copy.img
 	printf "label: dos\nstart=8192,   size=524288, type=c, bootable\nstart=532480, size=16384,  type=da\n" | sfdisk card-copy.img
-	mkfs.vfat -F 32 --offset 8192 card-copy.img 262144
+	mkfs.vfat -F 32 --offset 8192 card-copy.img 524288
 
 	mcopy -i card-copy.img@@4194304 $(BUILD_DIR)/prod/kernel8.img ::kernel8.img
 	mcopy -i card-copy.img@@4194304 firmware/bcm2711-rpi-4-b.dtb ::bcm2711-rpi-4-b.dtb

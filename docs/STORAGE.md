@@ -246,7 +246,7 @@ make BUILD_DIR=/path/to/validation STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=1000000
 For kernel build and storage partition
 
 ```sh
-make partition BUILD_DIR=out STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=100000000 STORAGE_PARTITION=1
+make partition BUILD_DIR=out STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=200000000 STORAGE_PARTITION=1
 ```
 
 The build requires Python 3 as well as the GNU AArch64 toolchain. Build option

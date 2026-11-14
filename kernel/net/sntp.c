@@ -5,7 +5,7 @@
 
 #define NTP_PORT 123U
 #define NTP_BYTES 48U
-#define NTP_UNIX_OFFSET 2208988800ULL   /* Seconds from 1900 to 1970. */
+#define NTP_unix_time_OFFSET 2208988800ULL   /* Seconds from 1900 to 1970. */
 #define NTP_PIVOT 3944678400U           /* 2025-01-01 in era 0; earlier values are era 1. */
 #define REPLY_MS 2000U
 #define TRIES 3U
@@ -22,7 +22,7 @@ static struct {
     uint16_t port;
     uint64_t sent, next;
 } query;
-static struct { int synced; uint32_t server; uint64_t unix_us, at; } sync;
+static struct { int synced; uint32_t server; uint64_t unix_time_us, at; } sync;
 
 int net_sntp_port_in_use(uint16_t port) { return query.port && query.port == port; }
 
@@ -112,8 +112,8 @@ int net_sntp_input(uint32_t source, uint16_t source_port, uint16_t port,
     uint32_t seconds = net_get32(m + 40), fraction = net_get32(m + 44);
     if (leap == 3 || stratum > 15 || !(seconds | fraction)) return 1;
     uint64_t now = net_now();
-    uint64_t unix = seconds >= NTP_PIVOT ? seconds - NTP_UNIX_OFFSET : seconds + (1ULL << 32) - NTP_UNIX_OFFSET;
-    sync.unix_us = unix * 1000000ULL + (((uint64_t)fraction * 1000000ULL) >> 32) + (now - query.sent) * 500ULL;
+    uint64_t unix_time = seconds >= NTP_PIVOT ? seconds - NTP_unix_time_OFFSET : seconds + (1ULL << 32) - NTP_unix_time_OFFSET;
+    sync.unix_time_us = unix_time * 1000000ULL + (((uint64_t)fraction * 1000000ULL) >> 32) + (now - query.sent) * 500ULL;
     sync.at = now;
     sync.server = source;
     sync.synced = 1;
@@ -125,7 +125,7 @@ int net_sntp_input(uint32_t source, uint16_t source_port, uint16_t port,
 int net_time(NetTime* time) {
     memset(time, 0, sizeof(*time));
     if (!sync.synced) return 0;
-    uint64_t elapsed = net_now() - sync.at, us = sync.unix_us + elapsed * 1000ULL;
+    uint64_t elapsed = net_now() - sync.at, us = sync.unix_time_us + elapsed * 1000ULL;
     time->synced = 1;
     time->server = sync.server;
     time->unix_seconds = us / 1000000ULL;
