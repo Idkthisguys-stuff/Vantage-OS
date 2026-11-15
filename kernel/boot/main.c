@@ -83,8 +83,15 @@ void main(uintptr_t dtb) {
     uart_writeText("\n[OK] Vantage booted!...\n");
 
     /* Pinned to core 0, which owns the display, input and file services. */
+    uart_writeText("[DEBUG] Creating user process...\n");
     ProcessId app = process_create(terminal_image, (size_t)(terminal_image_end - terminal_image), TASK_CORE0);
-    if (!app || task_run() != TASK_OK || process_reap(app, NULL) != TASK_OK)
+    if (!app) {
+        uart_writeText("[ERR] process_create rejected terminal_image binary!\n");
+    }
+    uart_writeText(app ? "[DEBUG] Process created, entering task_run\n" : "[ERR] process_create returned 0\n");
+    int run_res = task_run(); // Run result
+    uart_writeText("[DEBUG] task_run returned\n");
+    if (!app || run_res != TASK_OK || process_reap(app, NULL) != TASK_OK)
         mm_halt("[ERR] Application scheduling failed; boot halted\n");
     uart_writeText("[INFO] Application process exited\n");
 

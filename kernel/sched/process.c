@@ -5,6 +5,7 @@
 #include <vantage/kernel/net.h>
 #include <vantage/kernel/parallel_port.h>
 #include <vantage/kernel/user_access.h>
+#include "../../include/vantage/platform/pi4/io.h"
 
 #define ID_BITS 6U
 #define ID_MASK 63U
@@ -59,6 +60,11 @@ void process_thread_exited(Process* process) {
 
 static void thread_start(void* argument) {
     const ProcessThread* thread = argument;
+    uart_writeText("[DEBUG] Entering user mode -> entry: 0x");
+    uart_writeHex(thread->entry);
+    uart_writeText(" stack: 0x");
+    uart_writeHex(thread->stack);
+    uart_writeText("\n");
     task_port_enter_user(thread->entry, thread->stack, thread->argument);
 }
 

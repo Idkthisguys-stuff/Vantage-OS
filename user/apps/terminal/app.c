@@ -143,6 +143,9 @@ void terminal_app_init(void) {
     uint32_t columns, rows;
     sys_canvas_set_color(RGB(16, 20, 28));
     sys_canvas_clear();
+
+    const char *boot_msg = "[USER] terminal_app_init reached\n";
+    sys_console_write(boot_msg, 33);    
     
     if (!sys_console_info(&settings)) {
         columns = 60;
@@ -215,6 +218,7 @@ void terminal_app_step(void) {
 }
 
 void user_task(void) {
+    sys_console_write("[USER] Entered user_task\n", 25);
     terminal_app_init();
     for (;;) {
         terminal_app_step();
