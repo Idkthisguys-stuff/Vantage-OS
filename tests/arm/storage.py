@@ -7,7 +7,8 @@ import struct
 import sys
 import unittest
 
-from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
+from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
+from unicorn import arm64_const as regs
 
 from memory_management import Image, Machine
 from file_storage import new_image
@@ -25,6 +26,10 @@ def signed(value):
 class StorageMachine(Machine):
     def __init__(self, image):
         super().__init__(image)
+        # Owner-rejection diagnostics use UART, not SD controller registers.
+        uart = image.symbols['uart_writeText']
+        self.uc.hook_add(UC_HOOK_CODE, lambda uc, a, s, _: uc.reg_write(
+            regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30)), begin=uart, end=uart)
         self.uc.mem_map(EMMC2, 4096)
         self.uc.mem_map(TIMER, 4096)
         self.registers = {0xfc: 0x20000}

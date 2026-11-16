@@ -108,6 +108,10 @@ class CpuMachine(Machine):
         self.clock_us = 0
         self.lock_version = 0
         self.reservations = [None] * 4
+        # Pi startup/trap diagnostics use UART outside the syscall console.
+        # Model that transport without touching the physical AUX registers.
+        self.stub('uart_writeText')
+        self.stub('uart_writeHex')
         self.decoder = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
         self.decoder.detail = True
         uc.hook_add(UC_HOOK_INTR, self.interrupt)

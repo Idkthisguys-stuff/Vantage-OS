@@ -28,6 +28,10 @@ class SchedulerMachine(Machine):
     def __init__(self, image):
         self.system = {'fpcr': 0, 'fpsr': 0, 'elr_el1': 0, 'spsr_el1': 0, 'sp_el0': 0}
         super().__init__(image)
+        # Owner-rejection diagnostics use UART, outside the modeled devices.
+        uart = image.symbols['uart_writeText']
+        self.uc.hook_add(UC_HOOK_CODE, lambda uc, a, s, _: uc.reg_write(
+            regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30)), begin=uart, end=uart)
         self.programs, self.events = {}, []
         self.uc.hook_add(UC_HOOK_CODE, self.halted,
                          begin=image.symbols['task_port_halt'], end=image.symbols['task_port_halt'])
