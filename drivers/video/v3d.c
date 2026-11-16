@@ -144,6 +144,7 @@ static void shutdown(V3d* gpu) {
 
     gpu->present = 0;
     gpu->state = (!gpu->mapped || confirmed)? V3D_STOPPED : V3D_QUARANTINED;
+    if (gpu->state == V3D_STOPPED) gpu->target = NULL;
 }
 
 
@@ -299,6 +300,7 @@ int v3d_init(V3d* gpu, const HwOps* io, void* table, void* arena,
     gpu->width = width; gpu->height = height; gpu->pitch = width * 4; gpu->bytes = width * height * 4;
     gpu->error = gpu->stage = gpu->level = gpu->mapped = gpu->present = 0;
     gpu->detail = 0;
+    gpu->target = NULL;
     gpu->state = V3D_BUSY;
 
     uint32_t values[2] = {FIRMWARE_DOMAIN_V3D, 1};
@@ -371,6 +373,9 @@ static int run(V3d* gpu, int stage, void* target, uint32_t color) {
     if (target && !(address = physical_run(gpu, gpu->io, target, 4096, gpu->bytes))) return HW_UNSUPPORTED;
     gpu->state = V3D_BUSY;
     if (target) {
+        /* A failed map/unmap flush may leave an old device translation live.
+         * Retain ownership until unmapping has completed or stop is confirmed. */
+        gpu->target = target;
         if (map_target(gpu, address) != HW_OK) return fail(gpu, stage, HW_TIMEOUT);
         cache(gpu, surface, gpu->bytes, HW_CLEAN);
         cache(gpu, target, gpu->bytes, HW_CLEAN_INVALIDATE);
@@ -396,6 +401,7 @@ static int run(V3d* gpu, int stage, void* target, uint32_t color) {
     if (faults(gpu)) return fail(gpu, stage, HW_IO);
     if (target) {
         if (map_target(gpu, 0) != HW_OK) return fail(gpu, stage, HW_TIMEOUT);
+        gpu->target = NULL;
         cache(gpu, target, gpu->bytes, HW_INVALIDATE);
     } else cache(gpu, surface, gpu->bytes + 4096U, HW_INVALIDATE);
     gpu->state = V3D_READY;
@@ -471,14 +477,18 @@ static int backend_result(V3d* gpu, int result) {
 static int backend_fill(void* context, const RasterFill* fill) {
     V3d* gpu = context;
     if (fill->x || fill->y || fill->width != gpu->width || fill->height != gpu->height) return RENDER_SKIP;
-    return backend_result(gpu, v3d_clear(gpu, fill->color));
+    int result = v3d_clear(gpu, fill->color);
+    if (gpu->state == V3D_QUARANTINED) return RENDER_DISCARD;
+    return backend_result(gpu, result);
 }
 
 static int backend_present(void* context, const RasterCopy* copy) {
     V3d* gpu = context;
     if (!gpu->present || copy->destination_pitch != gpu->width || copy->source_pitch != gpu->width ||
         copy->width != gpu->width || copy->height != gpu->height) return RENDER_SKIP;
-    return backend_result(gpu, v3d_present(gpu, (void*)(uintptr_t)copy->destination));
+    int result = v3d_present(gpu, (void*)(uintptr_t)copy->destination);
+    if (gpu->state == V3D_QUARANTINED && gpu->target) return RENDER_TARGET_LOST;
+    return backend_result(gpu, result);
 }
 
 void v3d_render_backend(V3d* gpu, RenderBackend* backend) {

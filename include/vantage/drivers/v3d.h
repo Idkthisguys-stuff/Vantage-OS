@@ -10,7 +10,7 @@
 #define V3D_TARGET_BASE 0x01400000U
 
 enum V3dState {
-    V3D_QUARANTINED = -2, /* Stop unconfirmed: table and arena stay reserved until reboot. */
+    V3D_QUARANTINED = -2, /* Stop unconfirmed: table, arena and target stay reserved. */
     V3D_STOPPED = -1,     /* Held in reset or never mapped: the caller owns both buffers again. */
     V3D_UNUSED = 0,
     V3D_READY = 1,        /* Idle: the CPU owns the surface. */
@@ -34,18 +34,20 @@ typedef struct V3d {
     int mapped;      /* The device has been given the page table address. */
     int present;     /* Present to an external target passed the self-test. */
     uint32_t detail; /* V3D_ERR_STAT snapshot at the failure, for the log only. */
+    void* target;    /* External window: retained after an unconfirmed stop. */
 } V3d;
 
-/* Kernel-only: core 0, masked EL1, never re-entered. Calls are synchronous;
- * no job is in flight after any of them returns.
+/* Kernel-only: core 0, masked EL1, never re-entered. Calls are synchronous
+ * unless a failed stop leaves V3D_QUARANTINED with work possibly in flight.
  *
  * table (64 KiB aligned) and arena (4 KiB aligned) are private contiguous
  * page runs lent by the caller. They return to the caller when state becomes
- * V3D_STOPPED and must stay reserved while it is V3D_QUARANTINED.
+ * V3D_STOPPED and must stay reserved while it is V3D_QUARANTINED. In that
+ * state any non-NULL target must also remain reserved and inaccessible.
  * width * height * 4 must be a whole number of 4 KiB pages.
  *
- * Any failure after hardware was touched stops the device (bridges stopped,
- * core held in reset) before returning; a context is never restarted. */
+ * Failures attempt a direct stop. Only V3D_STOPPED confirms memory ownership
+ * has returned; a context is never restarted. */
 int v3d_init(V3d* gpu, const HwOps* io, void* table, void* arena,
              uint32_t width, uint32_t height);
 /* Clear, present and read back before first use. target is an optional
@@ -56,7 +58,10 @@ uint32_t* v3d_surface(V3d* gpu);
 int v3d_clear(V3d* gpu, uint32_t rgba);
 /* Copy the surface to a caller-owned width * height buffer with pitch ==
  * width. It is mapped for this job only and must not be accessed by anyone
- * else until the call returns. HW_UNSUPPORTED (device untouched) when the
+ * else until the call returns, or until reboot if it remains gpu->target in
+ * V3D_QUARANTINED. A present only reads the source surface; after it fails,
+ * the source may be copied out but must not be modified or freed while
+ * quarantined. HW_UNSUPPORTED (device untouched) when the
  * target is not page aligned, contiguous and below the peripheral window. */
 int v3d_present(V3d* gpu, void* target);
 /* Orderly teardown of a ready device. Returns the resulting V3dState. */

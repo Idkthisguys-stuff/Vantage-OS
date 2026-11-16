@@ -46,6 +46,7 @@ static void* gpu_arena;
 
 static void gpu_release(void) {
     if (gpu.state == V3D_QUARANTINED) {
+        if (gpu.target) fb_quarantine_page(gpu.target);
         uart_writeText("[WARN] V3D stop unconfirmed; its 6 MiB of buffers stay reserved until reboot\n");
         return;
     }

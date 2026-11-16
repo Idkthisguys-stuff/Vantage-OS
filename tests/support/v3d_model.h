@@ -29,8 +29,10 @@ typedef struct V3dModel {
     uint32_t absent_tag;      /* This property tag answers "off/missing". */
     int bridge_stuck;         /* Bridge acknowledgements never change. */
     int reset_stuck;          /* The reset line cannot be asserted. */
+    int gmp_stuck;            /* The stop request does not drain active accesses. */
     uint32_t ident[4];        /* Core IDENT0/1, hub IDENT1/2. */
     int csd_busy, tlb_stuck, l2t_stuck, bad_table_readback;
+    unsigned int fail_tlb_flush; /* One-based TLB flush attempt to leave in progress. */
     int stall_bin;            /* The binner never completes. */
     int stall_render;         /* Rendering stops halfway and never completes. */
     int fault_render;         /* Rendering stops halfway with an MMU fault. */
@@ -40,6 +42,7 @@ typedef struct V3dModel {
 
     /* Observations. */
     unsigned int bin_jobs, render_jobs, tlb_flushes, resets, property_calls, domain_off_calls;
+    unsigned int tlb_flush_attempts;
     unsigned int register_writes, cache_calls;
     int domain_on, clock_on, mmu_faults;
 
