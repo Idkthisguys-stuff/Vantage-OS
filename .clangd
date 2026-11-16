@@ -4,3 +4,5 @@ CompileFlags:
     - -ffreestanding
     - -nostdinc
     - -Iinclude
+    - -Iuser/lib/libc
+    - -Ithird_party/bearssl/inc
