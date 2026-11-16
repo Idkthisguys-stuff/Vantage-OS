@@ -123,19 +123,39 @@ static int hold_reset(V3d* gpu) {
 
 static void shutdown(V3d* gpu) {
     int confirmed = 1;
+
     if (gpu->level >= LEVEL_CORE) {
         gpu->detail = rd(gpu, ERR_STAT);
-        wr(gpu, CTL_INT_MSK_SET, ~0U); wr(gpu, HUB_INT_MSK_SET, ~0U);
-        /* Let outstanding AXI transactions drain before the bridges stop. */
+        wr(gpu, CTL_INT_MSK_SET, ~0U);
+        wr(gpu, HUB_INT_MSK_SET, ~0U);
         wr(gpu, GMP_CFG, GMP_CFG_STOP_REQ);
         (void)settle(gpu, GMP_STATUS, GMP_STATUS_BUSY, 0);
     }
-    if (gpu->level >= LEVEL_BRIDGE) confirmed = hold_reset(gpu);
-    uint32_t domain[2] = {FIRMWARE_DOMAIN_V3D, 0};
-    (void)gpu->io->property(gpu->io->context, TAG_SET_DOMAIN_STATE, domain, 2);
+
+    if (gpu->level >= LEVEL_BRIDGE) {
+        confirmed = hold_reset(gpu);
+    }
+
+    if (confirmed) {
+        uint32_t domain[2] = {FIRMWARE_DOMAIN_V3D, 0};
+
+        int result = gpu->io->property(
+            gpu->io->context,
+            TAG_SET_DOMAIN_STATE,
+            domain,
+            2
+        );
+        if (result != HW_OK) {
+            gpu->detail = (uint32_t)result;
+        }
+    } else {
+        gpu->detail = 0x504F5745U;
+    }
+
     gpu->present = 0;
-    gpu->state = !gpu->mapped || confirmed ? V3D_STOPPED : V3D_QUARANTINED;
+    gpu->state = (!gpu->mapped || confirmed)? V3D_STOPPED : V3D_QUARANTINED;
 }
+
 
 static int fail(V3d* gpu, int stage, int error) {
     gpu->stage = stage;

@@ -74,7 +74,7 @@ vector_table:
     vector el0_sync_exception
     vector irq_exception
     vector default_handler
-    vector default_handler
+    vector el0_serror_exception
     /* Lower EL, AArch32: unsupported. */
     vector default_handler
     vector default_handler
@@ -82,8 +82,11 @@ vector_table:
     vector default_handler
 
 default_handler:
+    bl trap_unhandled_el1
+
+1:
     wfe
-    b default_handler
+    b 1b
 
 .global el0_sync_exception
 .type el0_sync_exception, %function
@@ -107,7 +110,12 @@ irq_exception:
 /* void trap_return(const TrapFrame* frame): frame lies on the caller's stack. */
 .global trap_return
 .type trap_return, %function
+.extern task_port_debug_enter_return
 trap_return:
+    mov x19, x0
+    mov x0, x19
+    bl task_port_debug_enter_return
+    mov x0, x19
     mov sp, x0
 trap_restore:
     ldp q0, q1, [sp, #FRAME_V + 0]
@@ -152,3 +160,15 @@ trap_restore:
     add sp, sp, #FRAME_BYTES
     eret
 .size trap_return, . - trap_return
+
+.global el0_serror_exception
+.type el0_serror_exception, %function
+
+el0_serror_exception:
+    trap_save
+    mov x0, sp
+    bl trap_serror_el0
+
+1:
+    wfe
+    b 1b

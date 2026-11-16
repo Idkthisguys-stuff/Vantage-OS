@@ -17,3 +17,4 @@ void trap_irq(TrapFrame* frame);
 /* Loads every register from a frame on the caller's kernel stack and performs
  * the exception return. Does not return. */
 void trap_return(const TrapFrame* frame);
+void trap_serror_el0(TrapFrame* frame);

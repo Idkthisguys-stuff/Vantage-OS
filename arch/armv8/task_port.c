@@ -62,6 +62,9 @@ void task_port_enter_user(uint64_t entry, uint64_t stack, uint64_t argument) {
     frame.sp_el0 = stack;
     frame.elr = entry;
     frame.spsr = USER_STATE;
+    uart_writeText("[DEBUG] task_port_enter_user reached\n");
+    uart_writeText("[DEBUG] Preparing EL0 return\n");
+    uart_writeText("[DEBUG] About to execute ERET\n");
     trap_return(&frame);
 }
 
@@ -70,4 +73,17 @@ void task_port_halt(const char* message) {
     __asm__ volatile("mrs %0, mpidr_el1" : "=r"(core));
     if (!(core & 0xff)) uart_writeText(message);
     for (;;) __asm__ volatile("wfe" ::: "memory");
+}
+
+void task_port_debug_enter_return(const TrapFrame* frame) {
+    uart_writeText("[DEBUG] Entered trap_return assembly\n");
+
+    uart_writeText("[DEBUG] Target ELR: ");
+    uart_writeHex((uint32_t)(frame->elr >> 32));
+    uart_writeHex((uint32_t)frame->elr);
+
+    uart_writeText("\n[DEBUG] Target SPSR: ");
+    uart_writeHex((uint32_t)frame->spsr);
+
+    uart_writeText("\n");
 }

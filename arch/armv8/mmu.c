@@ -66,7 +66,7 @@ void mmu_install_space(uint64_t space) {
     /* Kernel mappings are global and identical under both roots, so the
      * running code and stack stay mapped across the change. */
     uint64_t ttbr = space ? space : (uint64_t)(uintptr_t)l1;
-    __asm__ volatile("msr ttbr0_el1, %0\nisb" :: "r"(ttbr) : "memory");
+    __asm__ volatile("dsb ish\n" "msr ttbr0_el1, %0\n" "isb" :: "r"(ttbr) : "memory");
 }
 
 void mmu_publish_tables(void) {

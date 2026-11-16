@@ -156,3 +156,15 @@ uint32_t uart_read_byte(uint8_t* byte) {
     *byte = (uint8_t)mmio_read(AUX_MU_IO_REG);
     return 1;
 }
+
+void uart_writeHex64(uint64_t value) {
+    static const char digits[] = "0123456789ABCDEF";
+
+    uart_writeText("0x");
+
+    for (int shift = 60; shift >= 0; shift -= 4) {
+        uart_writeByteBlockingActual(
+            digits[(value >> shift) & 0xF]
+        );
+    }
+}
