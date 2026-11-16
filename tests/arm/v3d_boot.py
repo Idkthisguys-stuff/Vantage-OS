@@ -67,11 +67,17 @@ class Board(Machine):
         uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
 
     def framebuffer_call(self, uc, address, size, _):
+        # Model the observed firmware-wide hang after a domain-off request.
+        if self.device.domain_off_timeout and self.device.domain_off_calls:
+            uc.reg_write(regs.UC_ARM64_REG_X0, 0)
+            uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
+            return
         mailbox = self.image.symbols['mbox']
-        request = list(struct.unpack('<36I', uc.mem_read(mailbox, 36 * 4)))
-        if request[0] == 35 * 4:
+        request = list(struct.unpack('<40I', uc.mem_read(mailbox, 40 * 4)))
+        if request[0] == 39 * 4:
+            assert request[34:39] == [0x00048007, 4, 0, 2, 0]
             request[20], request[28], request[29], request[33] = 32, FRAMEBUFFER | 0xc0000000, PAGE * 3, WIDTH * 4
-            uc.mem_write(mailbox, struct.pack('<36I', *request))
+            uc.mem_write(mailbox, struct.pack('<40I', *request))
         else:
             self.offset = request[6]
         uc.reg_write(regs.UC_ARM64_REG_X0, 1)
@@ -110,7 +116,11 @@ class Board(Machine):
         buffer = value & ~15
         words = list(struct.unpack('<8I', uc.mem_read(buffer, 32)))
         assert words[0] == 32 and words[1] == 0 and words[3] == 8 and words[4] == 0 and words[7] == 0
-        words[5:7] = self.device.property(words[2], words[5:7])
+        values = self.device.property(words[2], words[5:7])
+        if values is None:
+            self.mailbox_dead = True
+            return
+        words[5:7] = values
         words[1], words[4] = 0x80000000, 0x80000008
         uc.mem_write(buffer, struct.pack('<8I', *words))
         self.token = value
@@ -199,7 +209,7 @@ class BootTests(unittest.TestCase):
                 self.assertIn('[INFO] CPU rendering backend selected', log)
                 self.assertNotIn('V3D backend selected', log)
                 self.assertIn('[OK] Vantage booted!', log)
-                self.assertTrue(board.device.off())
+                self.assertTrue(board.device.stopped())
                 # Both page runs went back to the allocator.
                 self.assertEqual(board.free_pages(), self.reserved + (6 << 20) // 4096)
                 jobs = board.device.render_jobs
@@ -250,8 +260,25 @@ class BootTests(unittest.TestCase):
                 log = ''.join(board.log)
                 self.assertIn(f'[ERR] V3D stopped during {operation} job (-1)', log)
                 self.assertIn('[INFO] CPU rendering backend selected; current frame kept', log)
-                self.assertTrue(board.device.off())
+                self.assertTrue(board.device.stopped())
                 self.assertEqual(board.free_pages(), reserved + (6 << 20) // 4096)
+                self.assert_cpu_session(board, board.device.render_jobs)
+
+    def test_fallback_preserves_display_when_domain_off_would_hang(self):
+        for fault in ('exists', 'runtime'):
+            with self.subTest(fault=fault):
+                board = Board(self.default)
+                board.device.domain_off_timeout = True
+                if fault == 'exists':
+                    board.device.exists = False
+                board.boot()
+                if fault == 'runtime':
+                    board.device.stall = True
+                    shown, expected = board.frame(0x00123456)
+                    self.assertEqual(shown, expected)
+                self.assertEqual(board.device.domain_off_calls, 0)
+                self.assertTrue(board.device.domain and board.device.stopped())
+                self.assertFalse(board.mailbox_dead)
                 self.assert_cpu_session(board, board.device.render_jobs)
 
     def test_unconfirmed_stop_quarantines_gpu_memory(self):

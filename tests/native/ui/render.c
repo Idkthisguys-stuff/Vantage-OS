@@ -212,7 +212,7 @@ static void gpu_session(int failure) {
     CHECK(retirements == 1 && !accelerated.backend && accelerated.pixels == standby);
     CHECK(!memcmp(reference, standby, GBYTES));
     CHECK(gpu.state == (quarantined ? V3D_QUARANTINED : V3D_STOPPED));
-    CHECK(quarantined || v3d_model_off(&model));
+    CHECK(quarantined || v3d_model_stopped(&model));
 
     /* The session continues on the CPU without touching the device again. */
     unsigned int writes = model.register_writes, calls = model.cache_calls;

@@ -136,21 +136,11 @@ static void shutdown(V3d* gpu) {
         confirmed = hold_reset(gpu);
     }
 
-    if (confirmed) {
-        uint32_t domain[2] = {FIRMWARE_DOMAIN_V3D, 0};
-
-        int result = gpu->io->property(
-            gpu->io->context,
-            TAG_SET_DOMAIN_STATE,
-            domain,
-            2
-        );
-        if (result != HW_OK) {
-            gpu->detail = (uint32_t)result;
-        }
-    } else {
-        gpu->detail = 0x504F5745U;
-    }
+    /* Keep the firmware domain powered for the kernel lifetime. Asking
+     * firmware to power it off after our direct bridge/reset sequence hangs
+     * on the tested Pi 4 and blocks later framebuffer property requests.
+     * Buffer ownership depends on the confirmed bridge/reset stop above,
+     * never on an unacknowledged firmware power-off. */
 
     gpu->present = 0;
     gpu->state = (!gpu->mapped || confirmed)? V3D_STOPPED : V3D_QUARANTINED;
@@ -314,7 +304,8 @@ int v3d_init(V3d* gpu, const HwOps* io, void* table, void* arena,
     uint32_t values[2] = {FIRMWARE_DOMAIN_V3D, 1};
     int result = io->property(io->context, TAG_SET_DOMAIN_STATE, values, 2);
     if (result != HW_OK) return fail(gpu, V3D_STAGE_POWER, result);
-    if (values[0] != FIRMWARE_DOMAIN_V3D || (values[1] & 3U) != 1) return fail(gpu, V3D_STAGE_POWER, HW_PROTOCOL);
+    /* This tag returns status, unlike clock tags' echoed ID. */
+    if (values[0] != 0 || values[1] != 1) return fail(gpu, V3D_STAGE_POWER, HW_PROTOCOL);
     values[0] = FIRMWARE_CLOCK_V3D; values[1] = 1;
     result = io->property(io->context, TAG_SET_CLOCK_STATE, values, 2);
     if (result != HW_OK) return fail(gpu, V3D_STAGE_CLOCK, result);

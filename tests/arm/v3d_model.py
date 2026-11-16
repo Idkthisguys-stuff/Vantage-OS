@@ -20,6 +20,8 @@ class V3dDevice:
         self.mem_read, self.mem_write = read, write
         self.exists = True           # False: nothing answers the identity registers.
         self.domain_missing = False  # Firmware reports no such power domain.
+        self.domain_off_timeout = False
+        self.domain_off_calls = 0
         self.stall = False           # Jobs never complete.
         self.corrupt = False         # One stored pixel is wrong.
         self.bridge_stuck = False    # Bridge acknowledgements never change.
@@ -39,8 +41,8 @@ class V3dDevice:
         return bool(self.domain and self.pm & RESET_RELEASED and
                     not self.bridge[ASB_S] & 3 and not self.bridge[ASB_M] & 3)
 
-    def off(self):
-        return (not self.domain and not self.pm & RESET_RELEASED and
+    def stopped(self):
+        return (not self.busy and not self.pm & RESET_RELEASED and
                 self.bridge == {ASB_S: 3, ASB_M: 3})
 
     def property(self, tag, values):
@@ -48,8 +50,13 @@ class V3dDevice:
         assert len(values) == 2
         if tag == 0x38030:
             assert values[0] == 11 and values[1] in (0, 1)
+            if not values[1]:
+                self.domain_off_calls += 1
+                if self.domain_off_timeout:
+                    return None
             if self.domain_missing and values[1]: values[1] = 2
             else: self.domain = values[1]
+            values[0] = 0  # Observed firmware status, not the input domain ID.
         elif tag == 0x38001:
             assert values == [5, 1] and self.domain
             self.clock = 1

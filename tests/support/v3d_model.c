@@ -409,8 +409,13 @@ static int property(void* context, uint32_t tag, uint32_t* words, unsigned int c
     int absent = tag == m->absent_tag;
     if (tag == 0x00038030U) {
         CHECK(words[0] == 11 && words[1] <= 1);
+        if (!words[1]) {
+            m->domain_off_calls++;
+            if (m->domain_off_timeout) return HW_TIMEOUT;
+        }
         if (absent && words[1]) words[1] = 2;
         else m->domain_on = (int)words[1];
+        words[0] = 0; /* Firmware returns status, not an echoed domain ID. */
     } else if (tag == 0x00038001U) {
         CHECK(words[0] == 5 && words[1] == 1 && m->domain_on);
         if (absent) words[1] = 2;
@@ -465,7 +470,7 @@ int v3d_model_quiet(const V3dModel* model) {
     return 1;
 }
 
-int v3d_model_off(const V3dModel* model) {
-    return !model->domain_on && !(model->pm_grafx & RESET_RELEASED) &&
+int v3d_model_stopped(const V3dModel* model) {
+    return !(model->pm_grafx & RESET_RELEASED) &&
            model->bridge[0] == 3 && model->bridge[1] == 3 && !model->active;
 }

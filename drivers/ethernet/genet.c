@@ -202,16 +202,21 @@ static void mac_link(const Genet* g) {
            (speed << CMD_SPEED_SHIFT) | (g->full_duplex ? 0U : CMD_HD_EN));
 }
 
-static int fail(Genet* g, int error) {
-    modify(g, UMAC_CMD, CMD_TX_EN | CMD_RX_EN, 0);
-    wr(g, RDMA + DMA_CTRL, 0);
-    wr(g, TDMA + DMA_CTRL, 0);
-    modify(g, EXT_RGMII_OOB_CTRL, RGMII_LINK, 0);
+static int failed(Genet* g, int error) {
     g->state = GENET_FAILED;
     g->error = error;
     g->link = 0;
     g->mbps = 0;
     return error;
+}
+
+/* Use only after bring-up has started changing device registers. */
+static int fail(Genet* g, int error) {
+    modify(g, UMAC_CMD, CMD_TX_EN | CMD_RX_EN, 0);
+    wr(g, RDMA + DMA_CTRL, 0);
+    wr(g, TDMA + DMA_CTRL, 0);
+    modify(g, EXT_RGMII_OOB_CTRL, RGMII_LINK, 0);
+    return failed(g, error);
 }
 
 /* Stops DMA a previous owner (a network-booting bootloader) may have left
@@ -330,14 +335,18 @@ int genet_init(Genet* genet, const HwOps* io) {
             return HW_INVALID;
     uint32_t words[2] = {0, 0};
     int result = io->property(io->context, TAG_BOARD_MAC, words, 2);
-    if (result != HW_OK) return fail(genet, result);
+    /* Only the revision register has been read. A firmware/preflight failure
+     * must not trigger shutdown accesses to an untouched controller. */
+    if (result != HW_OK) return failed(genet, result);
     for (unsigned int i = 0; i < 6; i++) genet->mac[i] = (uint8_t)(words[i / 4] >> (8 * (i % 4)));
     if ((genet->mac[0] & 1U) || !(genet->mac[0] | genet->mac[1] | genet->mac[2] |
                                   genet->mac[3] | genet->mac[4] | genet->mac[5]))
-        return fail(genet, HW_PROTOCOL);
+        return failed(genet, HW_PROTOCOL);
     wr(genet, SYS_PORT_CTRL, PORT_MODE_EXT_GPHY);
-    if ((result = dma_stop(genet)) != HW_OK) return fail(genet, result);
+    /* Release the boot-time MAC reset before DMA accesses, matching U-Boot
+     * and Circle. No rings are replaced until DMA has stopped. */
     umac_reset(genet);
+    if ((result = dma_stop(genet)) != HW_OK) return fail(genet, result);
     mac_address(genet);
     /* The PHY adds the RX clock delay (rgmii-rxid) and the MAC adds none. */
     modify(genet, EXT_RGMII_OOB_CTRL, OOB_DISABLE | RGMII_LINK, RGMII_MODE_EN | ID_MODE_DIS);

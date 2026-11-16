@@ -30,12 +30,13 @@ static void start(uint32_t width, uint32_t height) {
     CHECK(v3d_self_test(&gpu, target) == HW_OK && gpu.present && v3d_model_quiet(&m));
 }
 
-/* A stopped device is in reset behind stopped bridges with its domain off,
+/* A stopped device is in reset behind stopped bridges with its domain retained,
  * and the context refuses everything afterwards. */
 static void check_stopped(int state, int stage, int error) {
     CHECK(gpu.state == state && gpu.stage == stage && gpu.error == error);
-    CHECK(!m.active && !m.domain_on);
-    if (state == V3D_STOPPED) CHECK(v3d_model_off(&m));
+    CHECK(!m.active && !m.domain_off_calls);
+    CHECK(m.domain_on == (stage != V3D_STAGE_POWER));
+    if (state == V3D_STOPPED) CHECK(v3d_model_stopped(&m));
     CHECK(v3d_clear(&gpu, 0) == HW_OFF && v3d_present(&gpu, target) == HW_OFF);
     CHECK(!v3d_surface(&gpu) && v3d_self_test(&gpu, NULL) == HW_OFF && v3d_stop(&gpu) == state);
     CHECK(v3d_init(&gpu, &io, table, arena, 64, 64) == HW_BUSY);
@@ -91,6 +92,15 @@ static void test_bring_up_and_mappings(void) {
     check_stopped(V3D_STOPPED, V3D_STAGE_NONE, 0);
 }
 
+static void test_stop_does_not_request_firmware_power_off(void) {
+    start(64, 64);
+    m.domain_off_timeout = 1;
+    unsigned int calls = m.property_calls;
+    CHECK(v3d_stop(&gpu) == V3D_STOPPED);
+    CHECK(m.property_calls == calls && !m.domain_off_calls && m.domain_on);
+    CHECK(!m.active && !(m.pm_grafx & 64U) && m.bridge[0] == 3 && m.bridge[1] == 3);
+}
+
 static void test_rejected_requests(void) {
     fresh();
     CHECK(v3d_init(NULL, &io, table, arena, 64, 64) == HW_INVALID);
@@ -133,9 +143,11 @@ static void test_init_failures(void) {
         for (unsigned int result = 0; result < 3; result++) {
             fresh(); m.fail_tag = tags[tag]; m.fail_result = results[result];
             expect_init_failure(stage, results[result]);
+            if (!tag) CHECK(m.property_calls == 1); /* No speculative power-off. */
         }
         fresh(); m.absent_tag = tags[tag];
         expect_init_failure(stage, HW_PROTOCOL);
+        if (!tag) CHECK(m.property_calls == 1);
     }
     fresh(); m.bridge_stuck = 1;
     expect_init_failure(V3D_STAGE_BRIDGE, HW_TIMEOUT);
@@ -279,6 +291,7 @@ int main(void) {
     CHECK(v3d_stage_name(V3D_STAGE_IDENT)[0] == 'i' && v3d_stage_name(-1)[0] == 'u' &&
           v3d_stage_name(V3D_STAGE_COUNT)[0] == 'u');
     test_bring_up_and_mappings();
+    test_stop_does_not_request_firmware_power_off();
     test_rejected_requests();
     test_init_failures();
     test_self_test_failures();

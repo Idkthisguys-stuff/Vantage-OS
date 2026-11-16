@@ -3,10 +3,13 @@
 The V3D 4.2 renderer is built in and probed at every boot; a probe that fails
 for any reason selects the CPU renderer. CYW43455 Wi-Fi support is enabled by
 default but radio initialization is skipped until assets are supplied.
-**Neither driver is validated on a physical Pi.** Native controller/protocol
-models and linked ARM tests are software checks, not proof of GPU execution,
-wireless association or cache coherence. The IPv4 stack, sockets and terminal
-commands built on the radio are described in [NETWORK.md](NETWORK.md).
+An isolated Pi 4 diagnostic has passed the V3D pixel self-test and direct stop,
+followed by CPU terminal display flips. Ethernet controller initialization has
+also completed without a cable. Accelerated terminal rendering, Ethernet packet
+transfer and Wi-Fi operation still need physical validation. Native models and
+linked ARM tests do not establish physical cache coherence. The IPv4 stack,
+sockets and terminal commands built on the radio are described in
+[NETWORK.md](NETWORK.md).
 
 ## Builds
 
@@ -91,8 +94,9 @@ iteration bound if the timer stops. APIs return `HwResult` errors.
 
 ## V3D 4.2 rendering backend
 
-Everything in this section is validated against host models and Unicorn only.
-Physical Pi 4 validation is **pending**; see the acceptance checklist and the
+The isolated Pi 4 diagnostic passed the clear/present/readback self-test.
+Normal accelerated terminal rendering and recovery still need physical
+validation; see the acceptance checklist and the
 open hardware questions below. No performance or hardware-correctness claim is
 made. This is a 2D clear/present path, not an OpenGL/Vulkan implementation or
 a shader compiler.
@@ -130,8 +134,8 @@ its stage and `HwResult`, stops the device and returns.
 | Stage | Check | Typical failure |
 |---|---|---|
 | (arguments) | Core 0, masked EL1, aligned contiguous buffers below `0xfc000000`, frame a whole number of pages. No hardware access. | `HW_INVALID` |
-| power domain | Property `0x00038030`, domain 11 on. Response must echo the domain with state bit 0 set and bit 1 clear. | mailbox error, `HW_PROTOCOL` |
-| clock | Property `0x00038001`, clock 5 on, validated the same way; then `0x00030002` must report a nonzero rate. | mailbox error, `HW_PROTOCOL` |
+| power domain | Property `0x00038030`, domain 11 on. The observed Pi 4 response is status 0 and state 1, not an echoed domain ID. | mailbox error, `HW_PROTOCOL` |
+| clock | Property `0x00038001`, clock 5 on: echoed clock ID, state bit 0 set and bit 1 clear; then `0x00030002` must report a nonzero rate. | mailbox error, `HW_PROTOCOL` |
 | reset bridge | Stop both AXI bridges, assert `PM_V3DRSTN`, wait, release, restart the master then the slave bridge. Both restarts must be acknowledged. | `HW_TIMEOUT` |
 | identity | Core `IDENT0` reads "V3D" version 4 and `IDENT1` revision 2; hub `IDENT1` reads 4.2 with one core; hub `IDENT2` reports an MMU. | `HW_UNSUPPORTED` |
 | idle check | No compute dispatch and no TFU job pending after reset. | `HW_BUSY` |
@@ -146,10 +150,14 @@ ran; only the restart must succeed.
 
 Stopping the device (after any failure, or `v3d_stop`): mask interrupts,
 request a GMP stop and wait for outstanding AXI transfers, stop the slave and
-master bridges, assert `PM_V3DRSTN` and read it back, then turn the firmware
-domain off. Steps that address the core are skipped if bring-up never reached
-it. The stop is *confirmed* when both bridges acknowledged and the reset bit
-reads back asserted.
+master bridges, assert `PM_V3DRSTN` and read it back. The firmware domain stays
+powered for the kernel lifetime: requesting domain-off after the direct stop
+timed out on the test Pi and subsequent framebuffer requests also timed out.
+Keeping the domain on allowed the next diagnostic to complete its first
+application frame and later display flips. This is a stop, not a power-saving
+transition. Steps that address the core are skipped if bring-up never reached
+it. Mapped buffers are released only when both bridges acknowledged and the
+reset bit reads back asserted; an unconfirmed stop still quarantines them.
 
 Boot logs one of:
 
@@ -248,8 +256,13 @@ commit, build options, kernel SHA-256 and the full UART log:
 These could not be confirmed from the sources and are handled conservatively
 (a failing check selects the CPU renderer):
 
-- Whether the firmware accepts `SET_CLOCK_STATE` for the V3D clock and how it
-  reports the V3D domain state on current firmware.
+- The isolated diagnostic confirmed domain-on `{0, 1}`, clock enable at
+  500 MHz, identity, MMU setup and the pixel self-test on board revision
+  `0x00B03115` with firmware `0x6AE892C8`. The domain-retained diagnostic image
+  SHA-256 was `9fb5449b95ff19afaee1d7d0b79ff361e6a451baeed2dfc1ef2b827085f18d0e`.
+  Its terminal remained CPU-rendered; physical visibility and input, normal
+  accelerated terminal rendering and combined-device operation are not proven
+  by that UART log.
 - Whether the first bridge stop on a cold domain is acknowledged, and whether
   cycling `PM_V3DRSTN` conflicts with the firmware's own domain management.
 - Whether V3D can store into the firmware-allocated framebuffer. The boot
@@ -344,13 +357,15 @@ a link.
 2. The MAC address comes from the firmware property tag `0x00010003`. A zero or
    multicast address fails bring-up. The firmware answers with a 6-byte value
    in an 8-byte buffer; the property layer accepts responses shorter than the
-   request buffer.
-3. Any DMA a previous owner (such as a network-booting bootloader) left running
-   is stopped and must report stopped within 10 ms. The UniMAC is soft-reset
-   with local loopback, the receive buffer is reset, counters are cleared, the
-   maximum frame is 1536 bytes, the receive status block is off and each
+   request buffer. A failed query or invalid address leaves the controller
+   untouched apart from the revision read.
+3. The UniMAC is soft-reset with local loopback before DMA accesses, releasing
+   its boot-time reset as in U-Boot and Circle. The receive buffer is reset,
+   counters are cleared, the maximum frame is 1536 bytes, the receive status
+   block is off and each
    received frame is preceded by two alignment bytes. All GENET interrupts are
-   masked.
+   masked. Any DMA a previous owner left running is then stopped and must
+   report stopped within 10 ms before its rings and buffers are replaced.
 4. The station address is programmed and the destination filter passes only
    broadcast and the station address (no multicast, not promiscuous). The
    hardware filter block is cleared.
