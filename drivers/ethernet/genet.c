@@ -230,23 +230,25 @@ static int dma_stop(const Genet* g) {
     wr(g, TDMA + DMA_RING_CFG, 0);
     wr(g, RDMA + DMA_RING_CFG, 0);
     wr(g, UMAC_TX_FLUSH, 1);
-    (void)hw_delay(g->io, 10);
+    int delay_result = hw_delay(g->io, 10);
+    if (delay_result != HW_OK) return delay_result;
     wr(g, UMAC_TX_FLUSH, 0);
     return result;
 }
 
-static void umac_reset(const Genet* g) {
+static int umac_reset(const Genet* g) {
+    int result;
     wr(g, SYS_RBUF_FLUSH_CTRL, 0);
-    (void)hw_delay(g->io, 10);
+    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
     wr(g, UMAC_CMD, 0);
     /* Local loopback keeps the receive clock stable through the reset. */
     wr(g, UMAC_CMD, CMD_SW_RESET | CMD_LCL_LOOP_EN);
-    (void)hw_delay(g->io, 2);
+    if ((result = hw_delay(g->io, 2)) != HW_OK) return result;
     wr(g, UMAC_CMD, 0);
     modify(g, SYS_RBUF_FLUSH_CTRL, 0, 2U);
-    (void)hw_delay(g->io, 10);
+    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
     modify(g, SYS_RBUF_FLUSH_CTRL, 2U, 0);
-    (void)hw_delay(g->io, 10);
+    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
     wr(g, UMAC_MIB_CTRL, 7U);
     wr(g, UMAC_MIB_CTRL, 0);
     wr(g, UMAC_MAX_FRAME_LEN, 1536U);
@@ -258,6 +260,7 @@ static void umac_reset(const Genet* g) {
         wr(g, block + INTRL2_MASK_SET, 0xffffffffU);
         wr(g, block + INTRL2_CLEAR, 0xffffffffU);
     }
+    return HW_OK;
 }
 
 /* Destination filter entries: broadcast and the station address only. */
@@ -345,7 +348,8 @@ int genet_init(Genet* genet, const HwOps* io) {
     wr(genet, SYS_PORT_CTRL, PORT_MODE_EXT_GPHY);
     /* Release the boot-time MAC reset before DMA accesses, matching U-Boot
      * and Circle. No rings are replaced until DMA has stopped. */
-    umac_reset(genet);
+    /* DMA register access is unsafe until the reset sequence completes. */
+    if ((result = umac_reset(genet)) != HW_OK) return failed(genet, result);
     if ((result = dma_stop(genet)) != HW_OK) return fail(genet, result);
     mac_address(genet);
     /* The PHY adds the RX clock delay (rgmii-rxid) and the MAC adds none. */

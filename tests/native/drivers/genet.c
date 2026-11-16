@@ -5,6 +5,7 @@
 
 #define REV 0x0000U
 #define PORT_CTRL 0x0004U
+#define RBUF_FLUSH 0x0008U
 #define OOB_CTRL 0x008cU
 #define INTRL2_0_MASK 0x0210U
 #define RBUF_CTRL 0x0300U
@@ -12,6 +13,7 @@
 #define UMAC_MAC0 0x080cU
 #define UMAC_MAC1 0x0810U
 #define MAX_FRAME 0x0814U
+#define TX_FLUSH 0x0b34U
 #define MDIO 0x0e14U
 #define MDF_CTRL 0x0e50U
 #define MDF_ADDR 0x0e54U
@@ -32,10 +34,11 @@ typedef struct {
     unsigned char sent[32][GENET_BUFFER_BYTES];
     unsigned int sent_bytes[32], sent_count;
     uint16_t phy[32], partner, partner_gb, rx_prod, tx_cons, discards;
-    uint32_t clock, rev, reads, writes, mdio_ops, properties;
+    uint32_t clock, rev, reads, writes, mdio_ops, properties, dma_accesses;
     unsigned int rx_slot, tx_slot, reset_reads, busy_reads;
     int owner, cable, latched, restarted, mdio_stuck, first_fail, dma_stuck, mac_result, sticky;
     int tx_hold, crc_forced, rx_handed, last_cache, mac_reset;
+    unsigned int delay_phase, freeze_phase;
     uint8_t mac[6];
 } Model;
 static Model model;
@@ -124,7 +127,7 @@ static uint32_t read32(void* context, uintptr_t address) {
     CHECK(address >= GENET_BASE && address < GENET_BASE + 0x10000 && !(address & 3));
     uint32_t offset = (uint32_t)(address - GENET_BASE);
     model.reads++;
-    if (offset >= RX_DESC && offset < 0x6000U) CHECK(model.mac_reset);
+    if (offset >= RX_DESC && offset < 0x6000U) { CHECK(model.mac_reset); model.dma_accesses++; }
     if (offset == REV) return model.rev;
     if (offset == MDIO) {
         if (model.mdio_stuck) return REG(MDIO) | (1U << 29);
@@ -143,8 +146,11 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
     CHECK(address >= GENET_BASE && address < GENET_BASE + 0x10000 && !(address & 3));
     uint32_t offset = (uint32_t)(address - GENET_BASE);
     model.writes++;
-    if (offset >= RX_DESC && offset < 0x6000U) CHECK(model.mac_reset);
+    if (offset >= RX_DESC && offset < 0x6000U) { CHECK(model.mac_reset); model.dma_accesses++; }
     if (offset == UMAC_CMD && (value & 0xa000U) == 0xa000U) model.mac_reset = 1;
+    if ((offset == RBUF_FLUSH && (model.delay_phase == 0 || model.delay_phase == 2 || model.delay_phase == 3)) ||
+        (offset == UMAC_CMD && value == 0xa000U && model.delay_phase == 1) ||
+        (offset == TX_FLUSH && value == 1 && model.delay_phase == 4)) model.delay_phase++;
     if (offset == MDIO) {
         if (model.mdio_stuck) { REG(MDIO) = value; return; }
         if (value & (1U << 29)) mdio(value);
@@ -166,7 +172,11 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
     if (offset == TX_RING + 0x0c && (REG(TDMA + 4) & 1U)) { CHECK(model.last_cache == HW_CLEAN); tx_run(); }
 }
 
-static uint32_t clock_us(void* context) { (void)context; model.clock += 7; return model.clock; }
+static uint32_t clock_us(void* context) {
+    (void)context;
+    if (!model.freeze_phase || model.delay_phase != model.freeze_phase) model.clock += 7;
+    return model.clock;
+}
 static int owned(void* context) { (void)context; return model.owner; }
 static uint64_t physical(void* context, const void* p) {
     (void)context;
@@ -272,6 +282,25 @@ static void bring_up_failures(void) {
     reset(); model.reset_reads = 0xffffffffU;
     CHECK(genet_init(&genet, &io) == HW_TIMEOUT);
     CHECK(model.clock >= 500000 && model.clock < 2000000);
+}
+
+static void stopped_clock_delays(void) {
+    for (unsigned int phase = 1; phase <= 5; phase++) {
+        reset();
+        model.freeze_phase = phase;
+        CHECK(genet_init(&genet, &io) == HW_TIMEOUT && genet.state == GENET_FAILED);
+        CHECK(model.delay_phase == phase && model.mdio_ops == 0);
+        CHECK(genet_poll(&genet) == HW_TIMEOUT);
+        if (phase < 5) {
+            CHECK(model.dma_accesses == 0);
+            CHECK(REG(MAX_FRAME) == 0);
+            if (phase == 2) CHECK(REG(UMAC_CMD) == 0xa000U);
+            if (phase == 3) CHECK(REG(RBUF_FLUSH) == 2);
+        } else {
+            CHECK(REG(TX_FLUSH) == 1); /* Never end a flush whose delay failed. */
+        }
+        CHECK(REG(RX_DESC) == 0 && REG(TX_DESC) == 0);
+    }
 }
 
 static void configuration(void) {
@@ -488,6 +517,7 @@ static void device_lost(void) {
 int main(void) {
     absent_and_refused();
     bring_up_failures();
+    stopped_clock_delays();
     configuration();
     link_changes();
     transmit();

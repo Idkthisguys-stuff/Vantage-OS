@@ -394,6 +394,9 @@ a link.
    received frame is preceded by two alignment bytes. All GENET interrupts are
    masked. Any DMA a previous owner left running is then stopped and must
    report stopped within 10 ms before its rings and buffers are replaced.
+   Each required reset/flush delay must complete; a stopped timer aborts
+   initialization without proceeding to descriptor setup. A partial reset
+   failure does not attempt DMA-register cleanup.
 4. The station address is programmed and the destination filter passes only
    broadcast and the station address (no multicast, not promiscuous). The
    hardware filter block is cleared.

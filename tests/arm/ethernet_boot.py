@@ -27,7 +27,7 @@ class Genet:
 
     def __init__(self, read, write):
         self.memory_read, self.memory_write = read, write
-        self.regs, self.sent = {}, []
+        self.regs, self.sent, self.writes = {}, [], []
         self.cable = self.restarted = self.mdio_stuck = False
         self.mac_reset = False
         self.busy = self.rx_prod = self.tx_cons = self.rx_slot = self.tx_slot = self.accesses = 0
@@ -50,6 +50,7 @@ class Genet:
 
     def write(self, offset, value):
         self.accesses += 1
+        self.writes.append((offset, value))
         if RX_DESC <= offset < 0x6000:
             assert self.mac_reset, 'DMA accessed before the boot-time MAC reset'
         if offset == UMAC_CMD and value & 0xa000 == 0xa000:
@@ -196,6 +197,35 @@ class EthernetBootTests(unittest.TestCase):
         self.assertIn('[INFO] Ethernet unavailable (-1)', log)
         self.assertNotIn('Ethernet ready', log)
         self.assertEqual(board.genet.regs.get(RDMA + 4), 0)
+
+    def test_reset_and_flush_delay_failures_abort_bring_up(self):
+        # Inject the timeout result of a stopped clock at each linked hw_delay call.
+        # The native model exercises the actual bounded polling loop.
+        for phase in range(1, 6):
+            with self.subTest(phase=phase):
+                board = Board(self.image)
+                calls = []
+
+                def delay_failure(uc, address, size, _):
+                    calls.append(uc.reg_read(regs.UC_ARM64_REG_X1))
+                    if len(calls) == phase:
+                        uc.reg_write(regs.UC_ARM64_REG_X0, 0xffffffffffffffff)
+                        uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
+
+                delay = self.image.symbols['hw_delay']
+                board.uc.hook_add(UC_HOOK_CODE, delay_failure, begin=delay, end=delay)
+                log = board.start()
+                self.assertEqual(calls, [10, 2, 10, 10, 10][:phase])
+                self.assertIn('[INFO] Ethernet unavailable (-1)', log)
+                self.assertNotIn('Ethernet ready', log)
+                self.assertEqual(board.driver('genet_poll'), 0xffffffff)
+                self.assertNotIn(MDIO, board.genet.regs)
+                self.assertNotIn(RX_DESC, board.genet.regs)
+                self.assertNotIn(TX_DESC, board.genet.regs)
+                if phase < 5:
+                    self.assertFalse(any(RX_DESC <= offset < 0x6000 for offset, _ in board.genet.writes))
+                else:
+                    self.assertEqual(board.genet.regs[0x0b34], 1)
 
     def test_mailbox_timeout_leaves_controller_untouched(self):
         board = Board(self.image)
