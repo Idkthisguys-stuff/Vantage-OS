@@ -113,14 +113,15 @@ static void test_lifecycle(void) {
     /* Tables (root, user level 2, two level 3) plus text, rodata, data/bss and stack. */
     CHECK(info.pages == 4U + TEXT_PAGES + 1U + 2U + PROCESS_STACK_BYTES / PAGE && info.pages == pages_live - before);
     int status = 0;
-    CHECK(process_reap(id, &status) == TASK_PENDING && !flushes);
+    /* ASID allocation flushes once; a pending reap must not flush again. */
+    CHECK(process_reap(id, &status) == TASK_PENDING && flushes == 1 && flushed[1] == 1);
     CHECK(task_run() == TASK_OK && parallel_load(&ran[0]) == 1);
     for (unsigned int core = 0; core < TASK_CORES; core++) CHECK(!host_root[core]);
     info = info_of(id);
     CHECK(info.state == PROCESS_EXITED && !info.live && info.status == 7);
     CHECK(released == released_before + 1 && last_released == id);
     CHECK(process_reap(id, &status) == TASK_OK && status == 7);
-    CHECK(pages_live == before && flushed[1] == 1 && last_released == id);
+    CHECK(pages_live == before && flushed[1] == 2 && last_released == id);
     CHECK(process_reap(id, &status) == TASK_INVALID && process_info(id, &info) == TASK_INVALID);
     CHECK(process_kill(id, 1) == TASK_INVALID && !process_current());
     puts("PASS: process create, run, exit status, reap and complete memory release");
@@ -142,11 +143,11 @@ static void rollover(void* argument) {
         CHECK(asid == expected && asid != resident_asid && asid >= 1 && asid <= 255);
         int status = 0;
         CHECK(process_wait(id, &status) == TASK_OK && status == 7);
-        CHECK(flushes == base_flushes + round + 1);
+        CHECK(flushes == base_flushes + 2U * (round + 1U));
     }
-    CHECK(flushed[resident_asid] == 0 && flushed[3] >= 2 && flushed[255] >= 2);
+    CHECK(flushed[resident_asid] == 1 && flushed[3] >= 4 && flushed[255] >= 4);
     parallel_store(&release_spinner, 1);
-    CHECK(process_wait(resident, NULL) == TASK_OK && flushed[resident_asid] == 1);
+    CHECK(process_wait(resident, NULL) == TASK_OK && flushed[resident_asid] == 2);
     parallel_store(&release_spinner, 0);
 }
 
