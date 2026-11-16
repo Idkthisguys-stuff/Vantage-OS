@@ -187,7 +187,8 @@ static uint64_t physical(void* context, const void* p) {
 static void cache(void* context, void* p, size_t bytes, enum HwCache operation) {
     (void)context;
     size_t start = (size_t)((unsigned char*)p - (unsigned char*)&genet), end = start + bytes;
-    CHECK(start >= offsetof(Genet, rx) && end <= offsetof(Genet, tx) + sizeof(genet.tx) && bytes);
+    size_t first = offsetof(Genet, rx), limit = offsetof(Genet, tx) + sizeof(genet.tx);
+    CHECK(bytes && start - first < limit - first && bytes <= limit - start);
     start &= ~(size_t)63; end = (end + 63) & ~(size_t)63;
     unsigned char* cpu = (unsigned char*)&genet;
     if (operation != HW_INVALIDATE) memcpy(model.shadow + start, cpu + start, end - start);
