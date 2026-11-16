@@ -53,7 +53,7 @@ void task_port_irq_enable(void) { __asm__ volatile("msr daifclr, #2" ::: "memory
 void task_port_irq_disable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
 
 /* EL0t with every exception unmasked: user code cannot hold off the tick. */
-#define USER_STATE 0ULL
+#define USER_STATE ((1ULL << 8) | (1ULL << 9))
 
 void task_port_enter_user(uint64_t entry, uint64_t stack, uint64_t argument) {
     /* Nothing of the kernel's register state may reach EL0. */

@@ -84,6 +84,7 @@ void mmu_clean_code(uintptr_t start, size_t size) {
     uintptr_t line = (uintptr_t)4 << ((type >> 16) & 15);
     for (uintptr_t address = start & ~(line - 1); address < start + size; address += line)
         __asm__ volatile("dc cvau, %0" :: "r"(address) : "memory");
+    __asm__ volatile("dsb sy\nisb" ::: "memory"); // Ensure clean completes before I-cache invalidation
 }
 
 void mmu_invalidate_code(void) {

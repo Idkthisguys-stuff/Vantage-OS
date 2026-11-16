@@ -33,6 +33,7 @@ static uint32_t asid_take(void) {
         asid_cursor = asid % ASID_LIMIT;
         if (!asid_used[asid]) {
             asid_used[asid] = 1;
+            mmu_flush_asid(asid); // Ensure clean TLB state for this ASID
             return asid;
         }
     }
