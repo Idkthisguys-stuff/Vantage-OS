@@ -25,11 +25,14 @@ typedef struct V3dModel {
     int owner;
     uint32_t fail_tag;        /* This property tag returns fail_result. */
     int fail_result;
+    int domain_off_timeout;   /* Observed firmware hang on domain release. */
     uint32_t absent_tag;      /* This property tag answers "off/missing". */
     int bridge_stuck;         /* Bridge acknowledgements never change. */
     int reset_stuck;          /* The reset line cannot be asserted. */
+    int gmp_stuck;            /* The stop request does not drain active accesses. */
     uint32_t ident[4];        /* Core IDENT0/1, hub IDENT1/2. */
     int csd_busy, tlb_stuck, l2t_stuck, bad_table_readback;
+    unsigned int fail_tlb_flush; /* One-based TLB flush attempt to leave in progress. */
     int stall_bin;            /* The binner never completes. */
     int stall_render;         /* Rendering stops halfway and never completes. */
     int fault_render;         /* Rendering stops halfway with an MMU fault. */
@@ -38,7 +41,8 @@ typedef struct V3dModel {
     uint32_t clock_step, counter_reset;
 
     /* Observations. */
-    unsigned int bin_jobs, render_jobs, tlb_flushes, resets, property_calls;
+    unsigned int bin_jobs, render_jobs, tlb_flushes, resets, property_calls, domain_off_calls;
+    unsigned int tlb_flush_attempts;
     unsigned int register_writes, cache_calls;
     int domain_on, clock_on, mmu_faults;
 
@@ -65,5 +69,5 @@ void v3d_model_free(V3dModel* model);
 HwOps v3d_model_ops(V3dModel* model);
 /* No job in flight and the present window unmapped in table, RAM and TLB. */
 int v3d_model_quiet(const V3dModel* model);
-/* Core held in reset with both bridges stopped and the firmware domain off. */
-int v3d_model_off(const V3dModel* model);
+/* Core held in reset with both bridges stopped; domain may remain powered. */
+int v3d_model_stopped(const V3dModel* model);

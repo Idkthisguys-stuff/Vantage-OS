@@ -30,12 +30,13 @@ static void start(uint32_t width, uint32_t height) {
     CHECK(v3d_self_test(&gpu, target) == HW_OK && gpu.present && v3d_model_quiet(&m));
 }
 
-/* A stopped device is in reset behind stopped bridges with its domain off,
+/* A stopped device is in reset behind stopped bridges with its domain retained,
  * and the context refuses everything afterwards. */
 static void check_stopped(int state, int stage, int error) {
     CHECK(gpu.state == state && gpu.stage == stage && gpu.error == error);
-    CHECK(!m.active && !m.domain_on);
-    if (state == V3D_STOPPED) CHECK(v3d_model_off(&m));
+    CHECK(!m.active && !m.domain_off_calls);
+    CHECK(m.domain_on == (stage != V3D_STAGE_POWER));
+    if (state == V3D_STOPPED) CHECK(v3d_model_stopped(&m));
     CHECK(v3d_clear(&gpu, 0) == HW_OFF && v3d_present(&gpu, target) == HW_OFF);
     CHECK(!v3d_surface(&gpu) && v3d_self_test(&gpu, NULL) == HW_OFF && v3d_stop(&gpu) == state);
     CHECK(v3d_init(&gpu, &io, table, arena, 64, 64) == HW_BUSY);
@@ -81,6 +82,7 @@ static void test_bring_up_and_mappings(void) {
     /* The CPU draws between jobs; a present shows exactly that frame. */
     for (uint32_t i = 0; i < 800 * 480; i++) pixels[i] = i * 40503U + 7;
     CHECK(v3d_present(&gpu, target) == HW_OK && v3d_model_quiet(&m));
+    CHECK(!gpu.target);
     CHECK(!memcmp(target, pixels, MAX_BYTES));
     for (uint32_t i = 0; i < 4096; i++) CHECK(target[MAX_BYTES + i] == 0x77);
     CHECK(v3d_clear(&gpu, 0x80c0ffeeU) == HW_OK);
@@ -89,6 +91,15 @@ static void test_bring_up_and_mappings(void) {
 
     CHECK(v3d_stop(&gpu) == V3D_STOPPED && m.resets == 1);
     check_stopped(V3D_STOPPED, V3D_STAGE_NONE, 0);
+}
+
+static void test_stop_does_not_request_firmware_power_off(void) {
+    start(64, 64);
+    m.domain_off_timeout = 1;
+    unsigned int calls = m.property_calls;
+    CHECK(v3d_stop(&gpu) == V3D_STOPPED);
+    CHECK(m.property_calls == calls && !m.domain_off_calls && m.domain_on);
+    CHECK(!m.active && !(m.pm_grafx & 64U) && m.bridge[0] == 3 && m.bridge[1] == 3);
 }
 
 static void test_rejected_requests(void) {
@@ -133,9 +144,11 @@ static void test_init_failures(void) {
         for (unsigned int result = 0; result < 3; result++) {
             fresh(); m.fail_tag = tags[tag]; m.fail_result = results[result];
             expect_init_failure(stage, results[result]);
+            if (!tag) CHECK(m.property_calls == 1); /* No speculative power-off. */
         }
         fresh(); m.absent_tag = tags[tag];
         expect_init_failure(stage, HW_PROTOCOL);
+        if (!tag) CHECK(m.property_calls == 1);
     }
     fresh(); m.bridge_stuck = 1;
     expect_init_failure(V3D_STAGE_BRIDGE, HW_TIMEOUT);
@@ -274,16 +287,69 @@ static void test_sustained_jobs(void) {
     CHECK(m.render_jobs == 303 && m.bin_jobs == 303 && !m.mmu_faults && m.rfc == (255 + 303) % 256);
 }
 
+static void test_unconfirmed_present_retains_external_target(void) {
+    start(160, 96);
+    m.stall_render = m.gmp_stuck = m.bridge_stuck = m.reset_stuck = 1;
+    CHECK(v3d_present(&gpu, target) == HW_TIMEOUT);
+    CHECK(gpu.state == V3D_QUARANTINED && gpu.target == target && m.active == 2);
+    CHECK(!v3d_model_quiet(&m) && v3d_stop(&gpu) == V3D_QUARANTINED);
+    CHECK(v3d_present(&gpu, target) == HW_OFF && gpu.target == target);
+}
+
+static void test_target_flush_failures(void) {
+    /* Fail each present flush after the request: map before submission, or
+     * unmap after the render. Neither failure proves the TLB is updated. */
+    for (unsigned int unmap = 0; unmap < 2; unmap++) {
+        for (unsigned int unconfirmed = 0; unconfirmed < 2; unconfirmed++) {
+            start(160, 96);
+            unsigned int attempts = m.tlb_flush_attempts, flushes = m.tlb_flushes;
+            unsigned int bins = m.bin_jobs, renders = m.render_jobs;
+            unsigned char* page = target + 4096;
+            m.fail_tlb_flush = attempts + 1 + unmap;
+            m.bridge_stuck = m.reset_stuck = (int)unconfirmed;
+            CHECK(v3d_present(&gpu, page) == HW_TIMEOUT);
+            CHECK(m.tlb_flush_attempts == attempts + 1 + unmap && m.tlb_stuck);
+            CHECK(m.tlb_flushes == flushes + unmap);
+            CHECK(m.bin_jobs == bins + unmap && m.render_jobs == renders + unmap);
+            CHECK(gpu.stage == V3D_STAGE_PRESENT && gpu.error == HW_TIMEOUT);
+            CHECK(gpu.state == (unconfirmed ? V3D_QUARANTINED : V3D_STOPPED));
+            CHECK(gpu.target == (unconfirmed ? page : NULL));
+            if (unconfirmed) {
+                const uint32_t* entries = (const uint32_t*)(const void*)table + (V3D_TARGET_BASE >> 12);
+                uint32_t old_entry = m.tlb[(V3D_TARGET_BASE - V3D_GPU_BASE) >> 12];
+                CHECK(entries[0] == (unmap ? 0U : (0x30000000U | (0x3001000U >> 12))));
+                CHECK(old_entry == (unmap ? (0x30000000U | (0x3001000U >> 12)) : 0U));
+                CHECK(v3d_stop(&gpu) == V3D_QUARANTINED && gpu.target == page);
+            } else CHECK(v3d_model_stopped(&m));
+        }
+    }
+}
+
+static void test_quarantined_clear_after_present(void) {
+    start(160, 96);
+    CHECK(v3d_present(&gpu, target + 4096) == HW_OK);
+    CHECK(!gpu.target && v3d_model_quiet(&m));
+    m.stall_render = m.gmp_stuck = m.bridge_stuck = m.reset_stuck = 1;
+    CHECK(v3d_clear(&gpu, 0xabcdef01U) == HW_TIMEOUT);
+    CHECK(gpu.state == V3D_QUARANTINED && gpu.stage == V3D_STAGE_CLEAR);
+    CHECK(!gpu.target && m.active == 2 && m.job_target == V3D_GPU_BASE + 0x40000U);
+    CHECK(v3d_stop(&gpu) == V3D_QUARANTINED && !gpu.target);
+}
+
 int main(void) {
     table = (unsigned char*)(((uintptr_t)table_storage + 65535U) & ~(uintptr_t)65535U);
     CHECK(v3d_stage_name(V3D_STAGE_IDENT)[0] == 'i' && v3d_stage_name(-1)[0] == 'u' &&
           v3d_stage_name(V3D_STAGE_COUNT)[0] == 'u');
     test_bring_up_and_mappings();
+    test_stop_does_not_request_firmware_power_off();
     test_rejected_requests();
     test_init_failures();
     test_self_test_failures();
     test_job_failures();
     test_sustained_jobs();
+    test_unconfirmed_present_retains_external_target();
+    test_target_flush_failures();
+    test_quarantined_clear_after_present();
     v3d_model_free(&m);
     puts("PASS: V3D bring-up, per-step failure quiescence, private and per-job mappings, cache/TLB "
          "ordering, counter and timer wrap, job timeout/fault reset, quarantine");

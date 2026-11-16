@@ -4,11 +4,14 @@
 #include <vantage/kernel/parallel_port.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <setjmp.h>
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "line %d: %s\n", __LINE__, #c); exit(1); } } while (0)
 
 /* Single-owner port: the dispatcher stays in its serial slice. Threaded
  * raster batches are covered by the simulator and scheduler suites. */
 static int expect_halt;
+static const char* halt_reason;
+static jmp_buf halt_return;
 uint32_t parallel_load(const uint32_t* value) { return *value; }
 void parallel_store(uint32_t* value, uint32_t next) { *value = next; }
 unsigned int parallel_core_id(void) { return 0; }
@@ -17,7 +20,10 @@ void parallel_idle(void) {}
 void parallel_wake(void) {}
 void parallel_completion_barrier(void) {}
 void parallel_port_halt(const char* message) {
-    if (expect_halt) { puts("PASS: render backend seam, V3D/CPU pixel equivalence, frame-preserving runtime fallback and re-entry halt"); exit(0); }
+    if (expect_halt) {
+        CHECK(strstr(message, halt_reason));
+        longjmp(halt_return, 1);
+    }
     fprintf(stderr, "%s", message);
     exit(1);
 }
@@ -28,14 +34,24 @@ void parallel_port_halt(const char* message) {
 static uint32_t cpu_pixels[W * H], fake_pixels[W * H], oracle[W * H];
 static uint32_t shown[PITCH * H], expected[PITCH * H];
 
-typedef struct { Renderer* renderer; int fills, presents, retired, fail_fill, fail_present, scribble; } Fake;
+typedef struct {
+    Renderer* renderer;
+    int fills, presents, retired, fail_fill, fail_present, scribble;
+    RenderBackend* backend;
+} Fake;
 
 /* Accepts whole-surface fills and tight-pitch presents, like a device that
  * only implements full-frame operations. */
 static int fake_fill(void* context, const RasterFill* fill) {
     Fake* fake = context;
     CHECK(fake->renderer->busy && fill->pixels == fake_pixels && fill->pitch == W);
+    if (fake->fail_fill == 3) return RENDER_DISCARD; /* Contract violation. */
     if (fill->x || fill->y || fill->width != W || fill->height != H) return RENDER_SKIP;
+    if (fake->fail_fill == 2) {
+        /* Any attempted preservation now reads an inaccessible surface. */
+        fake->backend->surface = NULL;
+        return RENDER_DISCARD;
+    }
     if (fake->fail_fill) {
         /* A stopped job leaves its target partially written. */
         for (unsigned int i = 0; i < W * H; i += 3) fake_pixels[i] = 0xdeadbeefU;
@@ -50,6 +66,7 @@ static int fake_present(void* context, const RasterCopy* copy) {
     Fake* fake = context;
     CHECK(fake->renderer->busy && copy->source == fake_pixels && copy->width == W && copy->height == H);
     if (copy->destination_pitch != W) return RENDER_SKIP;
+    if (fake->fail_present == 2) return RENDER_TARGET_LOST;
     if (fake->fail_present) {
         for (unsigned int i = 0; i < W; i++) copy->destination[i] = 0xdeadbeefU;
         return RENDER_FAILED;
@@ -212,7 +229,7 @@ static void gpu_session(int failure) {
     CHECK(retirements == 1 && !accelerated.backend && accelerated.pixels == standby);
     CHECK(!memcmp(reference, standby, GBYTES));
     CHECK(gpu.state == (quarantined ? V3D_QUARANTINED : V3D_STOPPED));
-    CHECK(quarantined || v3d_model_off(&model));
+    CHECK(quarantined || v3d_model_stopped(&model));
 
     /* The session continues on the CPU without touching the device again. */
     unsigned int writes = model.register_writes, calls = model.cache_calls;
@@ -228,14 +245,15 @@ int main(void) {    Renderer renderer;
     for (unsigned int i = 0; i < 2000; i++) step(&renderer, &state);
 
     /* Attaching moves the live frame; supported operations reach the backend. */
-    Fake fake = {&renderer, 0, 0, 0, 0, 0, 0};
+    Fake fake = {&renderer, 0, 0, 0, 0, 0, 0, NULL};
     RenderBackend backend = {"fake", &fake, fake_pixels, fake_fill, fake_present, fake_retired};
+    fake.backend = &backend;
     CHECK(render_attach(&renderer, &backend) && renderer.pixels == fake_pixels);
     CHECK(!render_attach(&renderer, &backend));
     CHECK(!memcmp(fake_pixels, oracle, sizeof(oracle)));
     for (unsigned int i = 0; i < 2000; i++) step(&renderer, &state);
     CHECK(fake.fills > 100 && !fake.presents && !fake.retired); /* Padded pitch stays on the CPU. */
-    render_present(&renderer, shown, W);
+    CHECK(render_present(&renderer, shown, W));
     CHECK(fake.presents == 1 && !memcmp(shown, oracle, sizeof(oracle)));
 
     /* A failed present must not lose the frame or leave the target partial. */
@@ -243,7 +261,7 @@ int main(void) {    Renderer renderer;
     render_pixel(&renderer, 3, 4, 0x11223344U);
     oracle[4 * W + 3] = 0x11223344U;
     memset(shown, 0, sizeof(shown));
-    render_present(&renderer, shown, W);
+    CHECK(render_present(&renderer, shown, W));
     CHECK(fake.retired == 1 && renderer.pixels == cpu_pixels && !renderer.backend);
     CHECK(!memcmp(shown, oracle, sizeof(oracle)) && !memcmp(cpu_pixels, oracle, sizeof(oracle)));
     for (unsigned int i = 0; i < 500; i++) step(&renderer, &state);
@@ -260,6 +278,27 @@ int main(void) {    Renderer renderer;
     oracle_fill(0, 0, W, H, 0x0a0b0c0dU);
     CHECK(fake.retired == 2 && !renderer.backend && !memcmp(cpu_pixels, oracle, sizeof(oracle)));
 
+    /* An unsafe clear discards the device surface rather than reading it. */
+    fake.fail_fill = 2;
+    CHECK(render_attach(&renderer, &backend));
+    render_fill(&renderer, 0, 0, W, H, 0x00123456U);
+    oracle_fill(0, 0, W, H, 0x00123456U);
+    CHECK(!backend.surface && fake.retired == 3 && !renderer.backend && !renderer.busy);
+    CHECK(!memcmp(cpu_pixels, oracle, sizeof(oracle)));
+    backend.surface = fake_pixels;
+
+    /* Lost destinations stay untouched, but the frame survives retirement. */
+    fake.fail_fill = 0; fake.fail_present = 2; fake.scribble = 1;
+    CHECK(render_attach(&renderer, &backend));
+    memset(shown, 0xa5, sizeof(shown));
+    memcpy(expected, shown, sizeof(shown));
+    CHECK(!render_present(&renderer, shown, W));
+    CHECK(!memcmp(shown, expected, sizeof(shown)));
+    CHECK(fake.retired == 4 && !renderer.backend && !renderer.busy);
+    CHECK(!memcmp(cpu_pixels, oracle, sizeof(oracle)));
+    CHECK(render_present(&renderer, expected, W));
+    CHECK(!memcmp(expected, oracle, sizeof(oracle)) && fake.retired == 4);
+
     /* Out-of-range requests never reach memory. */
     render_fill(&renderer, W - 1, 0, 2, 1, 1);
     render_fill(&renderer, 0, H, 1, 1, 1);
@@ -273,7 +312,22 @@ int main(void) {    Renderer renderer;
 
     /* Drawing while an operation is in flight is re-entry and must halt. */
     expect_halt = 1;
+    halt_reason = "re-entered";
     renderer.busy = 1;
-    render_pixel(&renderer, 0, 0, 1);
-    return 1;
+    if (!setjmp(halt_return)) {
+        render_pixel(&renderer, 0, 0, 1);
+        CHECK(0);
+    }
+    renderer.busy = 0;
+    expect_halt = 0;
+    fake.fail_fill = 3; fake.fail_present = fake.scribble = 0;
+    CHECK(render_attach(&renderer, &backend));
+    expect_halt = 1;
+    halt_reason = "partial fill";
+    if (!setjmp(halt_return)) {
+        render_fill(&renderer, 1, 1, 2, 2, 0);
+        CHECK(0);
+    }
+    puts("PASS: render backend seam, V3D/CPU equivalence, safe surface/target retirement and contract halts");
+    return 0;
 }

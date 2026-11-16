@@ -107,8 +107,9 @@ class InterruptTests(unittest.TestCase):
         self.assertEqual(targets[5], irq)    # EL1 using SP_EL1
         self.assertEqual(targets[9], irq)    # EL0
         self.assertEqual(targets[8], sync)
+        self.assertEqual(targets[11], self.image.symbols['el0_serror_exception'])
         park = targets[0]
-        self.assertEqual([t for i, t in enumerate(targets) if i not in (5, 8, 9)], [park] * 13)
+        self.assertEqual([t for i, t in enumerate(targets) if i not in (5, 8, 9, 11)], [park] * 12)
 
     def test_each_core_enables_only_its_own_timer_interrupt(self):
         m = self.machine()

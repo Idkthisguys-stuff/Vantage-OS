@@ -202,16 +202,21 @@ static void mac_link(const Genet* g) {
            (speed << CMD_SPEED_SHIFT) | (g->full_duplex ? 0U : CMD_HD_EN));
 }
 
-static int fail(Genet* g, int error) {
-    modify(g, UMAC_CMD, CMD_TX_EN | CMD_RX_EN, 0);
-    wr(g, RDMA + DMA_CTRL, 0);
-    wr(g, TDMA + DMA_CTRL, 0);
-    modify(g, EXT_RGMII_OOB_CTRL, RGMII_LINK, 0);
+static int failed(Genet* g, int error) {
     g->state = GENET_FAILED;
     g->error = error;
     g->link = 0;
     g->mbps = 0;
     return error;
+}
+
+/* Use only after bring-up has started changing device registers. */
+static int fail(Genet* g, int error) {
+    modify(g, UMAC_CMD, CMD_TX_EN | CMD_RX_EN, 0);
+    wr(g, RDMA + DMA_CTRL, 0);
+    wr(g, TDMA + DMA_CTRL, 0);
+    modify(g, EXT_RGMII_OOB_CTRL, RGMII_LINK, 0);
+    return failed(g, error);
 }
 
 /* Stops DMA a previous owner (a network-booting bootloader) may have left
@@ -225,23 +230,25 @@ static int dma_stop(const Genet* g) {
     wr(g, TDMA + DMA_RING_CFG, 0);
     wr(g, RDMA + DMA_RING_CFG, 0);
     wr(g, UMAC_TX_FLUSH, 1);
-    (void)hw_delay(g->io, 10);
+    int delay_result = hw_delay(g->io, 10);
+    if (delay_result != HW_OK) return delay_result;
     wr(g, UMAC_TX_FLUSH, 0);
     return result;
 }
 
-static void umac_reset(const Genet* g) {
+static int umac_reset(const Genet* g) {
+    int result;
     wr(g, SYS_RBUF_FLUSH_CTRL, 0);
-    (void)hw_delay(g->io, 10);
+    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
     wr(g, UMAC_CMD, 0);
     /* Local loopback keeps the receive clock stable through the reset. */
     wr(g, UMAC_CMD, CMD_SW_RESET | CMD_LCL_LOOP_EN);
-    (void)hw_delay(g->io, 2);
+    if ((result = hw_delay(g->io, 2)) != HW_OK) return result;
     wr(g, UMAC_CMD, 0);
     modify(g, SYS_RBUF_FLUSH_CTRL, 0, 2U);
-    (void)hw_delay(g->io, 10);
+    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
     modify(g, SYS_RBUF_FLUSH_CTRL, 2U, 0);
-    (void)hw_delay(g->io, 10);
+    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
     wr(g, UMAC_MIB_CTRL, 7U);
     wr(g, UMAC_MIB_CTRL, 0);
     wr(g, UMAC_MAX_FRAME_LEN, 1536U);
@@ -253,6 +260,7 @@ static void umac_reset(const Genet* g) {
         wr(g, block + INTRL2_MASK_SET, 0xffffffffU);
         wr(g, block + INTRL2_CLEAR, 0xffffffffU);
     }
+    return HW_OK;
 }
 
 /* Destination filter entries: broadcast and the station address only. */
@@ -330,14 +338,19 @@ int genet_init(Genet* genet, const HwOps* io) {
             return HW_INVALID;
     uint32_t words[2] = {0, 0};
     int result = io->property(io->context, TAG_BOARD_MAC, words, 2);
-    if (result != HW_OK) return fail(genet, result);
+    /* Only the revision register has been read. A firmware/preflight failure
+     * must not trigger shutdown accesses to an untouched controller. */
+    if (result != HW_OK) return failed(genet, result);
     for (unsigned int i = 0; i < 6; i++) genet->mac[i] = (uint8_t)(words[i / 4] >> (8 * (i % 4)));
     if ((genet->mac[0] & 1U) || !(genet->mac[0] | genet->mac[1] | genet->mac[2] |
                                   genet->mac[3] | genet->mac[4] | genet->mac[5]))
-        return fail(genet, HW_PROTOCOL);
+        return failed(genet, HW_PROTOCOL);
     wr(genet, SYS_PORT_CTRL, PORT_MODE_EXT_GPHY);
+    /* Release the boot-time MAC reset before DMA accesses, matching U-Boot
+     * and Circle. No rings are replaced until DMA has stopped. */
+    /* DMA register access is unsafe until the reset sequence completes. */
+    if ((result = umac_reset(genet)) != HW_OK) return failed(genet, result);
     if ((result = dma_stop(genet)) != HW_OK) return fail(genet, result);
-    umac_reset(genet);
     mac_address(genet);
     /* The PHY adds the RX clock delay (rgmii-rxid) and the MAC adds none. */
     modify(genet, EXT_RGMII_OOB_CTRL, OOB_DISABLE | RGMII_LINK, RGMII_MODE_EN | ID_MODE_DIS);

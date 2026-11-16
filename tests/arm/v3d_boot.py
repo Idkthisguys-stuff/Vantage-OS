@@ -67,13 +67,22 @@ class Board(Machine):
         uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
 
     def framebuffer_call(self, uc, address, size, _):
+        # Model the observed firmware-wide hang after a domain-off request.
+        if self.device.domain_off_timeout and self.device.domain_off_calls:
+            uc.reg_write(regs.UC_ARM64_REG_X0, 0)
+            uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
+            return
         mailbox = self.image.symbols['mbox']
-        request = list(struct.unpack('<36I', uc.mem_read(mailbox, 36 * 4)))
-        if request[0] == 35 * 4:
+        request = list(struct.unpack('<40I', uc.mem_read(mailbox, 40 * 4)))
+        if request[0] == 39 * 4:
+            assert request[34:39] == [0x00048007, 4, 0, 2, 0]
+            request[4] = request[9] = request[14] = 0x80000008
             request[20], request[28], request[29], request[33] = 32, FRAMEBUFFER | 0xc0000000, PAGE * 3, WIDTH * 4
-            uc.mem_write(mailbox, struct.pack('<36I', *request))
+            uc.mem_write(mailbox, struct.pack('<40I', *request))
         else:
             self.offset = request[6]
+            request[4] = 0x80000008
+            uc.mem_write(mailbox, struct.pack('<40I', *request))
         uc.reg_write(regs.UC_ARM64_REG_X0, 1)
         uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
 
@@ -110,7 +119,11 @@ class Board(Machine):
         buffer = value & ~15
         words = list(struct.unpack('<8I', uc.mem_read(buffer, 32)))
         assert words[0] == 32 and words[1] == 0 and words[3] == 8 and words[4] == 0 and words[7] == 0
-        words[5:7] = self.device.property(words[2], words[5:7])
+        values = self.device.property(words[2], words[5:7])
+        if values is None:
+            self.mailbox_dead = True
+            return
+        words[5:7] = values
         words[1], words[4] = 0x80000000, 0x80000008
         uc.mem_write(buffer, struct.pack('<8I', *words))
         self.token = value
@@ -199,7 +212,7 @@ class BootTests(unittest.TestCase):
                 self.assertIn('[INFO] CPU rendering backend selected', log)
                 self.assertNotIn('V3D backend selected', log)
                 self.assertIn('[OK] Vantage booted!', log)
-                self.assertTrue(board.device.off())
+                self.assertTrue(board.device.stopped())
                 # Both page runs went back to the allocator.
                 self.assertEqual(board.free_pages(), self.reserved + (6 << 20) // 4096)
                 jobs = board.device.render_jobs
@@ -250,8 +263,25 @@ class BootTests(unittest.TestCase):
                 log = ''.join(board.log)
                 self.assertIn(f'[ERR] V3D stopped during {operation} job (-1)', log)
                 self.assertIn('[INFO] CPU rendering backend selected; current frame kept', log)
-                self.assertTrue(board.device.off())
+                self.assertTrue(board.device.stopped())
                 self.assertEqual(board.free_pages(), reserved + (6 << 20) // 4096)
+                self.assert_cpu_session(board, board.device.render_jobs)
+
+    def test_fallback_preserves_display_when_domain_off_would_hang(self):
+        for fault in ('exists', 'runtime'):
+            with self.subTest(fault=fault):
+                board = Board(self.default)
+                board.device.domain_off_timeout = True
+                if fault == 'exists':
+                    board.device.exists = False
+                board.boot()
+                if fault == 'runtime':
+                    board.device.stall = True
+                    shown, expected = board.frame(0x00123456)
+                    self.assertEqual(shown, expected)
+                self.assertEqual(board.device.domain_off_calls, 0)
+                self.assertTrue(board.device.domain and board.device.stopped())
+                self.assertFalse(board.mailbox_dead)
                 self.assert_cpu_session(board, board.device.render_jobs)
 
     def test_unconfirmed_stop_quarantines_gpu_memory(self):
@@ -266,6 +296,79 @@ class BootTests(unittest.TestCase):
         self.assertEqual(board.free_pages(), reserved)
         self.assert_cpu_session(board, board.device.render_jobs)
 
+    def assert_quarantined_page_is_not_reused(self, board, unsafe):
+        self.assertIn('[WARN] V3D stop unconfirmed', ''.join(board.log))
+        self.assertTrue(board.device.busy and board.device.target_mapped())
+        self.assertEqual(board.device.translate(0x1400000), unsafe)
+        abandoned = bytes(board.uc.mem_read(unsafe, PAGE))
+        # Let CPU page rotation run before the abandoned GPU job finishes.
+        for color in (0x00112233, 0x00445566, 0x00778899, 0x00aabbcc):
+            shown, expected = board.frame(color)
+            self.assertEqual(shown, expected)
+            self.assertNotEqual(FRAMEBUFFER + board.offset * WIDTH * 4, unsafe)
+            self.assertEqual(bytes(board.uc.mem_read(unsafe, PAGE)), abandoned)
+        page = FRAMEBUFFER + board.offset * WIDTH * 4
+        before = bytes(board.uc.mem_read(page, PAGE))
+        board.device.finish_pending_render()
+        self.assertNotEqual(bytes(board.uc.mem_read(unsafe, PAGE)), abandoned)
+        self.assertEqual(bytes(board.uc.mem_read(page, PAGE)), before)
+        self.assert_cpu_session(board, board.device.render_jobs)
+
+    def test_failed_present_quarantines_scanout_page_before_cpu_retry(self):
+        board = Board(self.default)
+        board.boot()
+        reserved = board.free_pages()
+        board.frame(0x00123456)
+        unsafe = board.call('fb_hidden_page')
+        writes = []
+        board.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, a, p, s, v, _: writes.append((p, s)),
+                          begin=unsafe, end=unsafe + PAGE - 1)
+        board.device.wedge_present = True
+        board.log.clear()
+        shown, expected = board.frame(0x00abcdef)
+        self.assertEqual(shown, expected)
+        self.assertNotEqual(FRAMEBUFFER + board.offset * WIDTH * 4, unsafe)
+        self.assertEqual(board.free_pages(), reserved)
+        self.assert_quarantined_page_is_not_reused(board, unsafe)
+        self.assertEqual(writes, [], 'CPU wrote to the quarantined destination')
+
+    def test_failed_self_test_quarantines_scanout_page_before_application(self):
+        board = Board(self.default)
+        writes = []
+        unsafe = FRAMEBUFFER + PAGE
+        board.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, a, p, s, v, _: writes.append((p, s)),
+                          begin=unsafe, end=unsafe + PAGE - 1)
+        board.device.wedge_present = True
+        log = board.boot()
+        self.assertIn('[ERR] V3D unavailable: present job (-1)', log)
+        self.assertNotIn('V3D backend selected', log)
+        self.assertEqual(board.free_pages(), self.reserved)
+        self.assert_quarantined_page_is_not_reused(board, FRAMEBUFFER + PAGE)
+        self.assertEqual(writes, [], 'CPU reused the failed self-test destination')
+
+    def test_unconfirmed_clear_discards_device_surface_without_cpu_reads(self):
+        board = Board(self.default)
+        board.boot()
+        board.frame(0x00123456)
+        surface = board.call('v3d_surface', self.default.symbols['gpu'])
+        self.assertNotEqual(surface, 0)
+        reads = []
+        board.uc.hook_add(UC_HOOK_MEM_READ, lambda uc, a, p, s, v, _: reads.append((p, s)),
+                          begin=surface, end=surface + PAGE - 1)
+        reserved = board.free_pages()
+        board.device.wedge_clear = True
+        board.log.clear()
+        shown, expected = board.frame(0x00abcdef)
+        self.assertEqual(shown, expected)
+        self.assertTrue(board.device.busy)
+        self.assertEqual(board.free_pages(), reserved)
+        self.assertIn('[WARN] V3D stop unconfirmed', ''.join(board.log))
+        self.assertNotIn('Framebuffer page quarantined', ''.join(board.log))
+        self.assert_cpu_session(board, board.device.render_jobs)
+        board.device.finish_pending_render()
+        self.assert_cpu_session(board, board.device.render_jobs)
+        self.assertEqual(reads, [], 'CPU read the abandoned clear surface')
+
     def test_cpu_build_never_touches_the_device(self):
         board = Board(self.cpu)
         log = board.boot()
@@ -274,6 +377,23 @@ class BootTests(unittest.TestCase):
         self.assertIn('[INFO] Ethernet unavailable (no GENET v5 controller)', log)
         self.assertEqual((board.device.accesses, board.device.properties, board.allocations), (0, 0, 0))
         self.assert_cpu_session(board)
+
+    def test_modified_or_unacknowledged_framebuffer_geometry_is_rejected(self):
+        for index, value in ((5, WIDTH + 64), (6, HEIGHT + 64),
+                             (10, WIDTH + 64), (11, HEIGHT * 3 - 1),
+                             (4, 0), (9, 0x80000004), (14, 0)):
+            with self.subTest(word=index, value=value):
+                class BadGeometryBoard(Board):
+                    def framebuffer_call(self, uc, address, size, data):
+                        super().framebuffer_call(uc, address, size, data)
+                        mailbox = self.image.symbols['mbox']
+                        if struct.unpack('<I', uc.mem_read(mailbox, 4))[0] == 39 * 4:
+                            uc.mem_write(mailbox + index * 4, struct.pack('<I', value))
+                board = BadGeometryBoard(self.default)
+                with self.assertRaisesRegex(AssertionError, 'Kernel halted'):
+                    board.boot()
+                self.assertFalse(board.reached_ui)
+                self.assertEqual((board.device.accesses, board.device.properties, board.allocations), (0, 0, 0))
 
 
 if __name__ == '__main__':

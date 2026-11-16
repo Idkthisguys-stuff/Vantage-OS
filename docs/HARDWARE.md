@@ -3,10 +3,13 @@
 The V3D 4.2 renderer is built in and probed at every boot; a probe that fails
 for any reason selects the CPU renderer. CYW43455 Wi-Fi support is enabled by
 default but radio initialization is skipped until assets are supplied.
-**Neither driver is validated on a physical Pi.** Native controller/protocol
-models and linked ARM tests are software checks, not proof of GPU execution,
-wireless association or cache coherence. The IPv4 stack, sockets and terminal
-commands built on the radio are described in [NETWORK.md](NETWORK.md).
+An isolated Pi 4 diagnostic has passed the V3D pixel self-test and direct stop,
+followed by CPU terminal display flips. Ethernet controller initialization has
+also completed without a cable. Accelerated terminal rendering, Ethernet packet
+transfer and Wi-Fi operation still need physical validation. Native models and
+linked ARM tests do not establish physical cache coherence. The IPv4 stack,
+sockets and terminal commands built on the radio are described in
+[NETWORK.md](NETWORK.md).
 
 ## Builds
 
@@ -89,10 +92,22 @@ Other property users must remain synchronous on core 0, including the display's
 existing mailbox calls. Polling waits use unsigned timer subtraction and an
 iteration bound if the timer stops. APIs return `HwResult` errors.
 
+The display uses a separate, cache-line-isolated mailbox buffer. A timeout
+before submission permits a later retry; a submitted timeout quarantines that
+buffer until reboot and freezes scanout updates because the flip may still
+occur. An invalid flip response also freezes updates. The UART reports the
+freeze once; display syscalls return and terminal processing can continue.
+The shared FIFO is not a general message router: synchronous callers discard
+nonmatching replies, including late replies from a quarantined optional-property
+request. No other mailbox consumer may concurrently expect those replies.
+Initial physical/virtual geometry and offset responses must acknowledge the
+requested triple-page layout before any page is treated as hidden.
+
 ## V3D 4.2 rendering backend
 
-Everything in this section is validated against host models and Unicorn only.
-Physical Pi 4 validation is **pending**; see the acceptance checklist and the
+The isolated Pi 4 diagnostic passed the clear/present/readback self-test.
+Normal accelerated terminal rendering and recovery still need physical
+validation; see the acceptance checklist and the
 open hardware questions below. No performance or hardware-correctness claim is
 made. This is a 2D clear/present path, not an OpenGL/Vulkan implementation or
 a shader compiler.
@@ -103,7 +118,9 @@ a shader compiler.
 layer and its renderers. `kernel/ui/render.c` owns the active draw surface and
 always has the CPU raster path; an accelerated `RenderBackend` supplies a
 surface plus `fill` and `present` and answers each request with done, skip
-(CPU raster does it on the same surface) or failed. `platform/pi4/display.c`
+(CPU raster does it on the same surface), failed, discard-surface or lost-target.
+The last two results keep potentially device-owned memory out of CPU writes.
+`platform/pi4/display.c`
 applies the panel rotation and calls `render_pixel`, `render_fill` and
 `render_present`. `platform/pi4/startup.c` probes V3D after the display and
 worker cores are up and attaches the backend only after its self-test. The
@@ -125,13 +142,13 @@ both paths pixel for pixel through the device model.
 ### Bring-up sequence
 
 `v3d_init` and `v3d_self_test` run these steps in order. Each failure records
-its stage and `HwResult`, stops the device and returns.
+its stage and `HwResult`, attempts to stop the device and returns.
 
 | Stage | Check | Typical failure |
 |---|---|---|
 | (arguments) | Core 0, masked EL1, aligned contiguous buffers below `0xfc000000`, frame a whole number of pages. No hardware access. | `HW_INVALID` |
-| power domain | Property `0x00038030`, domain 11 on. Response must echo the domain with state bit 0 set and bit 1 clear. | mailbox error, `HW_PROTOCOL` |
-| clock | Property `0x00038001`, clock 5 on, validated the same way; then `0x00030002` must report a nonzero rate. | mailbox error, `HW_PROTOCOL` |
+| power domain | Property `0x00038030`, domain 11 on. The observed Pi 4 response is status 0 and state 1, not an echoed domain ID. | mailbox error, `HW_PROTOCOL` |
+| clock | Property `0x00038001`, clock 5 on: echoed clock ID, state bit 0 set and bit 1 clear; then `0x00030002` must report a nonzero rate. | mailbox error, `HW_PROTOCOL` |
 | reset bridge | Stop both AXI bridges, assert `PM_V3DRSTN`, wait, release, restart the master then the slave bridge. Both restarts must be acknowledged. | `HW_TIMEOUT` |
 | identity | Core `IDENT0` reads "V3D" version 4 and `IDENT1` revision 2; hub `IDENT1` reads 4.2 with one core; hub `IDENT2` reports an MMU. | `HW_UNSUPPORTED` |
 | idle check | No compute dispatch and no TFU job pending after reset. | `HW_BUSY` |
@@ -146,10 +163,14 @@ ran; only the restart must succeed.
 
 Stopping the device (after any failure, or `v3d_stop`): mask interrupts,
 request a GMP stop and wait for outstanding AXI transfers, stop the slave and
-master bridges, assert `PM_V3DRSTN` and read it back, then turn the firmware
-domain off. Steps that address the core are skipped if bring-up never reached
-it. The stop is *confirmed* when both bridges acknowledged and the reset bit
-reads back asserted.
+master bridges, assert `PM_V3DRSTN` and read it back. The firmware domain stays
+powered for the kernel lifetime: requesting domain-off after the direct stop
+timed out on the test Pi and subsequent framebuffer requests also timed out.
+Keeping the domain on allowed the next diagnostic to complete its first
+application frame and later display flips. This is a stop, not a power-saving
+transition. Steps that address the core are skipped if bring-up never reached
+it. Mapped buffers are released only when both bridges acknowledged and the
+reset bit reads back asserted; an unconfirmed stop still quarantines them.
 
 Boot logs one of:
 
@@ -170,7 +191,7 @@ Boot logs one of:
 | Arena tile allocation (64 KiB) and tile state (128 KiB) | same run | permanent | GPU only | Arena cleaned and invalidated once at init |
 | Arena draw surface (up to 1.5 MiB) and guard page | same run | permanent | CPU raster while the device is idle; GPU during a clear job | Clear: clean+invalidate before, invalidate after. Present: clean before |
 | Arena MMU scratch page (last page) | same run | Never mapped; target of faulting accesses | Nobody | None |
-| Scanout page (present target) | VideoCore firmware; `display.c` picks the hidden page | `0x01400000`, only for that present job, then unmapped and the TLB flushed | GPU during the job; CPU only when present runs on the CPU | Clean+invalidate before, invalidate after (the CPU mapping is non-cached) |
+| Scanout page (present target) | VideoCore firmware; `display.c` picks the hidden page | `0x01400000`, then unmapped and the TLB flushed; retained on unconfirmed stop | GPU during the job; CPU only after ownership returns | Clean+invalidate before, invalidate after (the CPU mapping is non-cached) |
 | CPU back buffer | `fb_init`, kernel heap | Never | CPU; standby while V3D draws | None |
 
 The gaps between arena ranges and the rest of the 4 GiB GPU space stay
@@ -185,7 +206,13 @@ Lifetime: the table and arena are lent to the driver for one bring-up. When
 the driver ends in `V3D_STOPPED` (the table address was never programmed, or
 the stop was confirmed) `startup.c` frees both runs. When it ends in
 `V3D_QUARANTINED` (stop unconfirmed) both stay reserved until reboot and the
-UART says so. A failed allocation frees the other run and selects the CPU
+UART says so. Any external target retained in `gpu.target` is also retired
+until reboot: the display never writes or flips to that page again. This
+covers a failed boot self-test as well as a runtime present. The other two
+scanout pages provide CPU double buffering. Target ownership is retained
+before mapping starts and returns only after a successful unmap/TLB flush or
+a confirmed stop; a failed flush cannot establish ownership.
+A failed allocation frees the other run and selects the CPU
 renderer. The CPU back buffer is never freed, so a runtime fallback cannot
 fail for lack of memory. A context is never restarted.
 
@@ -193,12 +220,15 @@ fail for lack of memory. A context is never restarted.
 
 - Every display operation runs on core 0 at EL1 with all DAIF masks set, from
   entry to return. The engine checks this before each job and the renderer
-  halts on re-entry. Jobs are synchronous: submit, bounded poll, return. No
-  job is in flight outside a driver call.
+  halts on re-entry. Jobs normally finish before return. An unconfirmed stop
+  may leave work in flight, so its table, arena and any exposed target remain
+  reserved until reboot.
 - CPU raster batches (`parallel_run`) join all workers before returning, and
   no job is submitted from inside a batch. Workers and the device therefore
-  never touch the surface at the same time, and the CPU never touches a
-  buffer while a job that reads or writes it is in flight.
+  never write the surface at the same time. After an unconfirmed clear, the
+  CPU abandons that surface without reading it and refills its standby buffer.
+  A failed present only reads the surface: the renderer may copy its intact
+  contents to the CPU buffer, but never modifies the quarantined source.
 - Sections that must not be preempted or re-entered once timer preemption
   exists: each `render_pixel`/`render_fill`/`render_present` call (including
   the V3D job, its cache/TLB maintenance and any raster batch), `fb_swap`
@@ -211,12 +241,16 @@ fail for lack of memory. A context is never restarted.
   interrupts stay masked. Each poll also checks the hub MMU interrupt bits,
   the MMU control fault bits and the core out-of-memory and GMP-violation
   bits. `V3D_ERR_STAT` is logged after a failure but never decides one.
-- No retry. The first timeout or fault stops the device as described above
-  and the backend stays off until reboot. The renderer then copies the
-  surface to the CPU back buffer, repeats the failed operation on the CPU and
-  continues there: a failed clear is redone over every pixel, a failed
-  present is redone from the intact surface to the same hidden page. The
-  frame is neither lost nor shown partially. The UART logs
+- No GPU retry. The first timeout or fault attempts the stop described above
+  and the backend stays off until reboot. A failed clear is redone over every
+  CPU-buffer pixel; an unconfirmed clear discards the GPU surface rather than
+  reading it. A failed present preserves the intact source in the CPU buffer.
+  A confirmed stop permits retrying the same hidden page. An unconfirmed stop
+  returns a lost-target result without a CPU copy to that page: the display
+  retires it permanently and presents the frame to another safe hidden page.
+  The same retirement applies if the boot self-test loses its target before
+  backend attachment. Late writes from the abandoned job can therefore reach
+  only reserved memory. The UART logs
   `[ERR] V3D stopped during <stage> (<HwResult>)` and
   `[INFO] CPU rendering backend selected; current frame kept`.
 
@@ -234,6 +268,8 @@ commit, build options, kernel SHA-256 and the full UART log:
       bridge acknowledgement) each log the expected stage, fall back to the
       CPU and keep the UI usable. A failure injected after boot keeps the
       current frame.
+- [ ] An unconfirmed present stop retires its scanout page, including during
+      the boot self-test. Late GPU writes cannot corrupt subsequent CPU frames.
 - [ ] Pixel comparison: capture scanout after clears, mixed CPU shapes and
       presents on the V3D image and the `V3D=0` image; they must be identical,
       including colour order and the alpha byte.
@@ -248,8 +284,13 @@ commit, build options, kernel SHA-256 and the full UART log:
 These could not be confirmed from the sources and are handled conservatively
 (a failing check selects the CPU renderer):
 
-- Whether the firmware accepts `SET_CLOCK_STATE` for the V3D clock and how it
-  reports the V3D domain state on current firmware.
+- The isolated diagnostic confirmed domain-on `{0, 1}`, clock enable at
+  500 MHz, identity, MMU setup and the pixel self-test on board revision
+  `0x00B03115` with firmware `0x6AE892C8`. The domain-retained diagnostic image
+  SHA-256 was `9fb5449b95ff19afaee1d7d0b79ff361e6a451baeed2dfc1ef2b827085f18d0e`.
+  Its terminal remained CPU-rendered; physical visibility and input, normal
+  accelerated terminal rendering and combined-device operation are not proven
+  by that UART log.
 - Whether the first bridge stop on a cold domain is acknowledged, and whether
   cycling `PM_V3DRSTN` conflicts with the firmware's own domain management.
 - Whether V3D can store into the firmware-allocated framebuffer. The boot
@@ -344,13 +385,18 @@ a link.
 2. The MAC address comes from the firmware property tag `0x00010003`. A zero or
    multicast address fails bring-up. The firmware answers with a 6-byte value
    in an 8-byte buffer; the property layer accepts responses shorter than the
-   request buffer.
-3. Any DMA a previous owner (such as a network-booting bootloader) left running
-   is stopped and must report stopped within 10 ms. The UniMAC is soft-reset
-   with local loopback, the receive buffer is reset, counters are cleared, the
-   maximum frame is 1536 bytes, the receive status block is off and each
+   request buffer. A failed query or invalid address leaves the controller
+   untouched apart from the revision read.
+3. The UniMAC is soft-reset with local loopback before DMA accesses, releasing
+   its boot-time reset as in U-Boot and Circle. The receive buffer is reset,
+   counters are cleared, the maximum frame is 1536 bytes, the receive status
+   block is off and each
    received frame is preceded by two alignment bytes. All GENET interrupts are
-   masked.
+   masked. Any DMA a previous owner left running is then stopped and must
+   report stopped within 10 ms before its rings and buffers are replaced.
+   Each required reset/flush delay must complete; a stopped timer aborts
+   initialization without proceeding to descriptor setup. A partial reset
+   failure does not attempt DMA-register cleanup.
 4. The station address is programmed and the destination filter passes only
    broadcast and the station address (no multicast, not promiscuous). The
    hardware filter block is cleared.
@@ -466,6 +512,7 @@ ctest --test-dir /path/to/driver-tests -L drivers --output-on-failure
 python -m unittest discover -s tests/tools -v
 python tests/arm/pi4_drivers.py /path/to/fresh/kernel8.elf -v
 python tests/arm/v3d_boot.py /path/to/default/kernel8.elf /path/to/v3d0/kernel8.elf -v
+python tests/arm/display_mailbox.py /path/to/fresh/kernel8.elf -v
 python tests/arm/wifi_boot.py /path/to/v3d0-no-assets/kernel8.elf /path/to/wifi0-v3d0/kernel8.elf -v
 ```
 
@@ -493,6 +540,16 @@ injected mid-session. `tests/arm/v3d_boot.py` boots the linked default and
 `V3D=0` images through the real boot coordinator with MMIO-level models of a
 working, absent and failing device and checks the selected backend, the
 presented frame and the memory returned to the allocator.
+It also injects a present that outlives failed GMP/bridge/reset stops, completes
+the abandoned write after CPU fallback, and checks that neither CPU writes nor
+scanout rotation reuse the retired page. A wedged clear checks that the CPU
+never reads the abandoned surface. Modified or unacknowledged framebuffer
+geometry is rejected before allocation or device startup.
+`tests/arm/display_mailbox.py` executes the actual display mailbox transport
+against scripted MMIO, including pre-submit retries, submitted-timeout
+quarantine, invalid flip acknowledgements, late optional-property replies and
+a stopped timer. It checks that uncertain flips freeze subsequent scanout
+writes and request-buffer reuse.
 
 For hardware acceptance, retain commit/image/asset hashes, board and firmware
 versions and a serial log. Never include credentials or device MACs in public

@@ -260,13 +260,18 @@ class MemoryTests(unittest.TestCase):
         messages = []
 
         def firmware(uc, address, size, _):
-            request = list(struct.unpack('<36I', uc.mem_read(mailbox, 36 * 4)))
-            if request[0] == 35 * 4:
+            request = list(struct.unpack('<40I', uc.mem_read(mailbox, 40 * 4)))
+            if request[0] == 39 * 4:
+                self.assertEqual(request[34:39], [0x00048007, 4, 0, 2, 0])
+                request[4] = request[9] = request[14] = 0x80000008
                 request[20] = 32
                 request[28] = FRAMEBUFFER | 0xc0000000
                 request[29] = 800 * 480 * 4 * 3
                 request[33] = 800 * 4
-                uc.mem_write(mailbox, struct.pack('<36I', *request))
+                uc.mem_write(mailbox, struct.pack('<40I', *request))
+            else:
+                request[4] = 0x80000008
+                uc.mem_write(mailbox, struct.pack('<40I', *request))
             uc.reg_write(regs.UC_ARM64_REG_X0, 1)
             uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
 
@@ -344,7 +349,7 @@ class MemoryTests(unittest.TestCase):
             self.assertEqual(released, [1] if valid else [])
             if valid:
                 self.assertIsNone(m.failure)
-                self.assertIn(b'[OK] Firmware RAM and reservations discovered\n', messages)
+                self.assertIn(b'\n[OK] Firmware RAM and reservations discovered\n\n', messages)
             else:
                 self.assertIn('Kernel halted', m.failure)
 

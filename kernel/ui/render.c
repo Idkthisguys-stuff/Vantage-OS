@@ -18,13 +18,12 @@ static void cpu_present(RasterCopy* copy) {
         parallel_halt("[ERR] Parallel frame copy failed; system halted\n");
 }
 
-/* The failed backend has stopped its device, so the CPU owns the surface
- * again. Keep the frame it holds; the caller then repeats the failed
- * operation, which rewrites every pixel that operation left undefined. */
-static void retire(Renderer* renderer) {
+/* Preserve only a surface the backend has returned for CPU reads. A failed
+ * whole-surface clear can instead discard it and refill the CPU fallback. */
+static void retire(Renderer* renderer, int preserve) {
     const RenderBackend* failed = renderer->backend;
-    memcpy(renderer->fallback, failed->surface,
-           (size_t)renderer->width * renderer->height * sizeof(uint32_t));
+    if (preserve) memcpy(renderer->fallback, failed->surface,
+                         (size_t)renderer->width * renderer->height * sizeof(uint32_t));
     renderer->pixels = renderer->fallback;
     renderer->backend = NULL;
     if (failed->retired) failed->retired(failed->context);
@@ -64,26 +63,33 @@ void render_fill(Renderer* renderer, uint32_t x, uint32_t y,
     RasterFill fill = { renderer->pixels, renderer->width, x, y, width, height, color };
     int result = renderer->backend && renderer->backend->fill
         ? renderer->backend->fill(renderer->backend->context, &fill) : RENDER_SKIP;
-    if (result == RENDER_FAILED) {
-        retire(renderer);
+    if (result == RENDER_FAILED || result == RENDER_DISCARD) {
+        if (result == RENDER_DISCARD && (x || y || width != renderer->width || height != renderer->height))
+            parallel_halt("[ERR] Backend discarded a partial fill; system halted\n");
+        retire(renderer, result != RENDER_DISCARD);
         fill.pixels = renderer->pixels;
     }
     if (result != RENDER_DONE) cpu_fill(&fill);
     renderer->busy = 0;
 }
 
-void render_present(Renderer* renderer, volatile uint32_t* destination,
-                    uint32_t destination_pitch) {
-    if (!destination || destination_pitch < renderer->width) return;
+uint32_t render_present(Renderer* renderer, volatile uint32_t* destination,
+                        uint32_t destination_pitch) {
+    if (!destination || destination_pitch < renderer->width) return 0;
     enter(renderer);
     RasterCopy copy = { renderer->pixels, destination, renderer->width,
                         destination_pitch, renderer->width, renderer->height };
     int result = renderer->backend && renderer->backend->present
         ? renderer->backend->present(renderer->backend->context, &copy) : RENDER_SKIP;
-    if (result == RENDER_FAILED) {
-        retire(renderer);
+    if (result == RENDER_FAILED || result == RENDER_TARGET_LOST) {
+        retire(renderer, 1);
+        if (result == RENDER_TARGET_LOST) {
+            renderer->busy = 0;
+            return 0;
+        }
         copy.source = renderer->pixels;
     }
     if (result != RENDER_DONE) cpu_present(&copy);
     renderer->busy = 0;
+    return 1;
 }

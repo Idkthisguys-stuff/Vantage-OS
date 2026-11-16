@@ -136,24 +136,15 @@ static void shutdown(V3d* gpu) {
         confirmed = hold_reset(gpu);
     }
 
-    if (confirmed) {
-        uint32_t domain[2] = {FIRMWARE_DOMAIN_V3D, 0};
-
-        int result = gpu->io->property(
-            gpu->io->context,
-            TAG_SET_DOMAIN_STATE,
-            domain,
-            2
-        );
-        if (result != HW_OK) {
-            gpu->detail = (uint32_t)result;
-        }
-    } else {
-        gpu->detail = 0x504F5745U;
-    }
+    /* Keep the firmware domain powered for the kernel lifetime. Asking
+     * firmware to power it off after our direct bridge/reset sequence hangs
+     * on the tested Pi 4 and blocks later framebuffer property requests.
+     * Buffer ownership depends on the confirmed bridge/reset stop above,
+     * never on an unacknowledged firmware power-off. */
 
     gpu->present = 0;
     gpu->state = (!gpu->mapped || confirmed)? V3D_STOPPED : V3D_QUARANTINED;
+    if (gpu->state == V3D_STOPPED) gpu->target = NULL;
 }
 
 
@@ -309,12 +300,14 @@ int v3d_init(V3d* gpu, const HwOps* io, void* table, void* arena,
     gpu->width = width; gpu->height = height; gpu->pitch = width * 4; gpu->bytes = width * height * 4;
     gpu->error = gpu->stage = gpu->level = gpu->mapped = gpu->present = 0;
     gpu->detail = 0;
+    gpu->target = NULL;
     gpu->state = V3D_BUSY;
 
     uint32_t values[2] = {FIRMWARE_DOMAIN_V3D, 1};
     int result = io->property(io->context, TAG_SET_DOMAIN_STATE, values, 2);
     if (result != HW_OK) return fail(gpu, V3D_STAGE_POWER, result);
-    if (values[0] != FIRMWARE_DOMAIN_V3D || (values[1] & 3U) != 1) return fail(gpu, V3D_STAGE_POWER, HW_PROTOCOL);
+    /* This tag returns status, unlike clock tags' echoed ID. */
+    if (values[0] != 0 || values[1] != 1) return fail(gpu, V3D_STAGE_POWER, HW_PROTOCOL);
     values[0] = FIRMWARE_CLOCK_V3D; values[1] = 1;
     result = io->property(io->context, TAG_SET_CLOCK_STATE, values, 2);
     if (result != HW_OK) return fail(gpu, V3D_STAGE_CLOCK, result);
@@ -380,6 +373,9 @@ static int run(V3d* gpu, int stage, void* target, uint32_t color) {
     if (target && !(address = physical_run(gpu, gpu->io, target, 4096, gpu->bytes))) return HW_UNSUPPORTED;
     gpu->state = V3D_BUSY;
     if (target) {
+        /* A failed map/unmap flush may leave an old device translation live.
+         * Retain ownership until unmapping has completed or stop is confirmed. */
+        gpu->target = target;
         if (map_target(gpu, address) != HW_OK) return fail(gpu, stage, HW_TIMEOUT);
         cache(gpu, surface, gpu->bytes, HW_CLEAN);
         cache(gpu, target, gpu->bytes, HW_CLEAN_INVALIDATE);
@@ -405,6 +401,7 @@ static int run(V3d* gpu, int stage, void* target, uint32_t color) {
     if (faults(gpu)) return fail(gpu, stage, HW_IO);
     if (target) {
         if (map_target(gpu, 0) != HW_OK) return fail(gpu, stage, HW_TIMEOUT);
+        gpu->target = NULL;
         cache(gpu, target, gpu->bytes, HW_INVALIDATE);
     } else cache(gpu, surface, gpu->bytes + 4096U, HW_INVALIDATE);
     gpu->state = V3D_READY;
@@ -480,14 +477,18 @@ static int backend_result(V3d* gpu, int result) {
 static int backend_fill(void* context, const RasterFill* fill) {
     V3d* gpu = context;
     if (fill->x || fill->y || fill->width != gpu->width || fill->height != gpu->height) return RENDER_SKIP;
-    return backend_result(gpu, v3d_clear(gpu, fill->color));
+    int result = v3d_clear(gpu, fill->color);
+    if (gpu->state == V3D_QUARANTINED) return RENDER_DISCARD;
+    return backend_result(gpu, result);
 }
 
 static int backend_present(void* context, const RasterCopy* copy) {
     V3d* gpu = context;
     if (!gpu->present || copy->destination_pitch != gpu->width || copy->source_pitch != gpu->width ||
         copy->width != gpu->width || copy->height != gpu->height) return RENDER_SKIP;
-    return backend_result(gpu, v3d_present(gpu, (void*)(uintptr_t)copy->destination));
+    int result = v3d_present(gpu, (void*)(uintptr_t)copy->destination);
+    if (gpu->state == V3D_QUARANTINED && gpu->target) return RENDER_TARGET_LOST;
+    return backend_result(gpu, result);
 }
 
 void v3d_render_backend(V3d* gpu, RenderBackend* backend) {

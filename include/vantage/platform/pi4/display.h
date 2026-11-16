@@ -27,3 +27,6 @@ uint32_t fb_attach_backend(const struct RenderBackend* backend);
 /* The off-screen page the next fb_swap overwrites, for a backend self-test
  * that may clobber it. NULL when the firmware pitch has row padding. */
 void* fb_hidden_page(void);
+/* Permanently retire a hidden scanout page still reachable by a failed device.
+ * Neither CPU rendering nor display flips may reuse it before reboot. */
+void fb_quarantine_page(void* page);

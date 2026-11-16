@@ -40,7 +40,10 @@ class GpuMachine(Machine):
         elif name == 'property':
             assert args[3] == 2
             values = self.device.property(args[1], list(struct.unpack('<2I', uc.mem_read(args[2], 8))))
-            uc.mem_write(args[2], struct.pack('<2I', *values)); result = 1
+            if values is None:
+                result = (-1) & 0xffffffffffffffff
+            else:
+                uc.mem_write(args[2], struct.pack('<2I', *values)); result = 1
         elif name == 'read': result = self.device.read(args[1])
         elif name == 'write': self.device.write(args[1], args[2] & 0xffffffff)
         elif name == 'cache':
@@ -79,7 +82,7 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(bytes(m.uc.mem_read(ARENA + SURFACE, PIXELS)), struct.pack('<I', 0x80402010) * (PIXELS // 4))
         self.assertEqual(m.call('v3d_surface', CONTEXT), ARENA + SURFACE)
         self.assertEqual(m.call('v3d_stop', CONTEXT) & 0xffffffff, 0xffffffff)
-        self.assertTrue(m.device.off())
+        self.assertTrue(m.device.stopped())
 
     def test_linked_gpu_timeout_resets_and_releases(self):
         m = GpuMachine(self.image)
@@ -87,7 +90,7 @@ class DriverTests(unittest.TestCase):
         m.device.stall = True; m.clock = 0xffff0000
         self.assertEqual(m.call('v3d_clear', CONTEXT, 0) & 0xffffffff, 0xffffffff)
         self.assertEqual((m.signed(STATE), m.signed(ERROR), m.word(STAGE)), (-1, -1, 7))
-        self.assertTrue(m.device.off() and m.device.resets == 1)
+        self.assertTrue(m.device.stopped() and m.device.resets == 1)
         self.assertEqual(m.call('v3d_surface', CONTEXT), 0)
         self.assertEqual(m.call('v3d_clear', CONTEXT, 0) & 0xffffffff, (-6) & 0xffffffff)
 
@@ -99,14 +102,25 @@ class DriverTests(unittest.TestCase):
                 self.assertEqual(m.call('v3d_init', CONTEXT, OPS, TABLE, ARENA, 64, 64) & 0xffffffff,
                                  error & 0xffffffff)
                 self.assertEqual((m.signed(STATE), m.signed(ERROR), m.word(STAGE)), (-1, error, stage))
-                self.assertTrue(m.device.off())
+                self.assertTrue(m.device.stopped())
                 self.assertEqual(m.device.bin_jobs, 0)
         m = GpuMachine(self.image)
         self.assertEqual(m.call('v3d_init', CONTEXT, OPS, TABLE, ARENA, 64, 64), 1)
         m.device.corrupt = True
         self.assertEqual(m.call('v3d_self_test', CONTEXT, TARGET) & 0xffffffff, (-5) & 0xffffffff)
         self.assertEqual((m.signed(STATE), m.word(STAGE)), (-1, 9))
-        self.assertTrue(m.device.off())
+        self.assertTrue(m.device.stopped())
+
+    def test_linked_gpu_stop_retains_domain_without_property_calls(self):
+        m = GpuMachine(self.image)
+        m.start()
+        m.device.domain_off_timeout = True
+        calls = m.device.properties
+        self.assertEqual(m.call('v3d_stop', CONTEXT) & 0xffffffff, 0xffffffff)
+        self.assertTrue(m.device.stopped() and m.device.domain)
+        self.assertEqual(m.device.properties, calls)
+        self.assertEqual(m.device.domain_off_calls, 0)
+
     def test_freestanding_memcmp_unsigned_and_zero_length(self):
         m = Machine(self.image)
         m.uc.mem_write(STATS, b'\x00\x80\xffabcd')

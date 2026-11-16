@@ -315,7 +315,7 @@ static uint32_t read32(void* context, uintptr_t address) {
     case CORE + 0x30: return m->l2t_stuck ? 1U : 0;
     case CORE + 0x134: poll(m, 1); return m->bfc;
     case CORE + 0x138: poll(m, 2); return m->rfc;
-    case CORE + 0x800: return 0;
+    case CORE + 0x800: return m->active && m->gmp_stuck ? 8U : 0;
     /* Idle-named status bits; the driver must not treat them as faults. */
     case CORE + 0xf20: return 0x7000U;
     default: return die("unexpected register read");
@@ -352,7 +352,11 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
     case HUB + 0x1204: m->table_base = value; break;
     case HUB + 0x1200:
         m->mmu_ctl = (value & ~0x84U) | (m->mmu_ctl & ~value & ((1U << 27) | (1U << 20) | (1U << 12)));
-        if (value & 4U) refresh_tlb(m);
+        if (value & 4U) {
+            m->tlb_flush_attempts++;
+            if (m->tlb_flush_attempts == m->fail_tlb_flush) m->tlb_stuck = 1;
+            else refresh_tlb(m);
+        }
         break;
     case HUB + 0x1230: m->illegal = value; break;
     case HUB + 0x1000: m->mmuc = value; break;
@@ -367,7 +371,10 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
     case CORE + 0x16c: submit_render(m, value); break;
     case CORE + 0x804:
         m->gmp_cfg = value;
-        if (value & 2U) { if (m->active == 2) expose_partial_output(m); m->active = 0; }
+        if ((value & 2U) && !m->gmp_stuck) {
+            if (m->active == 2) expose_partial_output(m);
+            m->active = 0;
+        }
         break;
     default: (void)die("unexpected register write");
     }
@@ -409,8 +416,13 @@ static int property(void* context, uint32_t tag, uint32_t* words, unsigned int c
     int absent = tag == m->absent_tag;
     if (tag == 0x00038030U) {
         CHECK(words[0] == 11 && words[1] <= 1);
+        if (!words[1]) {
+            m->domain_off_calls++;
+            if (m->domain_off_timeout) return HW_TIMEOUT;
+        }
         if (absent && words[1]) words[1] = 2;
         else m->domain_on = (int)words[1];
+        words[0] = 0; /* Firmware returns status, not an echoed domain ID. */
     } else if (tag == 0x00038001U) {
         CHECK(words[0] == 5 && words[1] == 1 && m->domain_on);
         if (absent) words[1] = 2;
@@ -465,7 +477,7 @@ int v3d_model_quiet(const V3dModel* model) {
     return 1;
 }
 
-int v3d_model_off(const V3dModel* model) {
-    return !model->domain_on && !(model->pm_grafx & RESET_RELEASED) &&
+int v3d_model_stopped(const V3dModel* model) {
+    return !(model->pm_grafx & RESET_RELEASED) &&
            model->bridge[0] == 3 && model->bridge[1] == 3 && !model->active;
 }

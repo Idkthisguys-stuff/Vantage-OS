@@ -273,8 +273,11 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(frees, [])
         self.assertEqual(m.run_all(), OK)
         self.assertEqual(m.info(process)['state'], 3)
+        before_reap = len(m.maintenance)
         self.finish(process, 42)
-        flush = m.maintenance.index((0, 'tlbi', 'aside1is', info['asid'] << 48))
+        # Allocation now flushes too; only the teardown flush can establish
+        # that pages were invalidated after the process stopped using them.
+        flush = m.maintenance.index((0, 'tlbi', 'aside1is', info['asid'] << 48), before_reap)
         self.assertEqual(len(frees), info['pages'])
         self.assertGreater(min(frees), flush, 'pages were freed before the ASID was flushed on every core')
         self.assertIsNone(m.info(process))

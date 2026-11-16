@@ -1,6 +1,5 @@
 #include "terminal.h"
 #include <vantage/user.h>
-#include <vantage/platform/pi4/io.h>
 
 static Terminal terminal;
 static uint32_t keyboard_columns;

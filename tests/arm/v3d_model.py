@@ -20,7 +20,12 @@ class V3dDevice:
         self.mem_read, self.mem_write = read, write
         self.exists = True           # False: nothing answers the identity registers.
         self.domain_missing = False  # Firmware reports no such power domain.
+        self.domain_off_timeout = False
+        self.domain_off_calls = 0
         self.stall = False           # Jobs never complete.
+        self.wedge_present = False   # Present stalls; stop, bridges and reset fail.
+        self.wedge_clear = False     # Clear stalls with the same failed stop.
+        self.stop_stuck = self.reset_stuck = False
         self.corrupt = False         # One stored pixel is wrong.
         self.bridge_stuck = False    # Bridge acknowledgements never change.
         self.domain = self.clock = 0
@@ -34,13 +39,14 @@ class V3dDevice:
         self.mmu_ctl = self.mmuc = self.table = self.illegal = self.gmp = 0
         self.bfc = self.rfc = 255
         self.queue, self.tlb, self.busy = {}, None, False
+        self.pending = None
 
     def powered(self):
         return bool(self.domain and self.pm & RESET_RELEASED and
                     not self.bridge[ASB_S] & 3 and not self.bridge[ASB_M] & 3)
 
-    def off(self):
-        return (not self.domain and not self.pm & RESET_RELEASED and
+    def stopped(self):
+        return (not self.busy and not self.pm & RESET_RELEASED and
                 self.bridge == {ASB_S: 3, ASB_M: 3})
 
     def property(self, tag, values):
@@ -48,8 +54,13 @@ class V3dDevice:
         assert len(values) == 2
         if tag == 0x38030:
             assert values[0] == 11 and values[1] in (0, 1)
+            if not values[1]:
+                self.domain_off_calls += 1
+                if self.domain_off_timeout:
+                    return None
             if self.domain_missing and values[1]: values[1] = 2
             else: self.domain = values[1]
+            values[0] = 0  # Observed firmware status, not the input domain ID.
         elif tag == 0x38001:
             assert values == [5, 1] and self.domain
             self.clock = 1
@@ -64,6 +75,8 @@ class V3dDevice:
         self.accesses += 1
         if address == PM_GRAFX: return self.pm
         if address in self.bridge: return self.bridge[address]
+        if address == CORE + 0x800 and self.stop_stuck and self.busy:
+            return 8  # Outstanding accesses never drain.
         if not self.powered(): return 0
         ident = {CORE: 0x04443356, CORE + 4: 2, HUB + 0xc: 0x124, HUB + 0x10: 0x100}
         if address in ident: return ident[address] if self.exists else 0
@@ -80,6 +93,8 @@ class V3dDevice:
         if address == PM_GRAFX:
             assert value >> 24 == 0x5a
             value &= 0xffffff
+            if self.reset_stuck:
+                value |= self.pm & RESET_RELEASED
             if self.pm & RESET_RELEASED and not value & RESET_RELEASED:
                 self.reset()
                 self.resets += 1
@@ -111,7 +126,9 @@ class V3dDevice:
         elif address == CORE + 0x16c: self.render(value)
         elif address == CORE + 0x804:
             self.gmp = value
-            if value & 2: self.busy = False
+            if value & 2 and not self.stop_stuck:
+                self.busy = False
+                self.pending = None
         else:
             raise AssertionError(f'unexpected V3D write {address:#x}')
 
@@ -201,10 +218,24 @@ class V3dDevice:
             pixels = bytearray(self.gpu_read(source, size))
             self.presented.append(self.translate(destination))
         if self.corrupt: pixels[20] ^= 1
-        if self.stall:
+        wedge = self.wedge_present if source is not None else self.wedge_clear
+        if wedge:
+            self.stop_stuck = self.reset_stuck = self.bridge_stuck = True
+        if self.stall or wedge:
             self.gpu_write(destination, pixels[:size // 2 & ~4095])
             self.busy = True
+            self.pending = (destination, bytes(pixels))
             return
         self.gpu_write(destination, pixels)
+        self.render_jobs += 1
+        self.rfc = (self.rfc + 1) & 255
+
+    def finish_pending_render(self):
+        """A delayed job writes after software has given up on stopping it."""
+        assert self.busy and self.pending
+        destination, pixels = self.pending
+        self.gpu_write(destination, pixels)
+        self.pending = None
+        self.busy = False
         self.render_jobs += 1
         self.rfc = (self.rfc + 1) & 255
