@@ -57,7 +57,6 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     if (syscall_id == SYS_TOUCH_READ) {
         TouchEvent event;
         if (!writable(arg0, sizeof(event), sizeof(uint32_t))) return 0;
-        fb_wait_frame();
         uint32_t result = touch_read(&event);
         return user_copy_out((uintptr_t)arg0, &event, sizeof(event)) ? result : 0;
     }

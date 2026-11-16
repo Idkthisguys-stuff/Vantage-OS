@@ -1,11 +1,14 @@
 #include "terminal.h"
+#include "vantage/abi/graphics.h"
 #include <vantage/user.h>
 
 static Terminal terminal;
 static uint32_t keyboard_columns;
 static uint32_t keyboard_top;
 static uint32_t keyboard_shift;
-static uint32_t keyboard_dirty;
+static uint32_t keyboard_full_dirty;
+static uint32_t keyboard_dirty_a;
+static uint32_t keyboard_dirty_b;
 static uint32_t keyboard_pressed;
 static uint32_t keyboard_repeat_time;
 static uint32_t keyboard_repeat_delay;
@@ -23,6 +26,12 @@ static char keyboard_character(uint32_t key) {
     else return key == 39 ? (keyboard_shift ? '/' : ',') : key == 41 ? '.' : ' ';
     if (keyboard_shift && c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
     return c;
+}
+
+static void keyboard_mark_key(uint32_t key) {
+    if (key == NO_KEY) return;
+    if (keyboard_dirty_a == NO_KEY || keyboard_dirty_a == key) keyboard_dirty_a = key;
+    else keyboard_dirty_b = key;
 }
 
 /* Layout units keep rendering and hit testing identical at any supported width. */
@@ -77,7 +86,8 @@ static void keyboard_touch(const TouchEvent* touch) {
     key = keyboard_hit(touch->x, touch->y);
     pressed = keyboard_pressed;
     if (touch->type == TOUCH_EVENT_DOWN) {
-        keyboard_pressed = key; keyboard_dirty = 1;
+        keyboard_pressed = key;
+        keyboard_mark_key(key);
         if (key == 37) {
             event.type = KEY_BACKSPACE;
             terminal_key(&terminal, &event);
@@ -87,16 +97,20 @@ static void keyboard_touch(const TouchEvent* touch) {
         return;
     }
     if (touch->type == TOUCH_EVENT_MOVE) {
-        if (key != pressed) { keyboard_pressed = NO_KEY; keyboard_dirty = 1; }
+        if (key != pressed) {
+            keyboard_mark_key(pressed);
+            keyboard_pressed = NO_KEY;
+        }
         return;
     }
     if (touch->type != TOUCH_EVENT_UP) return;
     keyboard_pressed = NO_KEY;
     if (pressed == NO_KEY) return;
-    keyboard_dirty = 1;
+    keyboard_mark_key(pressed);
     if (key != pressed) return;
     if (key == 29) {
         keyboard_shift = !keyboard_shift;
+        keyboard_full_dirty = 1;
         return;
     }
     if (key == 37) return; /* Del acts on press and repeats while held. */
@@ -105,25 +119,38 @@ static void keyboard_touch(const TouchEvent* touch) {
     else {
         event.type = KEY_TEXT;
         event.character = (uint32_t)keyboard_character(key);
-        if (keyboard_shift) { keyboard_shift = 0; keyboard_dirty = 1; }
+        if (keyboard_shift) {
+            keyboard_shift = 0;
+            keyboard_full_dirty = 1;
+        }
     }
     terminal_key(&terminal, &event);
 }
 
+static uint32_t keyboard_draw_key(uint32_t key) {
+    CanvasButton b = keyboard_button(key), shadow = b;
+    shadow.y += 3;
+    shadow.background = RGB(10, 15, 23);
+    shadow.label[0] = 0;
+    return sys_canvas_button(&shadow) && sys_canvas_button(&b);
+}
+
 static uint32_t keyboard_draw(void) {
     uint32_t key, success = 1;
-    CanvasButton panel = {0};
-    panel.y = keyboard_top * TEXT_CELL_HEIGHT;
-    panel.width = keyboard_columns * TEXT_CELL_WIDTH;
-    panel.height = KEYBOARD_ROWS * TEXT_CELL_HEIGHT;
-    panel.background = RGB(24, 31, 43);
-    if (!sys_canvas_button(&panel)) return 0;
-    for (key = 0; key < KEYBOARD_KEYS; key++) {
-        CanvasButton b = keyboard_button(key), shadow = b;
-        shadow.y += 3; shadow.background = RGB(10, 15, 23); shadow.label[0] = 0;
-        if (!sys_canvas_button(&shadow)) success = 0;
-        if (!sys_canvas_button(&b)) success = 0;
+    if (keyboard_full_dirty) {
+        CanvasButton panel = {0};
+        panel.y = keyboard_top * TEXT_CELL_HEIGHT;
+        panel.width = keyboard_columns * TEXT_CELL_WIDTH;
+        panel.height = KEYBOARD_ROWS * TEXT_CELL_HEIGHT;
+        panel.background = RGB(24, 31, 43);
+        if (!sys_canvas_button(&panel)) return 0;
+        for (key = 0; key < KEYBOARD_KEYS; key++) {
+            if (!keyboard_draw_key(key)) success = 0;
+        }
+        return success;
     }
+    if (keyboard_dirty_a != NO_KEY && !keyboard_draw_key(keyboard_dirty_a)) success = 0;
+    if (keyboard_dirty_b != NO_KEY && !keyboard_draw_key(keyboard_dirty_b)) success = 0;
     return success;
 }
 
@@ -155,13 +182,14 @@ void terminal_app_init(void) {
     }
 
     keyboard_columns = 0;
-    keyboard_shift = keyboard_dirty = 0;
+    keyboard_shift = keyboard_full_dirty = 0;
+    keyboard_dirty_a = keyboard_dirty_b = NO_KEY;
     keyboard_pressed = NO_KEY;
     
     if (columns >= 50 && rows >= KEYBOARD_ROWS + 4) {
         keyboard_columns = columns;
         keyboard_top = rows - KEYBOARD_ROWS;
-        keyboard_dirty = 1;
+        keyboard_full_dirty = 1;
         rows = keyboard_top;
     }
 
@@ -212,7 +240,11 @@ void terminal_app_step(void) {
             changed = 1;
         }
     }
-    if (keyboard_dirty && keyboard_draw()) { keyboard_dirty = 0; changed = 1; }
+    if ((keyboard_full_dirty || keyboard_dirty_a != NO_KEY || keyboard_dirty_b != NO_KEY) && keyboard_draw()) {
+        keyboard_full_dirty = 0;
+        keyboard_dirty_a = keyboard_dirty_b = NO_KEY;
+        changed = 1;
+    }
     if (changed) sys_canvas_present();
 }
 
