@@ -130,11 +130,12 @@ static void echo_transfer(uint32_t host, uint32_t bytes) {
 static void unavailable_and_literals(void) {
     NetStatus s = status();
     CHECK(!s.available && !s.link && !s.interface && !s.ethernet);
-    NetJoin j = {4, 0, "test", ""};
+    NetJoin j = {4, 0, "test", "", 0, 0};
     CHECK(net_join(&j) == NET_UNAVAILABLE);
     NetScan scan = {0};
     CHECK(net_scan(&scan) == NET_UNAVAILABLE);
-    NetProfile saved = {NET_PROFILE_LIST};
+    NetProfile saved = {0};
+    saved.operation = NET_PROFILE_LIST;
     CHECK(net_profile(&saved) == NET_UNAVAILABLE);
     NetTime* time_out = (NetTime*)arena.bytes;
     memset(time_out, 0xa5, sizeof(*time_out));
