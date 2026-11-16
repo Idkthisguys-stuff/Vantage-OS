@@ -139,7 +139,7 @@ class ConversionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'trust.c'
             path.write_text('#include "tls_trust.h"\n' + source, encoding='utf-8')
-            result = subprocess.run([compiler, '-fsyntax-only', '-ffreestanding', '-nostdinc', '-Wall', '-Wextra',
+            result = subprocess.run([compiler, '-c', '-fsyntax-only', '-ffreestanding', '-nostdinc', '-Wall', '-Wextra',
                                      '-Werror', '-I', str(ROOT / 'include'), '-I', str(ROOT / 'user/lib'),
                                      '-I', str(ROOT / 'third_party/bearssl/inc'),
                                      '-isystem', str(ROOT / 'user/lib/libc'), str(path)],
