@@ -59,16 +59,7 @@ void trap_sync_el0(TrapFrame* frame) {
     task_trap_boundary();
 
     if (class == CLASS_SVC64) {
-        uart_writeText("[TRAP] SVC received. ID: ");
-        uart_writeHex((uint32_t)frame->x[8]);
-        uart_writeText("\n");
-
-        uart_writeText("[TRAP] Dispatching syscall...\n");
-
-        uint64_t result =
-            handle_sys_call(frame->x[8], frame->x[0]);
-
-        uart_writeText("[TRAP] Syscall returned\n");
+        uint64_t result = handle_sys_call(frame->x[8], frame->x[0]);
 
         frame->x[0] = result;
 
