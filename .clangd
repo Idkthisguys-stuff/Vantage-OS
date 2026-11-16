@@ -4,3 +4,7 @@ CompileFlags:
     - -ffreestanding
     - -nostdinc
     - -Iinclude
+
+Style:
+  AngledHeaders:
+    - ".*"
