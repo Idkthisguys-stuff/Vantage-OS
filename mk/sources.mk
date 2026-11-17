@@ -86,6 +86,7 @@ USER_SOURCES := \
     user/apps/terminal/net_profiles.c \
     user/apps/terminal/net_tools.c \
     user/apps/terminal/terminal.c \
+    user/apps/keyboard/keyboard.c \
     user/lib/tls.c \
     user/lib/user_lib.c
 USER_ASM_SOURCES := \

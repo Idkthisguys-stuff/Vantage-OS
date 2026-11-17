@@ -7,8 +7,8 @@
 
 ### Your choice
 
-* Create filesystem and file loader
+* ~~Create filesystem and file loader~~
 * Compatibility for other processors
-* Memory management
-* Error fallbacks
-* Parallelism (according to Rennex)
+* ~~Memory management~~
+* Error screen fallbacks
+* ~~Parallelism (according to Rennex)~~

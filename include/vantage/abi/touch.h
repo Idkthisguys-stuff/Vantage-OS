@@ -10,6 +10,7 @@ typedef enum {
 
 typedef struct {
     TouchEventType type;
+    uint32_t slot;
     int x;
     int y;
 } TouchEvent;

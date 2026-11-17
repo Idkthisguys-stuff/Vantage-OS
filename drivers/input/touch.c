@@ -21,7 +21,12 @@ uint32_t touch_init(void) {
 }
 
 uint32_t touch_read(TouchEvent* result) {
-    uint8_t buf[9];
+    uint8_t buf[32];
+
+    if (!i2c_read_reg(TOUCH_ADDR, 0, buf, sizeof(buf))) {
+        return 0;
+    }
+
     int down;
     int x = lastX;
     int y = lastY;
@@ -38,7 +43,7 @@ uint32_t touch_read(TouchEvent* result) {
     uint8_t event = (buf[3] >> 6) & 3;
 
     if (count > TOUCH_POINTS) {
-        return 0;
+        count = TOUCH_POINTS;
     }
     if (count == 0 || event == CONTROLLER_UP) {
         down = 0;

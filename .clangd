@@ -6,3 +6,5 @@ CompileFlags:
     - -Iinclude
     - -Iuser/lib/libc
     - -Ithird_party/bearssl/inc
+    - -Iuser
+    - -I.
