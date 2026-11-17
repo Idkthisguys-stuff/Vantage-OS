@@ -1,6 +1,7 @@
 #include "../keyboard/keyboard.h"
 #include "terminal.h"
 #include "vantage/abi/graphics.h"
+#include "vantage/abi/key.h"
 #include <vantage/user.h>
 
 static Terminal terminal;
@@ -67,18 +68,27 @@ void terminal_app_step(void) {
     for (count = 0; count < 64 && sys_key_read(&key); count++) terminal_key(&terminal, &key);
     for (count = 0; count < 64 && sys_touch_read(&touch); count++) {
         terminal_touch(&terminal, &touch);
-        KeyEvent kb_event;
-        if (keyboard_touch(&touch, &kb_event)) {
-            terminal_key(&terminal, &kb_event);
-        }
+        keyboard_touch(&touch, NULL);
     }
     terminal_job_step(&terminal);
+    KeyEvent buffered_key;
+    while (keyboard_buf_pop(&buffered_key)) {
+        terminal_key(&terminal, &buffered_key);
+    }
     if (keyboard_pressed[37]) {
         uint32_t now = sys_time_us();
         if (now - keyboard_repeat_time >= keyboard_repeat_delay) {
             const KeyEvent backspace = {KEY_BACKSPACE, 0};
             terminal_key(&terminal, &backspace);
-            /* Drop overdue repeats instead of deleting a burst after a stall. */
+            keyboard_repeat_time = now;
+            keyboard_repeat_delay = 70000;
+        }
+    }
+    if (keyboard_pressed[40]) {
+        uint32_t now = sys_time_us();
+        if (now - keyboard_repeat_time >= keyboard_repeat_delay) {
+            const KeyEvent space = {KEY_TEXT, ' '};
+            terminal_key(&terminal, &space);
             keyboard_repeat_time = now;
             keyboard_repeat_delay = 70000;
         }

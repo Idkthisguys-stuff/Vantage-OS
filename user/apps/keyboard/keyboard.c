@@ -1,8 +1,11 @@
 #include "keyboard.h"
 #include "vantage/abi/key.h"
+#include "vantage/abi/touch.h"
+#include "vantage/user.h"
 
 Terminal terminal;
 
+KeyboardBuf keyboard_buf_queue = {0};
 uint32_t keyboard_columns = 0;
 uint32_t keyboard_top = 0;
 uint32_t keyboard_shift = 0;
@@ -13,6 +16,25 @@ uint32_t keyboard_pressed[KEYBOARD_KEYS] = {0};
 uint32_t keyboard_repeat_time = 0;
 uint32_t keyboard_repeat_delay = 0;
 uint32_t point_key[MAX_TOUCH_POINTS] = {0};
+
+void keyboard_buf_push(const KeyEvent* event) {
+    uint32_t next = (keyboard_buf_queue.head + 1) % KEYBOARD_BUF_SIZE;
+    if (next != keyboard_buf_queue.tail) {
+        keyboard_buf_queue.events[keyboard_buf_queue.head] = *event;
+        keyboard_buf_queue.head = next;
+    }
+    sys_console_write("P", 1);
+}
+
+uint32_t keyboard_buf_pop(KeyEvent* event) {
+    if (keyboard_buf_queue.head == keyboard_buf_queue.tail) {
+        return 0;
+    }
+    
+    *event = keyboard_buf_queue.events[keyboard_buf_queue.tail];
+    keyboard_buf_queue.tail = (keyboard_buf_queue.tail + 1) % KEYBOARD_BUF_SIZE;
+    return 1;
+}
 
 static char keyboard_character(uint32_t key) {
     char c;
@@ -76,49 +98,43 @@ static uint32_t keyboard_hit(int x, int y) {
     return NO_KEY;
 }
 
-uint32_t keyboard_touch(const TouchEvent* touch, KeyEvent* event) {
-    uint32_t key;
-    if (!keyboard_columns || !event) return 0;
-    event->type = KEY_NONE;
-    event->character = 0;
-    
-    key = keyboard_hit(touch->x, touch->y);
-    
-    if (touch->type == TOUCH_EVENT_DOWN) {
-        if (key != NO_KEY) {
-            keyboard_pressed[key] = 1;
-            keyboard_mark_key(key);
-            if (key == 37) {
-                event->type = KEY_BACKSPACE;
-                keyboard_repeat_time = sys_time_us();
-                keyboard_repeat_delay = 400000;
-                return 1;
-            } else if (key == 29) {
-                keyboard_shift = !keyboard_shift;
-                keyboard_full_dirty = 1;
-                return 0;
-            } else if (key == 42) {
-                event->type = KEY_ENTER;
-                return 1;
-            } else if (key == 38) {
-                event->type = KEY_CANCEL;
-                return 1;
-            } else {
-                event->type = KEY_TEXT;
-                event->character = (uint32_t)keyboard_character(key);
-                return 1;
-            }
-        }
-        return 0;
+static void key_press(uint32_t key) {
+    if (key == NO_KEY || keyboard_pressed[key]) return;
+    keyboard_pressed[key] = 1;
+    keyboard_mark_key(key);
+    KeyEvent e = {0};
+    if (key == 29) {
+        keyboard_shift = !keyboard_shift; keyboard_full_dirty = 1; return;
     }
-    
-    if (touch->type == TOUCH_EVENT_UP) {
-        uint32_t key = keyboard_hit(touch->x, touch->y);
-        if (key != NO_KEY && keyboard_pressed[key]) {
-            keyboard_pressed[key] = 0;
-            keyboard_mark_key(key);
-        }
-        return 0;
+    if (key == 37 || key == 40) {
+        keyboard_repeat_time = sys_time_us();
+        keyboard_repeat_delay = 400000;
+    }
+    e.type = key == 37 ? KEY_BACKSPACE : key == 42 ? KEY_ENTER : key == 38 ? KEY_CANCEL : KEY_TEXT;
+    e.character = (e.type == KEY_TEXT) ? (uint32_t)keyboard_character(key) : 0;
+    keyboard_buf_push(&e);
+}
+
+static void key_release(uint32_t key) {
+    if (key == NO_KEY || !keyboard_pressed[key]) return;
+    keyboard_pressed[key] = 0;
+    keyboard_mark_key(key);
+}
+
+uint32_t keyboard_touch(const TouchEvent* t, KeyEvent* event) {
+    (void)event;
+    if (!keyboard_columns || t->id >= MAX_TOUCH_POINTS) return 0;
+    uint32_t key = keyboard_hit(t->x, t->y);
+    if (t->type == TOUCH_EVENT_DOWN) {
+        point_key[t->id] = key;
+        key_press(key);
+    }
+    else if (t->type == TOUCH_EVENT_MOVE && key != point_key[t->id]) {
+        key_release(point_key[t->id]);
+        point_key[t->id] = key; key_press(key);
+    } else if (t->type == TOUCH_EVENT_UP) {
+        key_release(point_key[t->id]);
+        point_key[t->id] = NO_KEY;
     }
     return 0;
 }
