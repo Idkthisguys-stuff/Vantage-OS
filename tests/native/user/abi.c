@@ -14,7 +14,10 @@ _Static_assert(SYS_FILE_OPEN_LONG == 40 && SYS_FILE_REMOVE_LONG == 41 && SYS_FIL
                "Long paths use additive syscall payloads");
 _Static_assert(SYS_FILE_DIRECTORY == 39 && sizeof(FileDirectory) == 112 &&
                offsetof(FileDirectory, entry) == 64, "directory ABI");
-_Static_assert(sizeof(TouchEvent) == 12 && sizeof(KeyEvent) == 8, "input ABI");
+_Static_assert(sizeof(TouchEvent) == 12 && offsetof(TouchEvent, x) == 4 &&
+               offsetof(TouchEvent, y) == 8 && sizeof(KeyEvent) == 8, "input ABI");
+_Static_assert(SYS_TOUCH_CONTACT_READ == 13 && sizeof(TouchContact) == 16 &&
+               offsetof(TouchContact, id) == 12, "extended touch ABI");
 _Static_assert(sizeof(TextRow) == 116 && sizeof(CanvasButton) == 40, "graphics ABI");
 _Static_assert(sizeof(MemoryStats) == 40 && sizeof(ConsoleInfo) == 64, "console info ABI");
 _Static_assert(sizeof(ConsoleWrite) == 132, "console write ABI");

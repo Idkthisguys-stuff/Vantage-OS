@@ -28,6 +28,7 @@ add_library(vantage_sim_core STATIC
   "${VANTAGE_ROOT}/kernel/net/tcp.c"
   "${VANTAGE_ROOT}/kernel/ui/canvas.c"
   "${VANTAGE_ROOT}/kernel/ui/window_manager.c"
+  "${VANTAGE_ROOT}/user/apps/terminal/keyboard.c"
   "${VANTAGE_ROOT}/user/apps/terminal/terminal.c"
   "${VANTAGE_ROOT}/user/apps/terminal/app.c"
   "${VANTAGE_ROOT}/user/apps/terminal/net_cmd.c"

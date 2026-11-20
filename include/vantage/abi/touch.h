@@ -10,8 +10,13 @@ typedef enum {
 
 typedef struct {
     TouchEventType type;
-    uint32_t slot;
-    uint8_t id;
     int x;
     int y;
 } TouchEvent;
+
+/* Contact IDs are stable from DOWN through UP. */
+#define TOUCH_CONTACTS_MAX 10U
+typedef struct {
+    TouchEvent event;
+    uint32_t id;
+} TouchContact;

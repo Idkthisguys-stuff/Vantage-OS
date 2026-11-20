@@ -2,73 +2,93 @@
 #include <vantage/platform/pi4/i2c.h>
 #include <vantage/platform/pi4/io.h>
 
-#define TOUCH_POINTS 10
+#define REPORT_CONTACTS 5U
+#define REPORT_HEADER 3U
+#define CONTACT_BYTES 6U
+#define QUEUE_SIZE (REPORT_CONTACTS + TOUCH_CONTACTS_MAX)
+
+enum { CONTROLLER_DOWN, CONTROLLER_UP, CONTROLLER_CONTACT };
+
 typedef struct {
-    uint8_t down, miss;
+    uint8_t down, missed;
     int x, y;
 } Slot;
-static Slot slot[TOUCH_POINTS];
-static TouchEvent q[16];
-static uint32_t qh, qt;
 
-static void qpush(uint8_t type, uint8_t id, int x, int y) {
-    uint32_t n = (qh + 1) % 16;
-    if (n == qt) return;
-    q[qh] = (TouchEvent){
-        .type = type,
-        .id = id,
-        .x = x,
-        .y = y
-    };
-    qh = n;
+static Slot slots[TOUCH_CONTACTS_MAX];
+static TouchContact queue[QUEUE_SIZE];
+static uint32_t next, count;
+static int last_x, last_y;
+
+static void emit(TouchEventType type, uint32_t id, const Slot* slot) {
+    queue[count++] = (TouchContact){ {type, slot->x, slot->y}, id };
 }
 
 static void poll(void) {
-    uint8_t buf[32], seen[TOUCH_POINTS] = {0};
-    if (!i2c_read_reg(TOUCH_ADDR, 0, buf, sizeof(buf))) return;
-    uint8_t count = buf[2] & 0xF;
-    if (count > 5) count = 5;
-    for (uint8_t i = 0; i < count; i++) {
-        const uint8_t* p = buf + 3 + 6 * i;
-        uint8_t id = p[2] >> 4;
-        if (id >= TOUCH_POINTS) continue;
-        int rawX = ((p[0] & 0xF) << 8) | p[1];
-        int rawY = ((p[2] & 0xF) << 8) | p[3];
-        int panelX = TOUCH_FLIP_X ? TOUCH_WIDTH - 1 - rawX : rawX;
-        int panelY = TOUCH_FLIP_Y ? TOUCH_HEIGHT - 1 - rawY : rawY;
-        int x = TOUCH_HEIGHT - 1 - panelY, y = panelX;
-        seen[id] = 1;
-        Slot* s = &slot[id];
-        s->miss = 0;
-        if (!s->down) { s->down = 1; qpush(TOUCH_EVENT_DOWN, id, x, y); }
-        else if (x != s->x || y != s->y) {
-            int dx = x - s->x, dy = y - s->y;
-            if (dx*dx + dy*dy > 40*40) {
-                qpush(TOUCH_EVENT_UP, id, s->x, s->y);
-                qpush(TOUCH_EVENT_DOWN, id, x, y);
-            } else qpush(TOUCH_EVENT_MOVE, id, x, y);
-        }
-        s->x = x; s->y = y;
+    uint8_t report[REPORT_HEADER + REPORT_CONTACTS * CONTACT_BYTES - 1];
+    uint8_t seen[TOUCH_CONTACTS_MAX] = {0};
+    if (!i2c_read_reg(TOUCH_ADDR, 0, report, sizeof(report))) return;
+    uint32_t reported = report[2] & 0xf;
+    if (reported > REPORT_CONTACTS) return;
+
+    /* Poll only after draining the previous report. The queue has room for
+     * one event per report entry and one missed release per known contact. */
+    next = count = 0;
+    for (uint32_t i = 0; i < reported; i++) {
+        const uint8_t* p = report + REPORT_HEADER + CONTACT_BYTES * i;
+        if ((p[0] >> 6) > CONTROLLER_CONTACT) return;
     }
-    for (uint8_t id = 0; id < TOUCH_POINTS; id++) {
-        if (slot[id].down && !seen[id] && ++slot[id].miss >= 2) {
-            slot[id].down = 0;
-            qpush(TOUCH_EVENT_UP, id, slot[id].x, slot[id].y);
+    for (uint32_t i = 0; i < reported; i++) {
+        const uint8_t* p = report + REPORT_HEADER + CONTACT_BYTES * i;
+        uint32_t id = p[2] >> 4;
+        if (id >= TOUCH_CONTACTS_MAX || seen[id]) continue;
+        seen[id] = 1;
+        Slot* slot = &slots[id];
+        slot->missed = 0;
+        if ((p[0] >> 6) == CONTROLLER_UP) {
+            if (slot->down) emit(TOUCH_EVENT_UP, id, slot);
+            slot->down = 0;
+            continue;
+        }
+
+        int raw_x = ((p[0] & 0xf) << 8) | p[1];
+        int raw_y = ((p[2] & 0xf) << 8) | p[3];
+        int panel_x = TOUCH_FLIP_X ? TOUCH_WIDTH - 1 - raw_x : raw_x;
+        int panel_y = TOUCH_FLIP_Y ? TOUCH_HEIGHT - 1 - raw_y : raw_y;
+        int x = TOUCH_HEIGHT - 1 - panel_y, y = panel_x;
+        uint32_t moved = x != slot->x || y != slot->y;
+        slot->x = x;
+        slot->y = y;
+        if (!slot->down) emit(TOUCH_EVENT_DOWN, id, slot);
+        else if (moved) emit(TOUCH_EVENT_MOVE, id, slot);
+        slot->down = 1;
+    }
+
+    for (uint32_t id = 0; id < TOUCH_CONTACTS_MAX; id++) {
+        Slot* slot = &slots[id];
+        if (slot->down && !seen[id] && ++slot->missed >= 2) {
+            slot->down = 0;
+            emit(TOUCH_EVENT_UP, id, slot);
         }
     }
 }
 
 uint32_t touch_init(void) {
-    for (uint32_t i = 0; i < TOUCH_POINTS; i++) slot[i] = (Slot){0};
-    qh = qt = 0;
+    for (uint32_t id = 0; id < TOUCH_CONTACTS_MAX; id++) slots[id] = (Slot){0};
+    next = count = 0;
+    last_x = last_y = 0;
     i2c_init();
     uart_writeText("[OK] Vantage touch driver...\n");
     return i2c_probe(TOUCH_ADDR);
 }
 
-uint32_t touch_read(TouchEvent* r) {
-    if (qh == qt) poll();
-    if (qh == qt) return 0;
-    *r = q[qt]; qt = (qt + 1) % 16;
+uint32_t touch_read(TouchContact* contact) {
+    if (next == count) poll();
+    if (next == count) {
+        *contact = (TouchContact){ {TOUCH_EVENT_NONE, last_x, last_y}, 0 };
+        return 0;
+    }
+    *contact = queue[next++];
+    last_x = contact->event.x;
+    last_y = contact->event.y;
     return 1;
 }

@@ -1,9 +1,9 @@
 #pragma once
 #include <vantage/abi/console.h>
 #include <vantage/abi/files.h>
+#include <vantage/abi/key.h>
 #include <vantage/abi/net.h>
 #include <vantage/abi/touch.h>
-#include "../keyboard/keyboard.h"
 
 #define TERMINAL_MAX_ROWS 60U
 #define TERMINAL_COMMAND_SIZE 288U

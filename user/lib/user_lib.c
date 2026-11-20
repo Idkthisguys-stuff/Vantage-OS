@@ -227,6 +227,10 @@ uint32_t sys_touch_read(TouchEvent* event) {
     return (uint32_t)syscall(SYS_TOUCH_READ, (uint64_t)event);
 }
 
+uint32_t sys_touch_contact_read(TouchContact* contact) {
+    return (uint32_t)syscall(SYS_TOUCH_CONTACT_READ, (uint64_t)contact);
+}
+
 void sys_canvas_set_color(uint32_t color) {
     syscall(SYS_CANVAS_SET_COLOR, color);
 }
