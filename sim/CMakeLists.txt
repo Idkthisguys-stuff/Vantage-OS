@@ -31,6 +31,7 @@ add_library(vantage_sim_core STATIC
   "${VANTAGE_ROOT}/user/apps/terminal/keyboard.c"
   "${VANTAGE_ROOT}/user/apps/terminal/terminal.c"
   "${VANTAGE_ROOT}/user/apps/terminal/app.c"
+  "${VANTAGE_ROOT}/user/apps/terminal/home.c"
   "${VANTAGE_ROOT}/user/apps/terminal/net_cmd.c"
   "${VANTAGE_ROOT}/user/apps/terminal/net_get.c"
   "${VANTAGE_ROOT}/user/apps/terminal/net_profiles.c"

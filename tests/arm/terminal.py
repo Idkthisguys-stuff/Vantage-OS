@@ -79,14 +79,21 @@ class TerminalMachine(CpuMachine):
             self.cpu.idle = True
             uc.emu_stop()
 
-    def launch(self, booted=False):
-        """Boot, start the embedded terminal and run its first frame."""
+    def launch(self, booted=False, terminal=True):
+        """Boot the embedded shell and optionally open the terminal tile."""
         if not booted:
             self.boot(cores=1)
         start, end = self.image.symbols['terminal_image'], self.image.symbols['terminal_image_end']
         self.app = self.call('process_create', start, end - start, 1)
         assert self.app
         self.start('task_run')
+        self.step()
+        if terminal:
+            self.tap(100, 210)
+            self.step()
+
+    def tap(self, x, y):
+        self.touches.extend(((1, x, y), (3, x, y)))
         self.step()
 
     def step(self):
@@ -117,11 +124,34 @@ class TerminalTests(unittest.TestCase):
                      '__user_start', 'enter_user_space'):
             self.assertNotIn(name, self.image.symbols)
 
+    def test_home_opens_terminal_and_returns_without_losing_input(self):
+        m = TerminalMachine(self.image)
+        m.launch(terminal=False)
+        self.assertEqual(m.rows[4].strip(), 'Vantage OS')
+        m.tap(100, 340)
+        self.assertEqual(m.rows[7].strip(), 'Files')
+        self.assertIn('Storage unavailable', m.rows[12])
+        m.tap(40, 50)
+        m.tap(100, 470)
+        self.assertEqual(m.rows[7].strip(), 'Network')
+        self.assertIn('No IP address', m.rows[14])
+        m.tap(40, 50)
+        m.tap(100, 210)
+        m.step()
+        m.keys.append((1, ord('x')))
+        m.step()
+        self.assertEqual(m.rows[5], '> x')
+        m.tap(40, 16)
+        self.assertEqual(m.rows[4].strip(), 'Vantage OS')
+        m.tap(100, 210)
+        m.step()
+        self.assertEqual(m.rows[5], '> x')
+
     def test_isolated_app_uses_its_own_stack_and_real_kernel_stats(self):
         m = TerminalMachine(self.image)
         m.launch()
-        self.assertEqual(m.rows[0], 'Vantage terminal')
-        self.assertEqual(m.rows[3], '>')
+        self.assertEqual(m.rows[2], 'Vantage terminal')
+        self.assertEqual(m.rows[5], '>')
         m.command('help')
         self.assertIn('Show commands', m.output.decode())
         m.command('mem')
@@ -129,8 +159,8 @@ class TerminalTests(unittest.TestCase):
         self.assertIn('Heap used: 0/8388608 bytes', m.output.decode())
         self.assertNotIn('Simulator', m.output.decode())
         m.command('clear')
-        self.assertEqual(m.rows[0], '>')
-        self.assertTrue(all(not text for row, text in m.rows.items() if 0 < row < 33))
+        self.assertEqual(m.rows[2], '>')
+        self.assertTrue(all(not text for row, text in m.rows.items() if 2 < row < 33))
         self.assertTrue(any(b[-1].startswith(b'Shift') for b in m.buttons))
         # Tap H, E, L, P and ENTER through the linked touch syscall path.
         for x, y in ((286, 661), (124, 611), (425, 661), (448, 611), (425, 761)):
@@ -158,10 +188,10 @@ class TerminalTests(unittest.TestCase):
         m.touches.extend(((1, 286, 661, 2), (1, 124, 611, 6), (3, 124, 611, 6),
                           (1, 425, 661, 6), (2, 0, 500, 6), (3, 425, 661, 6)))
         m.step()
-        self.assertEqual(m.rows[0], '> e')
+        self.assertEqual(m.rows[2], '> e')
         m.touches.append((3, 286, 661, 2))
         m.step()
-        self.assertEqual(m.rows[0], '> eh')
+        self.assertEqual(m.rows[2], '> eh')
 
     def test_delete_hold_delay_repeat_release_drag_and_clock_wrap(self):
         m = TerminalMachine(self.image)
@@ -171,32 +201,32 @@ class TerminalTests(unittest.TestCase):
         m.app_clock_us = 0xfffffff0
         m.touches.append((1, 435, 711))
         m.step()
-        self.assertEqual(m.rows[0], '> abcde')  # First delete is immediate.
+        self.assertEqual(m.rows[2], '> abcde')  # First delete is immediate.
         for elapsed, expected in ((399999, '> abcde'), (1, '> abcd'),
                                   (69999, '> abcd'), (1, '> abc'), (1000000, '> ab')):
             m.app_clock_us += elapsed
             m.step()
-            self.assertEqual(m.rows[0], expected)
+            self.assertEqual(m.rows[2], expected)
         m.touches.append((3, 435, 711))
         m.app_clock_us += 1000000
         m.step()
-        self.assertEqual(m.rows[0], '> ab')  # No release delete or late repeat.
+        self.assertEqual(m.rows[2], '> ab')  # No release delete or late repeat.
         m.touches.append((1, 435, 711))
         m.step()
-        self.assertEqual(m.rows[0], '> a')
+        self.assertEqual(m.rows[2], '> a')
         m.touches.append((2, 0, 500))
         m.app_clock_us += 1000000
         m.step()
-        self.assertEqual(m.rows[0], '> a')  # Drag out stops repeat.
+        self.assertEqual(m.rows[2], '> a')  # Drag out stops repeat.
         m.touches.append((3, 435, 711))
         m.step()
-        self.assertEqual(m.rows[0], '> a')
+        self.assertEqual(m.rows[2], '> a')
         m.touches.append((1, 435, 711))
         m.step()
         for _ in range(3):
             m.app_clock_us += 500000
             m.step()
-            self.assertEqual(m.rows[0], '>')  # Empty input stays bounded.
+            self.assertEqual(m.rows[2], '>')  # Empty input stays bounded.
 
     def test_linked_syscall_rejects_buffers_from_kernel_callers(self):
         # Without a calling process there is no address space to resolve against.
