@@ -1,5 +1,5 @@
 /* Ethernet II, ARP (RFC 826), IPv4 (RFC 791/1122), ICMP echo and errors
- * (RFC 792) and UDP (RFC 768). No fragmentation, options or multicast. */
+ * (RFC 792) and UDP (RFC 768). Accepts unfragmented unicast and broadcast IPv4. */
 #include "internal.h"
 
 #define ARP_ENTRIES 8U
@@ -219,8 +219,9 @@ static void icmp_input(uint32_t source, int unicast, const unsigned char* m, uns
 }
 
 static void udp_input(uint32_t source, uint32_t destination, int unicast,
-                      const unsigned char* u, unsigned int bytes) {
+                      const unsigned char* ip, unsigned int header, unsigned int bytes) {
     if (bytes < UDP_HEADER) return;
+    const unsigned char* u = ip + header;
     unsigned int length = net_get16(u + 4);
     if (length < UDP_HEADER || length > bytes) return;
     if (net_get16(u + 6) && net_fold(net_sum(u, length, net_pseudo(source, destination, IP_UDP, length)))) return;
@@ -232,14 +233,8 @@ static void udp_input(uint32_t source, uint32_t destination, int unicast,
     if (net_dns_input(source, source_port, port, data, data_bytes)) return;
     if (net_sntp_input(source, source_port, port, data, data_bytes)) return;
     if (net_udp_deliver(source, source_port, port, data, data_bytes)) return;
-    /* RFC 1122: report closed ports for unicast datagrams only. */
-    if (unicast) {
-        const unsigned char* ip = u - IP_HEADER;
-        unsigned char original[IP_HEADER + 8];
-        memcpy(original, ip, IP_HEADER);
-        memcpy(original + IP_HEADER, u, 8);
-        (void)icmp_send(source, 3, 3, 0, original, sizeof(original));
-    }
+    /* Quote the original IPv4 header, including options, and the UDP header. */
+    if (unicast) (void)icmp_send(source, 3, 3, 0, ip, header + UDP_HEADER);
 }
 
 static void ip_input(const unsigned char* ip, unsigned int bytes) {
@@ -254,19 +249,10 @@ static void ip_input(const unsigned char* ip, unsigned int bytes) {
     unsigned int protocol = ip[9];
     if (!unicast && !broadcast && (protocol != IP_UDP || net_interface.bound)) return;
     /* Before an address is bound only DHCP replies (UDP 67 -> 68) are taken. */
-    if (header != IP_HEADER) {
-        /* Options are ignored; keep the transport aligned on a plain header. */
-        static unsigned char copy[IP_MTU];
-        memcpy(copy, ip, IP_HEADER);
-        memcpy(copy + IP_HEADER, ip + header, total - header);
-        copy[0] = 0x45;
-        net_put16(copy + 2, total - header + IP_HEADER);
-        ip = copy; total = total - header + IP_HEADER;
-    }
-    const unsigned char* payload = ip + IP_HEADER;
-    unsigned int length = total - IP_HEADER;
+    const unsigned char* payload = ip + header;
+    unsigned int length = total - header;
     if (protocol == IP_ICMP && net_interface.bound) icmp_input(source, unicast, payload, length);
-    else if (protocol == IP_UDP) udp_input(source, destination, unicast, payload, length);
+    else if (protocol == IP_UDP) udp_input(source, destination, unicast, ip, header, length);
     else if (protocol == IP_TCP && unicast) net_tcp_input(source, destination, payload, length);
 }
 
