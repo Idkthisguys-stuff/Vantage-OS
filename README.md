@@ -12,6 +12,9 @@ python tools/build.py
 
 The kernel image is `out/pi4/prod/kernel8.img`; the linked test image is
 `out/pi4/kernel8.elf`. The kernel image is not a complete bootable SD-card image.
+Kernel, simulator and headless builds provision pinned [BearSSL sources](docs/TLS.md#bearssl-configuration).
+See the [storage image guide](docs/STORAGE.md#hardware-validation-image-and-acceptance)
+for the Pi boot files required by `make partition`.
 V3D rendering is probed at boot by default and falls back to CPU rendering;
 `python tools/build.py --v3d 0` builds the CPU renderer only. Wi-Fi and storage
 support default on, but Wi-Fi skips initialization without supplied assets and
@@ -20,6 +23,9 @@ Physical validation remains pending; see
 [the hardware guide](docs/HARDWARE.md) and [storage guide](docs/STORAGE.md).
 The opt-in Pi 4 USB controller probe and the path to USB file access are
 documented in the [hardware roadmap](docs/USB.md).
+The opt-in [Bluetooth driver](docs/BLUETOOTH.md) adds controller startup and
+BLE discovery from Home for the Pi 4 Model B. The UART model covers this path.
+Physical radio verification is pending.
 
 New V3 storage images support 256 files/folders, 255-byte paths and 1 MiB per file
 (subject to shared disk space). The text editor retains its 4 KiB document limit.
@@ -41,8 +47,9 @@ You can run the simulator on a Windows PC without a Raspberry Pi.
 
 - [CMake](https://cmake.org/download/)
 - Visual Studio or Visual Studio Build Tools with C++ support
-- An SDL2 development package; supply its CMake prefix with `--sdl` or
-  `CMAKE_PREFIX_PATH`.
+- The [SDL2 Visual C++ development package](https://github.com/libsdl-org/SDL/releases/tag/release-2.32.10)
+  (`SDL2-devel-2.32.10-VC.zip`). Extract it and supply its CMake prefix with `--sdl`
+  or `CMAKE_PREFIX_PATH`. On Ubuntu, install `libsdl2-dev`.
 
 ### Build and run
 
@@ -53,9 +60,9 @@ python tools/build.py sim --sdl C:/path/to/SDL2
 .\out\sim\sim\Release\vantage_sim.exe
 ```
 
-Vantage opens to Home with Console, Files and Network. Use the touchscreen or
-mouse to select a view. In the simulator, Enter opens Console and Esc returns
-to Home. The Console keeps its session while you visit Home.
+Vantage opens to Home with Console, Files, Network and Bluetooth. Use the
+touchscreen or mouse to select a view. In the simulator, Enter opens Console
+and Esc returns to Home. The Console keeps its session while you visit Home.
 
 In Console, type `help` using your keyboard or the on-screen keys. With a
 storage image mounted, `edit`, `cat`, `ls` and `rm` read and write persistent

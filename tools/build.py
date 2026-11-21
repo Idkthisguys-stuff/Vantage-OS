@@ -25,6 +25,8 @@ def parser():
     p.add_argument('--toolchain-dir', default=os.environ.get('VANTAGE_TOOLCHAIN_DIR'),
                    help='portable GNU tools root (or set VANTAGE_TOOLCHAIN_DIR)')
     p.add_argument('--sdl', help='SDL2 CMake package prefix for sim')
+    p.add_argument('--bearssl-dir', default=os.environ.get('BEARSSL_DIR'),
+                   help='pinned BearSSL source tree (or set BEARSSL_DIR)')
     p.add_argument('--build-dir', help='output directory')
     p.add_argument('--make', help='GNU make executable')
     p.add_argument('--prefix', help='cross-tool prefix, e.g. aarch64-none-elf-')
@@ -34,6 +36,7 @@ def parser():
     p.add_argument('--ethernet', choices=('0', '1'))
     p.add_argument('--storage', choices=('0', '1'))
     p.add_argument('--usb', choices=('0', '1'), help='enable the Pi 4 USB controller probe (default 0)')
+    p.add_argument('--bluetooth', choices=('0', '1'), help='enable Pi 4 Bluetooth LE discovery (default 0)')
     p.add_argument('--storage-validation', choices=('0', '1'))
     p.add_argument('--sd-base-clock-hz', type=int)
     p.add_argument('--storage-partition', type=int, choices=range(4))
@@ -89,6 +92,10 @@ def main(argv=None):
     if a.sd_base_clock_hz is not None and not 400000 <= a.sd_base_clock_hz <= 818400000:
         p.error('--sd-base-clock-hz must be between 400000 and 818400000')
     env = os.environ.copy()
+    if a.bearssl_dir:
+        source = Path(a.bearssl_dir).expanduser()
+        a.bearssl_dir = (ROOT / source).resolve().as_posix()
+        env['BEARSSL_DIR'] = a.bearssl_dir
     explicit_country = any(arg == '--wifi-country' or arg.startswith('--wifi-country=')
                            for arg in (sys.argv[1:] if argv is None else argv))
     wifi_off = (a.wifi or env.get('WIFI')) == '0'
@@ -102,7 +109,7 @@ def main(argv=None):
             p.error('--wifi-regrev is only valid for kernel builds that download the Wi-Fi firmware')
     if a.target != 'kernel':
         if any(getattr(a, key) is not None for key in
-               ('v3d', 'wifi', 'ethernet', 'storage', 'usb', 'storage_validation', 'sd_base_clock_hz',
+               ('v3d', 'wifi', 'ethernet', 'storage', 'usb', 'bluetooth', 'storage_validation', 'sd_base_clock_hz',
                 'storage_partition', 'wifi_firmware_c', 'tls_trust_c', 'prefix', 'make')):
             p.error('kernel configuration options are only valid for kernel builds')
         build = a.build_dir or ('out/sim' if a.target == 'sim' else 'out/host')
@@ -110,10 +117,14 @@ def main(argv=None):
         if not cmake:
             p.error('CMake is required for desktop builds')
         cmd = [cmake, '-S', '.', '-B', build]
+        if a.bearssl_dir:
+            cmd.append('-DBEARSSL_DIR=' + a.bearssl_dir)
         if a.target == 'sim':
             cmd.append('-DVANTAGE_BUILD_SIMULATOR=ON')
             if a.sdl:
-                cmd.append('-DCMAKE_PREFIX_PATH=' + a.sdl)
+                prefixes = [(ROOT / Path(path).expanduser()).resolve().as_posix()
+                            for path in a.sdl.split(';') if path]
+                cmd.append('-DCMAKE_PREFIX_PATH=' + ';'.join(prefixes))
         elif a.sdl:
             p.error('--sdl is only valid for sim')
         run(cmd, env)
@@ -159,7 +170,7 @@ def main(argv=None):
             p.error('a POSIX sh is required by GNU make on Windows; set VANTAGE_TOOLCHAIN_DIR')
         cmd.append('SHELL=' + Path(shell).as_posix())
     for option, name in (('v3d', 'V3D'), ('wifi', 'WIFI'), ('ethernet', 'ETHERNET'), ('storage', 'STORAGE'),
-                         ('usb', 'USB'),
+                         ('usb', 'USB'), ('bluetooth', 'BLUETOOTH'),
                          ('storage_validation', 'STORAGE_VALIDATION'),
                          ('sd_base_clock_hz', 'SD_BASE_CLOCK_HZ'),
                          ('storage_partition', 'STORAGE_PARTITION'),

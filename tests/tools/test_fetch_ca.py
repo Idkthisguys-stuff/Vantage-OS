@@ -1,4 +1,4 @@
-"""CA bundle download, verification, conversion and build integration, offline.
+"""CA bundle download, verification, conversion and build integration.
 
 The certificates are synthetic: DER structures with arbitrary public key bytes
 and dummy signatures, built at test time. No key pairs exist for them."""
@@ -19,6 +19,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 import fetch_ca  # noqa: E402
+import fetch_bearssl  # noqa: E402
 
 spec = importlib.util.spec_from_file_location('vantage_build', ROOT / 'tools/build.py')
 build = importlib.util.module_from_spec(spec)
@@ -135,13 +136,14 @@ class ConversionTests(unittest.TestCase):
                          if shutil.which(c)), None)
         if not compiler:
             self.skipTest('no AArch64 GNU compiler on PATH')
+        bearssl = fetch_bearssl.prepare(os.environ.get('BEARSSL_DIR'))
         source, _, _ = fetch_ca.convert(BUNDLE.decode(), 'synthetic.pem')
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'trust.c'
             path.write_text('#include "tls_trust.h"\n' + source, encoding='utf-8')
             result = subprocess.run([compiler, '-c', '-fsyntax-only', '-ffreestanding', '-nostdinc', '-Wall', '-Wextra',
                                      '-Werror', '-I', str(ROOT / 'include'), '-I', str(ROOT / 'user/lib'),
-                                     '-I', str(ROOT / 'third_party/bearssl/inc'),
+                                     '-I', str(bearssl / 'inc'),
                                      '-isystem', str(ROOT / 'user/lib/libc'), str(path)],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)

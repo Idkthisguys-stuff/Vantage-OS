@@ -243,10 +243,15 @@ recommended value:
 make BUILD_DIR=/path/to/validation STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=100000000 STORAGE_PARTITION=1
 ```
 
-For kernel build and storage partition
+To create `card-copy.img`, set `FIRMWARE_DIR` to a Raspberry Pi firmware
+`boot` directory or put its files in `out/pi4-firmware/`. Image creation
+copies the Pi 4 DTB, `start4.elf`, `fixup4.dat`, the overlay selected by
+`firmware/config.txt`, and their upstream notices. The previously tracked
+DTB, ELF and fixup blobs match commit `ab5c7f86283ceb58b7adb269cae1d16092a31bf6`.
+[Upstream boot files and notices](https://github.com/raspberrypi/firmware/tree/ab5c7f86283ceb58b7adb269cae1d16092a31bf6/boot)
 
 ```sh
-make partition BUILD_DIR=out STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=200000000 STORAGE_PARTITION=1
+make partition BUILD_DIR=out FIRMWARE_DIR=/path/to/pi4/boot STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=200000000 STORAGE_PARTITION=1
 ```
 
 The build requires Python 3 as well as the GNU AArch64 toolchain. Build option
