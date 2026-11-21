@@ -1,10 +1,10 @@
 # TLS client
 
 EL0 programs can open TLS 1.2 sessions over a connected TCP socket with the
-API in `include/vantage/tls.h`. The client is `user/lib/tls.c`, built on an
-unmodified copy of [BearSSL](../third_party/bearssl/README.md) (MIT license,
-upstream commit `7bea48e5`). It is linked into the terminal image; the kernel
-only supplies sockets and entropy.
+API in `include/vantage/tls.h`. The client is `user/lib/tls.c`, built with
+unmodified [BearSSL](https://www.bearssl.org/) sources (MIT license) at upstream
+commit `7bea48e5e850ab4cafbe68d3765cdaba13a86d6f`. It is linked into the terminal
+image, and the kernel supplies sockets and entropy.
 
 **Physical Pi acceptance is pending.** The client is tested on host builds
 against the virtual network's HTTPS server and linked into the AArch64 image,
@@ -149,6 +149,21 @@ GCC's per-function stack usage. The kernel image file keeps its size because
 free.
 
 ## BearSSL configuration
+
+Make and CMake fetch the pinned snapshot from the upstream BearSSL repository
+on first use and verify its SHA-256 against `tools/bearssl-pin.mk`. The source
+tree and its `LICENSE.txt` are cached under `out/deps/bearssl-<revision>/`.
+Run `python tools/fetch_bearssl.py` to prepare the cache separately.
+
+For offline builds, prefill the cache or set the `BEARSSL_DIR` environment
+variable to a local source tree at the pinned revision. The same directory can
+be supplied as `--bearssl-dir` to `tools/build.py`, `BEARSSL_DIR=...` to Make,
+or `-DBEARSSL_DIR=...` to CMake. Set the environment variable when running the
+Python trust-anchor test directly with an AArch64 compiler and a local tree.
+
+To update BearSSL, verify the new upstream commit and snapshot, update the
+revision and SHA-256 in `tools/bearssl-pin.mk`, review `BEARSSL_SOURCES` in
+`mk/sources.mk`, and run the kernel and TLS integration tests.
 
 BearSSL is compiled only through these definitions, in the `Makefile` for
 the Pi and in `cmake/VantageTLS.cmake` for host builds:

@@ -561,9 +561,20 @@ test peer. Network-level checks are listed in [NETWORK.md](NETWORK.md#physical-a
 
 ## References and licenses
 
+- The current RNG200, GENET, and CYW43455 reset routines follow Vantage's
+  ownership, timing, and error-handling contracts. The register facts still
+  use [Linux RNG200](https://github.com/torvalds/linux/blob/v6.12/drivers/char/hw_random/iproc-rng200.c),
+  [GENET](https://github.com/torvalds/linux/tree/v6.12/drivers/net/ethernet/broadcom/genet)
+  and brcmfmac as references. Board verification of the replacements is pending.
+- The GPIO and mini-UART routines replace earlier
+  [CC0 tutorial code](https://github.com/sypstraw/rpi4-osdev). The register
+  addresses and pin mappings are BCM2711 hardware facts.
+- Pi boot firmware and the board device tree are supplied to image creation
+  as external files. See [the image build instructions](STORAGE.md).
 - [Pi 4 bare-metal V3D examples](https://github.com/Random06457/rpi4-gpu-bare-metal-examples/tree/a4f74ff75963cf387fe5a42b6c6aeb2d67923c5f): packet layouts and initialization; [MIT notice](licenses/v3d-examples-MIT.txt).
-- [Linux v6.12 V3D](https://github.com/torvalds/linux/tree/v6.12/drivers/gpu/drm/v3d): MMU/cache/register semantics, GPL-2.0-or-later portions used under GPL version 3.
-- [Linux v6.12 BCM2835 power domains](https://github.com/torvalds/linux/blob/v6.12/drivers/pmdomain/bcm/bcm2835-power.c): V3D reset line and AXI bridge stop/start order, GPL-2.0-or-later portions used under GPL version 3.
+- V3D MMU and cache register behavior is referenced from [Linux v6.12 V3D](https://github.com/torvalds/linux/tree/v6.12/drivers/gpu/drm/v3d).
+- V3D reset-line and AXI bridge behavior, including stop/start order, is referenced from [Linux v6.12 BCM2835 power domains](https://github.com/torvalds/linux/blob/v6.12/drivers/pmdomain/bcm/bcm2835-power.c).
+- Earlier V3D MMU, cache and reset sequencing included portions Copyright (C) 2017-2018 Broadcom, used under GPL version 3 through upstream's GPL-2.0-or-later grant. The current sequencing implements the Vantage bring-up and DMA ownership rules documented above.
 - [Mesa 24.0 Broadcom packet definitions](https://gitlab.freedesktop.org/mesa/mesa/-/blob/mesa-24.0.0/src/broadcom/cle/v3d_packet.xml): V3D 4.2 control-list field layouts used to check the generated packets and the test decoders; [MIT notice](licenses/mesa-broadcom-cle-MIT.txt).
 - [Firmware mailbox property interface](https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface) and Linux v6.12 `include/soc/bcm2835/raspberrypi-firmware.h`: power-domain and clock property tags.
 - [Linux v6.12 brcmfmac](https://github.com/torvalds/linux/tree/v6.12/drivers/net/wireless/broadcom/brcm80211/brcmfmac): CYW43455, SDPCM/BCDC and WPA firmware protocol; [ISC notice](licenses/brcmfmac-ISC.txt).

@@ -319,8 +319,11 @@ static int service_link(const NetLink* device) {
         int progress = device->poll(device->context);
         if (progress < 0) return progress;
         int received;
-        for (unsigned int j = 0; j < 8 && (received = device->receive(device->context, frame, sizeof(frame))) > 0; j++)
-            if (device == active) net_frame_input(frame, (unsigned int)received);
+        for (unsigned int j = 0; j < 8 && (received = device->receive(device->context, frame, sizeof(frame))) > 0; j++) {
+            if (device != active) continue;
+            if ((unsigned int)received > sizeof(frame)) net_interface.rx_dropped++;
+            else net_frame_input(frame, (unsigned int)received);
+        }
         if (!progress) break;
     }
     return 0;

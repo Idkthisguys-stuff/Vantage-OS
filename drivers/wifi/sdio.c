@@ -9,6 +9,13 @@
 static uint32_t rd(Sdio* h, unsigned int offset) { return h->io->read(h->io->context, BASE + offset); }
 static void wr(Sdio* h, unsigned int offset, uint32_t value) { h->io->write(h->io->context, BASE + offset, value); }
 static int stop(Sdio* h, int error) {
+    /* Retain the failing transaction before reset clears the registers. */
+    if (h->state != -1) {
+        h->failure_interrupt = rd(h, 0x30);
+        h->failure_command = rd(h, 0x0c);
+        h->failure_argument = rd(h, 0x08);
+        h->failure_response = rd(h, 0x10);
+    }
     h->error = error; h->state = -1;
     wr(h, 0x38, 0);
     wr(h, 0x2c, rd(h, 0x2c) | (3U << 25));
@@ -76,7 +83,7 @@ int sdio_init(Sdio* h, const HwOps* io) {
     /* Firmware GPIO expander 1 = WL_ON. No pin-header/SD-slot GPIO changes. */
     for (unsigned int power = 0; power < 2; power++) {
         uint32_t gpio[2] = {129, power};
-        if (io->property(io->context, 0x00038041, gpio, 2) != HW_OK || gpio[0] != 129)
+        if (io->property(io->context, 0x00038041, gpio, 2) != HW_OK || (gpio[0] != 0 && gpio[0] != 129))
             return h->state = -1, HW_IO;
         if (hw_delay(io, power ? 150000 : 10000) != HW_OK) return h->state = -1, HW_TIMEOUT;
     }

@@ -65,6 +65,10 @@ DRIVER_SOURCES := \
     drivers/wifi/nvram.c \
     drivers/wifi/sdio.c
 
+ifeq ($(USB),1)
+DRIVER_SOURCES += drivers/storage/pi4_usb.c drivers/storage/usb_storage.c drivers/storage/usb_fat32.c
+endif
+
 PLATFORM_SOURCES := \
     platform/pi4/display.c \
     platform/pi4/ethernet.c \
@@ -77,16 +81,22 @@ PLATFORM_SOURCES := \
     platform/pi4/storage.c \
     platform/pi4/timer.c
 
+ifeq ($(BLUETOOTH),1)
+DRIVER_SOURCES += drivers/bluetooth/hci.c
+PLATFORM_SOURCES += platform/pi4/bluetooth.c
+endif
+
 # The terminal is a separate EL0 program: linked on its own at user addresses
 # and embedded into the kernel as a flat image, never linked against it.
 USER_SOURCES := \
     user/apps/terminal/app.c \
+    user/apps/terminal/home.c \
     user/apps/terminal/net_cmd.c \
     user/apps/terminal/net_get.c \
     user/apps/terminal/net_profiles.c \
     user/apps/terminal/net_tools.c \
     user/apps/terminal/terminal.c \
-    user/apps/keyboard/keyboard.c \
+    user/apps/terminal/keyboard.c \
     user/lib/tls.c \
     user/lib/user_lib.c
 USER_ASM_SOURCES := \
@@ -94,7 +104,7 @@ USER_ASM_SOURCES := \
 # The TLS client's trust anchors when no CA bundle is supplied (TLS_TRUST_C),
 # and the parts of BearSSL it uses; see docs/TLS.md.
 TLS_TRUST_NONE := user/lib/tls_trust_none.c
-BEARSSL_SOURCES := $(addprefix third_party/bearssl/src/, \
+BEARSSL_SOURCES := \
     codec/ccopy.c \
     codec/dec32be.c \
     codec/dec32le.c \
@@ -158,7 +168,7 @@ BEARSSL_SOURCES := $(addprefix third_party/bearssl/src/, \
     symcipher/chacha20_ct.c \
     symcipher/poly1305_ctmul.c \
     symcipher/poly1305_ctmulq.c \
-    x509/x509_minimal.c)
+    x509/x509_minimal.c
 
 C_SOURCES := $(sort $(ARCH_C_SOURCES) $(MEMORY_SOURCES) $(FILESYSTEM_SOURCES) \
     $(NETWORK_SOURCES) $(SCHEDULER_SOURCES) $(UI_SOURCES) $(DRIVER_SOURCES) $(PLATFORM_SOURCES) \

@@ -33,10 +33,15 @@ int property_call(PropertyMailbox* mailbox, const HwOps* io, uint32_t tag,
             io->read(io->context, MBOX_READ) == token) {
             io->cache(io->context, mailbox->words, sizeof(mailbox->words), HW_INVALIDATE);
             mailbox->state = 0;
+            /* Some Pi firmware acknowledges SET_GPIO_STATE in the payload
+             * without setting the tag response flag. */
+            int gpio_status = tag == 0x00038041U && count == 2 &&
+                              values[0] != 0 && mailbox->words[4] == 0 && mailbox->words[5] == 0;
             if (mailbox->words[0] != (count + 6) * 4 || mailbox->words[1] != 0x80000000U ||
                 mailbox->words[2] != tag || mailbox->words[3] != count * 4 ||
                 /* Values may be shorter than the buffer (the 6-byte MAC address). */
-                !(mailbox->words[4] & 0x80000000U) || (mailbox->words[4] & 0x7fffffffU) > count * 4 ||
+                (!(mailbox->words[4] & 0x80000000U) && !gpio_status) ||
+                (mailbox->words[4] & 0x7fffffffU) > count * 4 ||
                 mailbox->words[5 + count] != 0) return HW_PROTOCOL;
             for (unsigned int i = 0; i < count; i++) values[i] = mailbox->words[5 + i];
             return HW_OK;

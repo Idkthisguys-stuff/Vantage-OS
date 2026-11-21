@@ -237,30 +237,39 @@ static int dma_stop(const Genet* g) {
 }
 
 static int umac_reset(const Genet* g) {
-    int result;
+    /* Flush stale receive state, then supply the MAC with a receive clock
+     * from loopback while its software reset is asserted. */
     wr(g, SYS_RBUF_FLUSH_CTRL, 0);
-    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
+    int result = hw_delay(g->io, 10);
+    if (result != HW_OK) return result;
     wr(g, UMAC_CMD, 0);
-    /* Local loopback keeps the receive clock stable through the reset. */
     wr(g, UMAC_CMD, CMD_SW_RESET | CMD_LCL_LOOP_EN);
-    if ((result = hw_delay(g->io, 2)) != HW_OK) return result;
+    result = hw_delay(g->io, 2);
+    if (result != HW_OK) return result;
     wr(g, UMAC_CMD, 0);
-    modify(g, SYS_RBUF_FLUSH_CTRL, 0, 2U);
-    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
-    modify(g, SYS_RBUF_FLUSH_CTRL, 2U, 0);
-    if ((result = hw_delay(g->io, 10)) != HW_OK) return result;
+
+    uint32_t receive_path = rd(g, SYS_RBUF_FLUSH_CTRL) & ~2U;
+    wr(g, SYS_RBUF_FLUSH_CTRL, receive_path | 2U);
+    result = hw_delay(g->io, 10);
+    if (result != HW_OK) return result;
+    wr(g, SYS_RBUF_FLUSH_CTRL, receive_path);
+    return hw_delay(g->io, 10);
+}
+
+static void umac_configure(const Genet* g) {
+    /* Configure counters and the receive layout after the reset settles. */
     wr(g, UMAC_MIB_CTRL, 7U);
     wr(g, UMAC_MIB_CTRL, 0);
     wr(g, UMAC_MAX_FRAME_LEN, 1536U);
     /* No 64-byte status block; two pad bytes precede each received frame. */
     modify(g, RBUF_CTRL, RBUF_64B_EN, RBUF_ALIGN_2B);
     wr(g, RBUF_TBUF_SIZE_CTRL, 1);
+    const uint32_t interrupt_blocks[] = {INTRL2_0, INTRL2_1};
     for (unsigned int i = 0; i < 2; i++) {
-        uint32_t block = i ? INTRL2_1 : INTRL2_0;
+        uint32_t block = interrupt_blocks[i];
         wr(g, block + INTRL2_MASK_SET, 0xffffffffU);
         wr(g, block + INTRL2_CLEAR, 0xffffffffU);
     }
-    return HW_OK;
 }
 
 /* Destination filter entries: broadcast and the station address only. */
@@ -350,6 +359,7 @@ int genet_init(Genet* genet, const HwOps* io) {
      * and Circle. No rings are replaced until DMA has stopped. */
     /* DMA register access is unsafe until the reset sequence completes. */
     if ((result = umac_reset(genet)) != HW_OK) return failed(genet, result);
+    umac_configure(genet);
     if ((result = dma_stop(genet)) != HW_OK) return fail(genet, result);
     mac_address(genet);
     /* The PHY adds the RX clock delay (rgmii-rxid) and the MAC adds none. */

@@ -47,7 +47,7 @@ static uint64_t* leaf(const AddressSpace* space, uint64_t address) {
     return &table_of(middle)[(address >> 12) & (ENTRIES - 1)];
 }
 
-uint32_t space_create(AddressSpace* space, const uint64_t kernel_level1[4]) {
+uint32_t space_create(AddressSpace* space, const uint64_t* kernel_level1) {
     if (!space || !kernel_level1) return 0;
     space->pages = 0;
     space->root = new_page(space);
@@ -58,6 +58,7 @@ uint32_t space_create(AddressSpace* space, const uint64_t kernel_level1[4]) {
         return 0;
     }
     for (unsigned int i = 0; i < MMU_KERNEL_ENTRIES; i++) space->root[i] = kernel_level1[i];
+    space->root[MMU_PCIE_DEVICE_SLOT] = kernel_level1[MMU_PCIE_DEVICE_SLOT];
     space->root[USER_SLOT] = (uint64_t)(uintptr_t)space->user | TABLE | TABLE_PXN;
     mmu_publish_tables();
     return 1;

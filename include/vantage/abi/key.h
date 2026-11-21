@@ -7,7 +7,8 @@ enum {
     KEY_ENTER,
     KEY_BACKSPACE,
     KEY_CLEAR,
-    KEY_CANCEL
+    KEY_CANCEL,
+    KEY_HOME
 };
 
 typedef struct {

@@ -237,6 +237,13 @@ static void dns(void) {
     CHECK(resolve("VANTAGE.test.", &address, 0) == 1 && address == NET_PEER_WEB);  /* Cached. */
     CHECK(net_peer_stats()->dns_queries == queries + 1);
     CHECK(resolve("www.vantage.test", &address, 3000) == 1 && address == NET_PEER_WEB);
+    queries = net_peer_stats()->dns_queries;
+    tick(9999);
+    CHECK(resolve("www.vantage.test", &address, 0) == 1 && address == NET_PEER_WEB);
+    CHECK(net_peer_stats()->dns_queries == queries);
+    tick(1);  /* The CNAME expires at 10 s, while its target's A record lasts 300 s. */
+    CHECK(resolve("www.vantage.test", &address, 3000) == 1 && address == NET_PEER_WEB);
+    CHECK(net_peer_stats()->dns_queries == queries + 1);
     CHECK(resolve("remote.vantage.test", &address, 3000) == 1 && address == NET_PEER_REMOTE);
     CHECK(resolve("spoof.vantage.test", &address, 3000) == 1 && address == NET_PEER_WEB);
     CHECK(resolve("missing.vantage.test", &address, 3000) == NET_NOT_FOUND);
@@ -376,6 +383,46 @@ static void zero_window(void) {
     WAIT(net_peer_stats()->discarded - discarded == 20000 && used_sockets() == 0, 60000);
     CHECK(net_peer_stats()->probes > 0);
     memset(o, 0, sizeof(*o));
+}
+
+static void peer_tcp_segment(const NetSocket* s, uint32_t sequence, unsigned int bytes, int fin) {
+    unsigned char segment[TCP_HEADER + TCP_MSS] = {0};
+    net_put16(segment, s->remote_port); net_put16(segment + 2, s->local_port);
+    net_put32(segment + 4, sequence); net_put32(segment + 8, s->u.tcp.snd_una);
+    segment[12] = 0x50; segment[13] = fin ? 0x11 : 0x10;
+    net_put16(segment + 14, s->u.tcp.snd_wnd);
+    memset(segment + TCP_HEADER, 'x', bytes);
+    unsigned int length = TCP_HEADER + bytes;
+    uint32_t sum = net_pseudo(s->remote, net_interface.address, IP_TCP, length);
+    net_put16(segment + 16, net_fold(net_sum(segment, length, sum)));
+    net_tcp_input(s->remote, net_interface.address, segment, length);
+}
+
+static void fin_at_receive_window_edge(void) {
+    uint64_t h = tcp_open(NET_PEER_WEB, 9);
+    const NetSocket* s = &net_sockets[(h & 255) - 1];
+    uint32_t sequence = s->u.tcp.rcv_nxt;
+    unsigned int remaining = TCP_RX_BYTES - 1;
+    while (remaining) {
+        unsigned int count = remaining < TCP_MSS ? remaining : TCP_MSS;
+        peer_tcp_segment(s, sequence, count, 0);
+        sequence += count;
+        remaining -= count;
+    }
+    /* The final byte fits into the advertised window. FIN consumes the next sequence number. */
+    peer_tcp_segment(s, sequence, 1, 1);
+    NetSocketCall info;
+    CHECK(sock(1, NET_SOCKET_STATUS, h, 0, 0, NULL, 0, &info) == NET_TCP_ESTABLISHED);
+    CHECK(info.pending == TCP_RX_BYTES && s->u.tcp.rcv_nxt == sequence + 1);
+    for (unsigned int i = 0; i < TCP_RX_BYTES; i += NET_IO_MAX)
+        CHECK(sock(1, NET_SOCKET_RECEIVE, h, 0, 0, NULL, NET_IO_MAX, NULL) == NET_IO_MAX);
+    CHECK(sock(1, NET_SOCKET_RECEIVE, h, 0, 0, NULL, 1, NULL) == NET_AGAIN);
+    peer_tcp_segment(s, sequence + 1, 0, 1);
+    CHECK(sock(1, NET_SOCKET_STATUS, h, 0, 0, NULL, 0, NULL) == NET_TCP_PEER_CLOSED);
+    CHECK(s->u.tcp.rcv_nxt == sequence + 2);
+    CHECK(sock(1, NET_SOCKET_RECEIVE, h, 0, 0, NULL, 1, NULL) == 0);
+    NetSocketCall close = {.operation = NET_SOCKET_CLOSE, .handle = h, .flags = NET_CLOSE_ABORT};
+    CHECK(net_socket(1, &close) == 0);
 }
 
 static void timeouts(void) {
@@ -1008,15 +1055,65 @@ static void new_syscalls(void) {
     all_zero(r->data + 16, NET_RANDOM_MAX - 16);
 }
 
+static unsigned char icmp_reply[IP_MTU];
+static unsigned int icmp_reply_bytes;
+
+static int capture_icmp(void* context, const void* data, unsigned int bytes) {
+    const unsigned char* frame = data;
+    if (bytes >= ETH_HEADER + IP_HEADER + 8 && net_get16(frame + 12) == 0x0800 &&
+        frame[ETH_HEADER + 9] == IP_ICMP) {
+        icmp_reply_bytes = bytes - ETH_HEADER - IP_HEADER;
+        CHECK(icmp_reply_bytes <= sizeof(icmp_reply));
+        memcpy(icmp_reply, frame + ETH_HEADER + IP_HEADER, icmp_reply_bytes);
+    }
+    return sim_net_link()->send(context, data, bytes);
+}
+
+static const unsigned char router_mac[6] = {0x02, 0x56, 0x4e, 0x00, 0x00, 0x01};
+
+static void ipv4_options_quote(void) {
+    static NetLink wifi;
+    wifi = *sim_net_link();
+    wifi.send = capture_icmp;
+    net_attach(&wifi, sim_net_ethernet_link());
+    connect_bound();
+    tick(50);
+
+    enum { HEADER = IP_HEADER + 4, UDP_BYTES = UDP_HEADER + 4 };
+    unsigned char frame[60] = {0};
+    memcpy(frame, net_interface.mac, 6);
+    memcpy(frame + 6, router_mac, 6);
+    net_put16(frame + 12, 0x0800);
+    unsigned char* ip = frame + ETH_HEADER;
+    ip[0] = 0x46; ip[8] = 64; ip[9] = IP_UDP;
+    net_put16(ip + 2, HEADER + UDP_BYTES); net_put16(ip + 4, 1234);
+    net_put32(ip + 12, NET_PEER_ROUTER); net_put32(ip + 16, net_interface.address);
+    ip[20] = 1; ip[21] = 1;  /* Two NOP options, followed by EOL and padding. */
+    net_put16(ip + 10, net_fold(net_sum(ip, HEADER, 0)));
+    unsigned char* udp = ip + HEADER;
+    net_put16(udp, 40001); net_put16(udp + 2, 40000); net_put16(udp + 4, UDP_BYTES);
+    memcpy(udp + UDP_HEADER, "ping", 4);
+    uint32_t sum = net_pseudo(NET_PEER_ROUTER, net_interface.address, IP_UDP, UDP_BYTES);
+    uint16_t check = net_fold(net_sum(udp, UDP_BYTES, sum));
+    net_put16(udp + 6, check ? check : 0xffffU);
+
+    icmp_reply_bytes = 0;
+    net_frame_input(frame, sizeof(frame));
+    CHECK(icmp_reply_bytes >= 8 && icmp_reply[0] == 3 && icmp_reply[1] == 3);
+    CHECK(icmp_reply_bytes == 8 + HEADER + UDP_HEADER);
+    CHECK(!net_fold(net_sum(icmp_reply, icmp_reply_bytes, 0)));
+    CHECK(!memcmp(icmp_reply + 8, ip, HEADER + UDP_HEADER));
+}
+
 static unsigned int wifi_injections;
+static unsigned int wifi_reported_bytes = 60;
 
 /* An ARP request from the router for our current address, arriving over Wi-Fi. */
 static int injecting_receive(void* context, void* data, unsigned int capacity) {
     if (!wifi_injections) return sim_net_link()->receive(context, data, capacity);
-    static const unsigned char router_mac[6] = {0x02, 0x56, 0x4e, 0x00, 0x00, 0x01};
     unsigned char* f = data;
     CHECK(capacity >= 60);
-    memset(f, 0, 60);
+    memset(f, 0, capacity);
     memset(f, 0xff, 6);
     memcpy(f + 6, router_mac, 6);
     net_put16(f + 12, 0x0806);
@@ -1024,7 +1121,7 @@ static int injecting_receive(void* context, void* data, unsigned int capacity) {
     memcpy(f + 22, router_mac, 6); net_put32(f + 28, NET_PEER_ROUTER);
     net_put32(f + 38, net_interface.address);
     wifi_injections--;
-    return 60;
+    return (int)wifi_reported_bytes;
 }
 
 static void inactive_link_frames(void) {
@@ -1035,14 +1132,24 @@ static void inactive_link_frames(void) {
     connect_bound();
     const NetPeerStats* stats = net_peer_stats();
     uint64_t replies = stats->arp_replies;
+    wifi_reported_bytes = ETH_FRAME_MAX;
     wifi_injections = 1;
     tick(5);
-    CHECK(stats->arp_replies == replies + 1);  /* Answered while Wi-Fi is active. */
+    CHECK(stats->arp_replies == replies + 1);  /* Accepted at capacity while Wi-Fi is active. */
+    replies = stats->arp_replies;
+    uint64_t dropped = net_interface.rx_dropped;
+    uint64_t frames = net_interface.rx_frames;
+    wifi_injections = 1;
+    wifi_reported_bytes = ETH_FRAME_MAX + 1;  /* The link reports more bytes than it received capacity for. */
+    tick(1);
+    wifi_reported_bytes = 60;
+    CHECK(!wifi_injections && stats->arp_replies == replies && net_interface.rx_frames == frames);
+    CHECK(net_interface.rx_dropped == dropped + 1);
     sim_net_set_cable(1);
     WAIT(status().interface == NET_INTERFACE_ETHERNET && status().configuration == NET_ADDRESS_BOUND, 20000);
     tick(100);
     replies = stats->arp_replies;
-    uint64_t frames = net_interface.rx_frames;
+    frames = net_interface.rx_frames;
     wifi_injections = 1;
     tick(5);
     CHECK(!wifi_injections && stats->arp_replies == replies && net_interface.rx_frames == frames);
@@ -1097,6 +1204,7 @@ int main(void) {
     PHASE(lossy_transfers);
     PHASE(spurious_timeout);
     PHASE(zero_window);
+    PHASE(fin_at_receive_window_edge);
     PHASE(timeouts);
     PHASE(ownership_and_limits);
     PHASE(syscall_boundary);
@@ -1110,13 +1218,14 @@ int main(void) {
     PHASE(autojoin);
     PHASE(ethernet_switching);
     PHASE(new_syscalls);
+    PHASE(ipv4_options_quote);
     PHASE(inactive_link_frames);
     CHECK(!net_peer_stats()->invalid);
     PHASE(ethernet_alone);
     CHECK(!net_peer_stats()->invalid);
-    puts("PASS: scan/join/DHCP lifecycle, ARP, ICMP, DNS (CNAME, spoof, loop, TTL), UDP errors, TCP "
-         "HTTP/echo/chargen under loss, duplication and reordering, spurious timeouts, zero window, timeouts, link loss, "
-         "socket ownership, syscall copies and mutated frames");
+    puts("PASS: scan/join/DHCP lifecycle, ARP, ICMP and IPv4 option quotes, DNS (CNAME, spoof, loop, TTL), UDP errors, "
+         "TCP HTTP/echo/chargen under loss, duplication and reordering, spurious timeouts, zero window, FIN window edge, "
+         "timeouts, link loss, socket ownership, syscall copies, receive capacity and mutated frames");
     puts("PASS: SNTP (offset, resync, era, rejected replies, kiss-o'-death, backoff, option 42 and pool), hidden "
          "networks, profiles and automatic connection, Ethernet switching and failure, time/profile/random syscalls");
     return 0;

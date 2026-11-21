@@ -22,6 +22,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/evidence"
           { git rev-parse HEAD; python --version; cmake --version; gcc --version; } \
             > "$RUNNER_TEMP/evidence/environment.txt"
+      - name: Provision pinned BearSSL sources
+        run: python -B tools/fetch_bearssl.py
       - name: Build host suites with address and undefined-behavior sanitizers
         run: |
           cmake -S . -B "$RUNNER_TEMP/native" -DCMAKE_BUILD_TYPE=Debug \
@@ -80,6 +82,16 @@ jobs:
           make BUILD_DIR="$RUNNER_TEMP/no-ethernet" V3D=0 ETHERNET=0 -j2
           python tests/arm/ethernet_boot.py "$RUNNER_TEMP/cpu/kernel8.elf" \
             "$RUNNER_TEMP/no-ethernet/kernel8.elf" -v 2>&1 | tee "$RUNNER_TEMP/evidence/ethernet-boot.txt"
+      - name: Probe modelled Pi 4 USB and verify the default skips PCIe
+        run: |
+          make BUILD_DIR="$RUNNER_TEMP/usb" USB=1 V3D=0 ETHERNET=0 -j2
+          python tests/arm/usb_boot.py "$RUNNER_TEMP/usb/kernel8.elf" \
+            "$RUNNER_TEMP/no-ethernet/kernel8.elf" -v 2>&1 | tee "$RUNNER_TEMP/evidence/usb-boot.txt"
+      - name: Verify Pi 4 Bluetooth startup and BLE discovery in the UART model
+        run: |
+          make BUILD_DIR="$RUNNER_TEMP/bluetooth" BLUETOOTH=1 V3D=0 ETHERNET=0 -j2
+          python tests/arm/bluetooth_boot.py "$RUNNER_TEMP/bluetooth/kernel8.elf" \
+            "$RUNNER_TEMP/no-ethernet/kernel8.elf" -v 2>&1 | tee "$RUNNER_TEMP/evidence/bluetooth-boot.txt"
       - name: Compile default GPU and Wi-Fi path with synthetic assets
         # Compile-only fixture: these bytes are not usable radio firmware.
         run: |
@@ -124,6 +136,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libsdl2-dev
+      - name: Provision pinned BearSSL sources
+        run: python -B tools/fetch_bearssl.py
       - name: Build simulator and run integration tests
         run: |
           mkdir -p "$RUNNER_TEMP/evidence"

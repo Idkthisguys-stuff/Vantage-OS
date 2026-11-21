@@ -201,6 +201,9 @@ static int transfer(void* context, unsigned int fn, uint32_t address, int increm
     if (fn == 1) {
         CHECK(increment && (address & 0x8000));
         uint32_t absolute = (radio.window & ~0x7fffU) | (address & 0x7fffU);
+        if (!write && absolute >= ENUM + 0x100000U && absolute < ENUM + 0x101000U &&
+            (absolute >= ENUM + 0x100040U || bytes != 4)) return HW_IO;
+        if (radio.mode == 3 && absolute == ENUM + 0x100008U) return HW_TIMEOUT;
         unsigned char* target = bp(absolute, bytes);
         if (write) {
             if (absolute == SD + 0x20) memset(target, 0, bytes);
@@ -262,6 +265,10 @@ int main(void) {
     CHECK(wifi_nvram_pack(nv, sizeof(nv) - 1, packed, sizeof(packed), &packed_size) == HW_OK);
     CHECK(packed_size == 12 && !memcmp(packed, "a=1\0b=2\0\0\0\0\0", 12));
     CHECK(wifi_nvram_pack((const unsigned char*)"bad key=1", 9, packed, sizeof(packed), &packed_size) == HW_INVALID);
+    initialize(3);
+    CHECK(boot() == HW_TIMEOUT && radio.uploads == 0);
+    CHECK(!strcmp(wifi.boot_stage, "core enumeration") &&
+          wifi.backplane_failure_address == ENUM + 0x100008U && wifi.backplane_failure == HW_TIMEOUT);
     initialize(0); CHECK(boot() == HW_OK && wifi.ram_bytes == 0x80000 && radio.released == 1 && radio.country);
     CHECK(wifi_join(&wifi, (const unsigned char*)"test", 4, (const unsigned char*)"testpass", 8) == HW_OK);
     CHECK(wifi.link && wifi.keyed && radio.joins == 1);

@@ -35,6 +35,22 @@ uint32_t sys_task_exit(int status) {
     return (uint32_t)syscall(SYS_TASK_EXIT, (uint32_t)status);
 }
 
+int sys_bt_status(BtStatus* status) {
+    return (int)syscall(SYS_BT_STATUS, (uintptr_t)status);
+}
+
+int sys_bt_scan_start(void) {
+    return (int)syscall(SYS_BT_SCAN_START, 0);
+}
+
+int sys_bt_device(uint32_t index, BtDevice* device) {
+    if (!device) return BT_PROTOCOL;
+    BtDeviceCall request = { .index = index };
+    int result = (int)syscall(SYS_BT_DEVICE, (uintptr_t)&request);
+    if (result == BT_OK) *device = request.device;
+    return result;
+}
+
 static int copy_path(char dest[FILE_PATH_MAX], const char* path) {
     if (!path) return 0;
     for (unsigned int i = 0; i < FILE_PATH_MAX; i++) {
@@ -225,6 +241,10 @@ int sys_net_close(uint64_t handle) {
 
 uint32_t sys_touch_read(TouchEvent* event) {
     return (uint32_t)syscall(SYS_TOUCH_READ, (uint64_t)event);
+}
+
+uint32_t sys_touch_contact_read(TouchContact* contact) {
+    return (uint32_t)syscall(SYS_TOUCH_CONTACT_READ, (uint64_t)contact);
 }
 
 void sys_canvas_set_color(uint32_t color) {

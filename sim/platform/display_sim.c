@@ -50,6 +50,7 @@ static uint32_t coordinateOverlay = 1;
 
 #define INPUT_QUEUE_SIZE 128U
 static KeyEvent keys[INPUT_QUEUE_SIZE];
+/* SDL mouse input represents a single contact with ID zero. */
 static TouchEvent touches[INPUT_QUEUE_SIZE];
 static uint32_t keyHead, keyCount, touchHead, touchCount, discardKeyLine;
 
@@ -279,6 +280,7 @@ static void pump_input(void) {
             case SDL_KEYDOWN:
                 if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) key.type = KEY_ENTER;
                 else if (e.key.keysym.sym == SDLK_BACKSPACE) key.type = KEY_BACKSPACE;
+                else if (e.key.keysym.sym == SDLK_ESCAPE) key.type = KEY_HOME;
                 else if ((e.key.keysym.mod & KMOD_CTRL) && e.key.keysym.sym == SDLK_l) key.type = KEY_CLEAR;
                 else if ((e.key.keysym.mod & KMOD_CTRL) && e.key.keysym.sym == SDLK_c) key.type = KEY_CANCEL;
                 if (key.type != KEY_NONE) queue_key(key);
@@ -303,19 +305,6 @@ uint32_t key_read(KeyEvent* event) {
     *event = keys[keyHead++ % INPUT_QUEUE_SIZE];
     keyCount--;
     return 1;
-}
-
-static uint32_t poll_touch_event(TouchEvent* result) {
-    pump_input();
-    result->type = TOUCH_EVENT_NONE;
-    result->x = mouseX;
-    result->y = mouseY;
-    if (touchCount) {
-        *result = touches[touchHead++ % INPUT_QUEUE_SIZE];
-        touchCount--;
-        return 1;
-    }
-    return 0;
 }
 
 void fb_wait_frame(void) {
@@ -359,8 +348,13 @@ uint32_t touch_init(void) {
     return 1;
 }
 
-uint32_t touch_read(TouchEvent* event) {
-    return poll_touch_event(event);
+uint32_t touch_read(TouchContact* contact) {
+    pump_input();
+    *contact = (TouchContact){ .event = {TOUCH_EVENT_NONE, mouseX, mouseY} };
+    if (!touchCount) return 0;
+    contact->event = touches[touchHead++ % INPUT_QUEUE_SIZE];
+    touchCount--;
+    return 1;
 }
 
 uint32_t user_buffer_valid(uintptr_t buffer, size_t size) {

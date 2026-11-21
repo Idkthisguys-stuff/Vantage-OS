@@ -1,15 +1,14 @@
-/* Sources:
-    https://rpi4os.com/part3-helloworld/
-*/
+/* Earlier versions used the CC0 rpi4-osdev GPIO and serial examples.
+ * Register layout follows the BCM2711 peripheral specification. */
 
 #include <vantage/platform/pi4/io.h>
 
 enum {
     PERIPHERAL_BASE = MMIO_BASE,
-    IO_GPFSEL0 = PERIPHERAL_BASE + 0x200000, // GPIO FUNCTION SELECT 0 is a 32 bit reg to configure GPIO 0 to 9
-    IO_GPSET0 = PERIPHERAL_BASE + 0x20001C, // GPIO PIN OUTPUT SET 0 is used to map the first 32 GPIO pins
-    IO_GPCLR0 = PERIPHERAL_BASE + 0x200028, // GPIO PIN OUTPUT CLEAR 0 is used to turn GPIO pins to 0
-    GPPUPPDN0 = PERIPHERAL_BASE + 0x2000E4, // GPIO PIN PULL UP/DOWN REGISTER 0 (too long to explain)
+    IO_GPFSEL0 = PERIPHERAL_BASE + 0x200000,
+    IO_GPSET0 = PERIPHERAL_BASE + 0x20001c,
+    IO_GPCLR0 = PERIPHERAL_BASE + 0x200028,
+    GPPUPPDN0 = PERIPHERAL_BASE + 0x2000e4,
 };
 
 enum {
@@ -32,38 +31,39 @@ unsigned int mmio_read(long reg) {
 }
 #endif
 
-unsigned int gpio_call(unsigned int pin_number, unsigned int value, unsigned int base, unsigned int field_size, unsigned int field_max) {
-    unsigned int field_mask = (1 << field_size) - 1;
+static void gpio_configure(unsigned int pin, unsigned int value, long base, unsigned int width) {
+    unsigned int mask = (1U << width) - 1U;
+    if (pin > GPIO_MAX_PIN || value > mask) return;
+    unsigned int pins_per_register = 32U / width;
+    unsigned int shift = (pin % pins_per_register) * width;
+    long reg = base + (long)((pin / pins_per_register) * 4);
+    mmio_write(reg, (mmio_read(reg) & ~(mask << shift)) | (value << shift));
+}
 
-    if (pin_number > field_max) return 0;
-    if (value > field_mask) return 0;
-
-    unsigned int num_fields = 32 / field_size;
-    unsigned int reg = base + ((pin_number /num_fields) * 4);
-    unsigned int shift = (pin_number % num_fields) * field_size;
-
-    unsigned int curval = mmio_read(reg);
-    curval &= ~(field_mask << shift);
-    curval |= value << shift;
-    mmio_write(reg, curval);
-
-    return 0;
+static void gpio_write_level(unsigned int pin, unsigned int value, long base) {
+    /* SET and CLR are write-only strobes. Zero leaves a pin unchanged. */
+    if (pin <= GPIO_MAX_PIN && value == 1)
+        mmio_write(base + (long)((pin / 32U) * 4), 1U << (pin % 32U));
 }
 
 unsigned int gpio_set(unsigned int pin_number, unsigned int value) {
-    return gpio_call(pin_number, value, (unsigned int)IO_GPSET0, 1, GPIO_MAX_PIN);
+    gpio_write_level(pin_number, value, (long)IO_GPSET0);
+    return 0;
 }
 
 unsigned int gpio_clear(unsigned int pin_number, unsigned int value) {
-    return gpio_call(pin_number, value, (unsigned int)IO_GPCLR0, 1, GPIO_MAX_PIN);
-
+    gpio_write_level(pin_number, value, (long)IO_GPCLR0);
+    return 0;
 }
+
 unsigned int gpio_pull(unsigned int pin_number, unsigned int value) {
-    return gpio_call(pin_number, value, (unsigned int)GPPUPPDN0, 2, GPIO_MAX_PIN);
+    gpio_configure(pin_number, value, (long)GPPUPPDN0, 2);
+    return 0;
 }
 
 unsigned int gpio_function(unsigned int pin_number, unsigned int value) {
-    return gpio_call(pin_number, value, (unsigned int)IO_GPFSEL0, 3, GPIO_MAX_PIN);
+    gpio_configure(pin_number, value, (long)IO_GPFSEL0, 3);
+    return 0;
 }
 
 void gpio_useAsAlt5(unsigned int pin_number) {
@@ -90,18 +90,18 @@ enum {
 
 #define AUX_MU_BAUD(baud) ((AUX_UART_CLOCK/(baud*8))-1)
 
-void uart_init() {
-    mmio_write(AUX_ENABLES, 1); // enable UART1
-    mmio_write(AUX_MU_IER_REG, 0);
+void uart_init(void) {
+    mmio_write(AUX_ENABLES, mmio_read(AUX_ENABLES) | 1U);
     mmio_write(AUX_MU_CNTL_REG, 0);
-    mmio_write(AUX_MU_LCR_REG, 3); // 8 bits
-    mmio_write(AUX_MU_MCR_REG, 0);
     mmio_write(AUX_MU_IER_REG, 0);
-    mmio_write(AUX_MU_IIR_REG, 0xC6); // disable interrupts
+    /* Set eight data bits, no modem control, and clear both FIFOs. */
+    mmio_write(AUX_MU_LCR_REG, 3);
+    mmio_write(AUX_MU_MCR_REG, 0);
+    mmio_write(AUX_MU_IIR_REG, 0xc6);
     mmio_write(AUX_MU_BAUD_REG, AUX_MU_BAUD(115200));
     gpio_useAsAlt5(14);
     gpio_useAsAlt5(15);
-    mmio_write(AUX_MU_CNTL_REG, 3); // enable RX/TX
+    mmio_write(AUX_MU_CNTL_REG, 3);
 }
 
 unsigned int uart_isWriteByteReady() {
@@ -113,11 +113,13 @@ void uart_writeByteBlockingActual(unsigned char ch) {
     mmio_write(AUX_MU_IO_REG, (unsigned int)ch);
 }
 
+static void uart_console_char(unsigned char ch) {
+    if (ch == '\n') uart_writeByteBlockingActual('\r');
+    uart_writeByteBlockingActual(ch);
+}
+
 void uart_writeText(const char *buffer) {
-    while (*buffer) {
-       if (*buffer == '\n') uart_writeByteBlockingActual('\r');
-       uart_writeByteBlockingActual(*buffer++);
-    }
+    for (; *buffer; buffer++) uart_console_char((unsigned char)*buffer);
 }
 
 void uart_writeHex(unsigned int d) {
@@ -137,11 +139,7 @@ char* uart_convertHexToString(unsigned int hex) {
     return buf;
 }
 void uart_write_bytes(const char* buffer, size_t length) {
-    size_t i;
-    for (i = 0; i < length; i++) {
-        if (buffer[i] == '\n') uart_writeByteBlockingActual('\r');
-        uart_writeByteBlockingActual((unsigned char)buffer[i]);
-    }
+    for (size_t i = 0; i < length; i++) uart_console_char((unsigned char)buffer[i]);
 }
 
 uint32_t uart_read_byte(uint8_t* byte) {

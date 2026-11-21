@@ -197,23 +197,28 @@ class RandomTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls): cls.image = Image(sys.argv[1])
 
-    def machine(self, words, failing=False):
+    def machine(self, words, failing=False, fault_on_sample=None):
         m = CpuMachine(self.image)
         m.uc.mem_map(RNG, 0x1000)
-        state = {'words': list(words), 'writes': [], 'reads': 0}
+        state = {'words': list(words), 'writes': [], 'reads': 0, 'latched': False}
 
         def read(uc, access, address, size, value, _):
             state['reads'] += 1
             offset = address - RNG
             if offset == 0x18:
-                uc.mem_write(address, struct.pack('<I', 0x20 if failing else 0))
+                uc.mem_write(address, struct.pack('<I', 0x20 if failing or state['latched'] else 0))
             elif offset == 0x24:
                 uc.mem_write(address, struct.pack('<I', len(state['words'])))
             elif offset == 0x20 and state['words']:
-                uc.mem_write(address, struct.pack('<I', state['words'].pop(0)))
+                word = state['words'].pop(0)
+                if word == fault_on_sample:
+                    state['latched'] = True
+                uc.mem_write(address, struct.pack('<I', word))
 
         def write(uc, access, address, size, value, _):
             state['writes'].append((address - RNG, value))
+            if address == RNG + 0x18 and value & 0x20:
+                state['latched'] = False
 
         m.uc.hook_add(UC_HOOK_MEM_READ, read, begin=RNG, end=RNG + 0xfff)
         m.uc.hook_add(UC_HOOK_MEM_WRITE, write, begin=RNG, end=RNG + 0xfff)
@@ -225,6 +230,13 @@ class RandomTests(unittest.TestCase):
         self.assertIn((0, 1), state['writes'])          # RBGEN enabled.
         self.assertEqual(m.call('net_port_random'), 0xdeadbeef)
         self.assertEqual(m.call('net_port_random'), 0x12345678)
+
+    def test_health_failure_during_fifo_read_discards_that_word(self):
+        m, state = self.machine([1, 2, 0xdeadbeef, 0x11223344], fault_on_sample=0xdeadbeef)
+        self.assertEqual(signed(m.call('pi4_rng_start', m.call('pi4_hardware_ops'))), 1)
+        self.assertEqual(m.call('net_port_random'), 0x11223344)
+        self.assertEqual([(offset, value) for offset, value in state['writes'] if offset in (4, 8)],
+                         [(8, 1), (4, 1), (4, 0), (8, 0)])
 
     def test_failed_or_empty_generator_is_reported_and_bypassed(self):
         for words, failing in (([1, 2, 3], True), ([], False), ([7, 7], False)):

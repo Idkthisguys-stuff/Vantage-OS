@@ -312,7 +312,7 @@ static void dns_input(uint32_t server, uint32_t client, uint16_t source_port, co
     else if (!strcmp(name, "ttl.vantage.test")) { n += answer_a(r + n, 12, NET_PEER_WEB, 1); answers = 1; }
     else if (!strcmp(name, "www.vantage.test")) {
         /* CNAME to vantage.test, then an A record whose owner points into the CNAME data. */
-        put16(r + n, 0xc00cU); put16(r + n + 2, 5); put16(r + n + 4, 1); put32(r + n + 6, 300);
+        put16(r + n, 0xc00cU); put16(r + n + 2, 5); put16(r + n + 4, 1); put32(r + n + 6, 10);
         unsigned int target = n + 12, size = encode(r + target, "vantage.test");
         put16(r + n + 10, size);
         n = target + size;
