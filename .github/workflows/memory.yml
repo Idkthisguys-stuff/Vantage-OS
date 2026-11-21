@@ -80,6 +80,11 @@ jobs:
           make BUILD_DIR="$RUNNER_TEMP/no-ethernet" V3D=0 ETHERNET=0 -j2
           python tests/arm/ethernet_boot.py "$RUNNER_TEMP/cpu/kernel8.elf" \
             "$RUNNER_TEMP/no-ethernet/kernel8.elf" -v 2>&1 | tee "$RUNNER_TEMP/evidence/ethernet-boot.txt"
+      - name: Probe modelled Pi 4 USB and verify the default skips PCIe
+        run: |
+          make BUILD_DIR="$RUNNER_TEMP/usb" USB=1 V3D=0 ETHERNET=0 -j2
+          python tests/arm/usb_boot.py "$RUNNER_TEMP/usb/kernel8.elf" \
+            "$RUNNER_TEMP/no-ethernet/kernel8.elf" -v 2>&1 | tee "$RUNNER_TEMP/evidence/usb-boot.txt"
       - name: Compile default GPU and Wi-Fi path with synthetic assets
         # Compile-only fixture: these bytes are not usable radio firmware.
         run: |

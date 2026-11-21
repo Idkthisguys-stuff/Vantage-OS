@@ -42,3 +42,14 @@ void mmu_populate_tables(uint64_t level1[4], uint64_t level2[4][512],
         level1[g] = (uint64_t)(uintptr_t)level2[g] | 3;
     }
 }
+
+/* BCM2711 PCIe outbound window. Leave the rest of the GiB unmapped. */
+void mmu_populate_pcie_tables(uint64_t level1[MMU_TABLE_ENTRIES],
+                            uint64_t level2[MMU_TABLE_ENTRIES]) {
+    for (unsigned int i = 0; i < MMU_TABLE_ENTRIES; i++) {
+        uint64_t offset = (uint64_t)i * BLOCK_SIZE;
+        level2[i] = offset < MMU_PCIE_DEVICE_BYTES ?
+            (MMU_PCIE_DEVICE_BASE + offset) | (1ULL << 10) | (2ULL << 8) | UXN | PXN | 1 : 0;
+    }
+    level1[MMU_PCIE_DEVICE_SLOT] = (uint64_t)(uintptr_t)level2 | 3;
+}

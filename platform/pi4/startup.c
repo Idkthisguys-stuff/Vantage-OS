@@ -1,4 +1,5 @@
 #include <vantage/platform/pi4/drivers.h>
+#include <vantage/drivers/pi4_usb.h>
 #include <vantage/drivers/v3d.h>
 #include <vantage/platform/pi4/display.h>
 #include <vantage/kernel/memory.h>
@@ -24,7 +25,7 @@ static Wifi wifi;
 extern const WifiFirmware* pi4_wifi_firmware(void);
 #endif
 
-#if VANTAGE_V3D || (VANTAGE_WIFI && VANTAGE_WIFI_ASSETS) || VANTAGE_ETHERNET
+#if VANTAGE_V3D || (VANTAGE_WIFI && VANTAGE_WIFI_ASSETS) || VANTAGE_ETHERNET || VANTAGE_USB
 static void report(const char* prefix, int error) {
     char digits[12]; unsigned int used = 0;
     uint32_t value = (uint32_t)(error < 0 ? -(int64_t)error : error);
@@ -124,6 +125,29 @@ static const NetLink* ethernet_start(void) {
 }
 #endif
 
+#if VANTAGE_USB
+static void usb_start(void) {
+    Pi4UsbProbe usb;
+    int usb_result = pi4_usb_probe(pi4_hardware_ops(), &usb);
+    if (usb_result == HW_OK) {
+        uart_writeText("[OK] VL805 xHCI PCIe probe: version ");
+        uart_writeHex(usb.version);
+        uart_writeText(", logical ports ");
+        uart_writeHex(usb.ports);
+        uart_writeText("\n");
+    } else {
+        static const char* const stages[] = {"", "bridge", "link", "endpoint",
+                                            "firmware", "BAR", "xHCI"};
+        uart_writeText("[WARN] VL805 xHCI probe failed at ");
+        uart_writeText(stages[usb.stage]);
+        report(" (", usb_result);
+        uart_writeText("[INFO] USB probe detail ");
+        uart_writeHex(usb.detail);
+        uart_writeText("\n");
+    }
+}
+#endif
+
 void pi4_drivers_start(void) {
 #if VANTAGE_V3D
     gpu_start();
@@ -175,6 +199,9 @@ void pi4_drivers_start(void) {
     uart_writeText("[INFO] Ethernet disabled at build time (ETHERNET=0)\n");
 #endif
     net_attach(wifi_link, eth_link);
+#if VANTAGE_USB
+    usb_start();
+#endif
 }
 
 void pi4_drivers_poll(void) {

@@ -18,6 +18,8 @@ support default on, but Wi-Fi skips initialization without supplied assets and
 storage skips mounting without the confirmed SD clock and primary partition.
 Physical validation remains pending; see
 [the hardware guide](docs/HARDWARE.md) and [storage guide](docs/STORAGE.md).
+The opt-in Pi 4 USB controller probe and the path to USB file access are
+documented in the [hardware roadmap](docs/USB.md).
 
 New V3 storage images support 256 files/folders, 255-byte paths and 1 MiB per file
 (subject to shared disk space). The text editor retains its 4 KiB document limit.

@@ -4,7 +4,8 @@
 #include <vantage/user.h>
 #include <stdio.h>
 
-static uint64_t level1[4];
+static uint64_t level1[MMU_TABLE_ENTRIES];
+static uint64_t pcie_level2[MMU_TABLE_ENTRIES];
 static uint64_t level2[4][512];
 static union {
     uint64_t words[64];
@@ -97,6 +98,17 @@ int main(void) {
             if (g == 0 && i == 3 &&
                 (((level2[g][i] >> 2) & 7) != 0 || ((level2[g][i] >> 8) & 3) != 2)) return 1;
         }
+    }
+    mmu_populate_pcie_tables(level1, pcie_level2);
+    if (level1[MMU_PCIE_DEVICE_SLOT] != ((uint64_t)(uintptr_t)pcie_level2 | 3)) return 1;
+    for (i = 0; i < MMU_TABLE_ENTRIES; i++) {
+        if (i >= MMU_PCIE_DEVICE_BYTES / 0x200000ULL) {
+            if (pcie_level2[i]) return 1;
+            continue;
+        }
+        uint64_t expected = (MMU_PCIE_DEVICE_BASE + (uint64_t)i * 0x200000ULL) |
+                            (1ULL << 53) | (1ULL << 54) | (1ULL << 10) | (2ULL << 8) | 1;
+        if (pcie_level2[i] != expected) return 1;
     }
     /* Even an overlapping framebuffer range cannot make the transition gate
      * Normal memory. Its reserved Device mapping takes priority. */

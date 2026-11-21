@@ -65,6 +65,10 @@ DRIVER_SOURCES := \
     drivers/wifi/nvram.c \
     drivers/wifi/sdio.c
 
+ifeq ($(USB),1)
+DRIVER_SOURCES += drivers/storage/pi4_usb.c drivers/storage/usb_storage.c drivers/storage/usb_fat32.c
+endif
+
 PLATFORM_SOURCES := \
     platform/pi4/display.c \
     platform/pi4/ethernet.c \
