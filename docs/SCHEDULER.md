@@ -159,8 +159,8 @@ another task on the same core needs.
 ## Device events and timed waits
 
 The core 0 dispatcher runs a driver service with an 8 ms target period while
-the built-in application is active. It polls network and Bluetooth, stages
-keyboard and touch events, and publishes readiness after the device calls
+the built-in application is active. It polls network, Bluetooth and USB input,
+checks keyboard and touch readiness, and publishes events after the device calls
 return. Work on a core runs until it yields or can be preempted, so service and
 wait deadlines can run late under load. The service uses the existing core 0
 driver ownership and never runs in interrupt context.

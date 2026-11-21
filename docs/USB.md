@@ -1,14 +1,14 @@
 # Pi 4 hardware roadmap
 
 The opt-in USB driver brings up the Pi 4 VL805 controller, checks a No Op
-command completion, and polls USB 2 boot-protocol keyboards and mice on the
-direct root ports. Keyboard presses go to Home and Console. The mouse moves
-a cursor and its left button acts as a touch contact. One keyboard and one
-mouse can be used together. The keyboard uses a US layout.
+command completion, and polls USB 2 boot-protocol keyboards and mice through
+the VL805's internal USB 2 hub. Keyboard presses go to Home and Console. The
+mouse moves a cursor and its left button acts as a touch contact. One keyboard
+and one mouse can be used together. The keyboard uses a US layout.
 
-Physical Pi validation is pending. The initial driver handles devices plugged
-directly into the Pi. Hub enumeration, general HID report descriptors and
-flash-drive transfers are later steps.
+Physical Pi validation is pending. The driver supports one high-speed USB 2
+hub tier to reach devices plugged directly into the Pi. Cascaded hubs, general
+HID report descriptors and flash-drive transfers are later steps.
 
 ## USB mass storage
 
@@ -87,6 +87,9 @@ with clear buffer and lifetime boundaries.
 Register and firmware references are the [BCM2711 device tree](https://github.com/torvalds/linux/blob/v6.12/arch/arm/boot/dts/broadcom/bcm2711.dtsi),
 [Broadcom PCIe host driver](https://github.com/torvalds/linux/blob/v6.12/drivers/pci/controller/pcie-brcmstb.c),
 and [Pi firmware notes on the VL805 and inbound DMA](https://github.com/raspberrypi/firmware/issues/1495#issuecomment-728112060).
-The [Intel xHCI specification](https://cdrdv2-public.intel.com/625472/625472_xHCI_Rev1_2b.pdf)
+The [Intel xHCI specification](https://cdrdv2-public.intel.com/625472/625472_xHCI_Rev1_2b.pdf),
+[USB 2.0 specification](https://www.usb.org/document-library/usb-20-specification)
 and [USB-IF HID specification](https://www.usb.org/sites/default/files/hid1_11.pdf)
-define the controller rings and boot reports.
+define the controller rings, USB 2 hub behavior and boot reports. See
+[Raspberry Pi USB hardware documentation](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#usb)
+for the Pi 4's USB-A routing.
