@@ -405,7 +405,7 @@ static int attach_child(unsigned int port, unsigned int status, InputDevice* vac
     unsigned int speed = (status & (1U << PORT_HIGH_SPEED)) ? 3
                        : (status & (1U << PORT_LOW_SPEED)) ? 2 : 1;
     int result = vacant ? pi4_usb_open_child(hub.root, port, speed) : HW_UNSUPPORTED;
-    size_t bytes;
+    size_t bytes = 0;
     if (result == HW_OK) result = read_configuration(path, &bytes);
     if (result == HW_OK) result = configure_boot(path, bytes, vacant);
     if (result == HW_OK) {
@@ -506,7 +506,7 @@ static void scan_devices(unsigned int ports) {
         if (result == HW_OFF) ignored[scan_port] = 0;
         if (result != HW_OK || ignored[scan_port]) continue;
         result = pi4_usb_open_port(scan_port);
-        size_t bytes;
+        size_t bytes = 0;
         if (result == HW_OK) result = read_configuration(scan_port, &bytes);
         if (result == HW_OK) {
             HubEndpoint endpoint = find_hub_endpoint(bytes);
