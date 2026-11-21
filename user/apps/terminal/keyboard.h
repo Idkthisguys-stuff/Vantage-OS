@@ -5,6 +5,7 @@
 
 /* Returns the number of rows available above the keyboard. */
 uint32_t keyboard_init(uint32_t columns, uint32_t rows);
+void keyboard_enable_symbols(void);
 uint32_t keyboard_touch(const TouchContact* contact, KeyEvent* event);
 uint32_t keyboard_repeat(KeyEvent* event);
 uint32_t keyboard_repeat_pending(void);

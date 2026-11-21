@@ -16,6 +16,18 @@ Wi-Fi as unavailable. See
 
 ## Using it
 
+Open **Network → Scan** from Home, then tap an open or WPA2 network. Open
+networks connect immediately. For WPA2, enter the password with the on-screen
+or physical keyboard and choose **Join**. Tap **Sym** for punctuation on the
+on-screen keyboard. The GUI connects for the current
+session. Use Console's `net join` to save a profile. Home displays `HH:MM UTC`
+once SNTP synchronizes.
+
+In the desktop simulator, select **VantageNet** and enter `vantage-demo`.
+The simulator uses a virtual radio and clock server.
+
+### Console commands
+
 ```text
 > net scan
 Scanning... (Cancel to stop)
