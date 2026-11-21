@@ -68,6 +68,21 @@ disabled in ordinary builds (`USB=0`).
   Wi-Fi and USB disabled. Record whether UART reports V3D presentation or
   CPU presentation. Repeat with the CPU-only build as a baseline.
 
+## Bluetooth and Rust
+
+Validate [Bluetooth startup and BLE discovery](BLUETOOTH.md) with Wi-Fi and
+USB disabled. On the first board run, scan for a known BLE device and
+compare its reported address or name. After isolated runs pass, check
+Bluetooth scanning while Wi-Fi remains associated.
+
+The new xHCI command and event rings are the strongest first candidate for a
+small allocation-free Rust component. Give each pending command a typed slot
+and validate completions before reusing slots. Keep MMIO, cache maintenance
+and DMA address translation at the hardware boundary. Test ring wrap and
+reset recovery on ARM before enabling USB transfers on the Pi. Packet
+decoders and FAT32 are later candidates with clear buffer and lifetime
+boundaries. Existing drivers can retain their current C ABI.
+
 Register and firmware references are the [BCM2711 device tree](https://github.com/torvalds/linux/blob/v6.12/arch/arm/boot/dts/broadcom/bcm2711.dtsi),
 [Broadcom PCIe host driver](https://github.com/torvalds/linux/blob/v6.12/drivers/pci/controller/pcie-brcmstb.c),
 and [Pi firmware notes on the VL805 and inbound DMA](https://github.com/raspberrypi/firmware/issues/1495#issuecomment-728112060).

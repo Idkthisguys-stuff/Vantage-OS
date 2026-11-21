@@ -129,7 +129,7 @@ class TerminalTests(unittest.TestCase):
         m.launch(terminal=False)
         self.assertEqual(m.rows[1].strip(), 'Vantage OS')
         presentations = m.presentations
-        m.tap(405, 66)
+        m.tap(350, 66)
         self.assertEqual(m.presentations, presentations)
         m.tap(185, 66)
         self.assertEqual(m.rows[7].strip(), 'Files')
@@ -149,6 +149,86 @@ class TerminalTests(unittest.TestCase):
         m.tap(75, 66)
         m.step()
         self.assertEqual(m.rows[5], '> x')
+
+    def test_bluetooth_tile_opens_by_keyboard_when_unavailable(self):
+        m = TerminalMachine(self.image)
+        if 'pi4_bt_status' in self.image.symbols:
+            m.stub('pi4_bt_status', lambda pointer, *_: m.uc.mem_write(pointer, bytes(16)))
+        m.launch(terminal=False)
+        m.keys.append((1, ord('4')))
+        m.step()
+        self.assertEqual(m.rows[7].strip(), 'Bluetooth')
+        self.assertEqual(m.rows[9].strip(), 'Bluetooth unavailable')
+        presentations = m.presentations
+        m.keys.append((2, 0))
+        m.step()
+        m.tap(75, 200)
+        self.assertEqual(m.presentations, presentations)
+        m.keys.append((6, 0))
+        m.step()
+        self.assertEqual(m.rows[1].strip(), 'Vantage OS')
+
+    def test_bluetooth_scan_refreshes_device_details_and_status(self):
+        if 'pi4_bt_status' not in self.image.symbols:
+            self.skipTest('requires a Bluetooth-enabled kernel')
+        m = TerminalMachine(self.image)
+        state, scan_result = 1, -2  # BT_BOOTING, BT_BUSY
+        devices = []
+
+        def status(pointer, *_):
+            assert not USER_BASE <= pointer < USER_END
+            m.uc.mem_write(pointer, struct.pack('<2IiI', state, len(devices), 0, 0))
+
+        def scan(*_):
+            nonlocal state
+            if scan_result == 1:
+                state = 3  # BT_SCANNING
+            return scan_result
+
+        def device(index, pointer, *_):
+            assert not USER_BASE <= pointer < USER_END
+            if index >= len(devices):
+                return 0
+            m.uc.mem_write(pointer, struct.pack('<6sBBi32s', *devices[index]))
+            return 1
+
+        m.stub('pi4_bt_status', status)
+        m.stub('pi4_bt_scan_start', scan)
+        m.stub('pi4_bt_device', device)
+        m.launch(terminal=False)
+        m.tap(405, 66)
+        self.assertEqual(m.rows[9].strip(), 'Starting Bluetooth...')
+
+        state = 2  # BT_READY
+        m.app_clock_us += 250000
+        m.step()
+        self.assertEqual(m.rows[15].strip(), 'No BLE devices found')
+        m.tap(75, 200)
+        self.assertEqual(m.rows[10].strip(), 'Could not start scan')
+
+        scan_result = 1
+        m.keys.append((2, 0))
+        m.step()
+        self.assertEqual(m.rows[9].strip(), 'Scanning for BLE devices...')
+        self.assertNotIn(10, m.rows)
+        address = bytes.fromhex('665544332211')
+        long_name = b'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'
+        devices.append((address, 0, 0, -42, long_name))
+        m.app_clock_us += 250000
+        m.step()
+        self.assertEqual(m.rows[15].strip(), long_name.decode())
+        self.assertEqual(m.rows[16].strip(), '11:22:33:44:55:66  -42 dBm')
+
+        devices[0] = (address, 0, 0, 127, b'')
+        m.app_clock_us += 250000
+        m.step()
+        self.assertEqual(m.rows[15].strip(), 'Unnamed device')
+        self.assertEqual(m.rows[16].strip(), '11:22:33:44:55:66  RSSI unavailable')
+        state = 2
+        m.app_clock_us += 250000
+        m.step()
+        self.assertEqual(m.rows[9].strip(), 'Ready to scan')
+        self.assertEqual(m.rows[15].strip(), 'Unnamed device')
 
     def test_isolated_app_uses_its_own_stack_and_real_kernel_stats(self):
         m = TerminalMachine(self.image)

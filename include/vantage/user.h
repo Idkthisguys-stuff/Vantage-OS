@@ -1,4 +1,5 @@
 #pragma once
+#include <vantage/abi/bluetooth.h>
 #include <vantage/abi/files.h>
 #include <vantage/abi/graphics.h>
 #include <vantage/abi/touch.h>
@@ -38,6 +39,11 @@ int sys_net_connect(uint64_t handle, uint32_t address, uint16_t port);
 int sys_net_send(uint64_t handle, const void* data, uint32_t length);
 int sys_net_receive(uint64_t handle, void* data, uint32_t capacity);
 int sys_net_close(uint64_t handle);
+
+/* Nonblocking BLE discovery. DEVICE returns 0 if the index is absent. */
+int sys_bt_status(BtStatus* status);
+int sys_bt_scan_start(void);
+int sys_bt_device(uint32_t index, BtDevice* device);
 
 uint64_t sys_task_id(void);
 uint32_t sys_task_yield(void);

@@ -1,4 +1,5 @@
 #include <vantage/abi/syscall.h>
+#include <vantage/abi/bluetooth.h>
 #include <vantage/abi/console.h>
 #include <vantage/abi/net.h>
 #include <vantage/kernel/syscall.h>
@@ -27,6 +28,36 @@ static uint32_t writable(uint64_t address, size_t size, unsigned int alignment) 
     return !(address % alignment) && user_access_ok((uintptr_t)address, size, 1);
 }
 
+static int bluetooth_call(uint64_t id, uint64_t arg) {
+    if (id == SYS_BT_STATUS) {
+        BtStatus status = {0};
+        if (!writable(arg, sizeof(status), sizeof(uint32_t))) return BT_PROTOCOL;
+#if VANTAGE_BLUETOOTH && !defined(VANTAGE_SIM)
+        pi4_bt_status(&status);
+#endif
+        return user_copy_out((uintptr_t)arg, &status, sizeof(status)) ? BT_OK : BT_PROTOCOL;
+    }
+    if (id == SYS_BT_SCAN_START) {
+        if (arg) return BT_PROTOCOL;
+#if VANTAGE_BLUETOOTH && !defined(VANTAGE_SIM)
+        return pi4_bt_scan_start();
+#else
+        return BT_UNAVAILABLE;
+#endif
+    }
+    BtDeviceCall request;
+    if (!fetch(&request, arg, sizeof(request), sizeof(uint32_t)) ||
+        !writable(arg, sizeof(request), sizeof(uint32_t)) ||
+        request.reserved || request.index >= BT_DEVICE_LIMIT) return BT_PROTOCOL;
+#if VANTAGE_BLUETOOTH && !defined(VANTAGE_SIM)
+    int result = pi4_bt_device(request.index, &request.device);
+    if (result == BT_OK && !user_copy_out((uintptr_t)arg, &request, sizeof(request))) return BT_PROTOCOL;
+    return result;
+#else
+    return BT_UNAVAILABLE;
+#endif
+}
+
 uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 #ifndef VANTAGE_SIM
     /* Scheduling syscalls are available on all cores. Existing device/file
@@ -42,6 +73,8 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
             return (uint64_t)(int64_t)FILE_UNAVAILABLE;
         if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
             return (uint64_t)(int64_t)NET_UNAVAILABLE;
+        if (syscall_id >= SYS_BT_STATUS && syscall_id <= SYS_BT_DEVICE)
+            return (uint64_t)(int64_t)BT_UNAVAILABLE;
         return 0;
     }
 #endif
@@ -54,6 +87,8 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
         return (uint64_t)handle_file_call(syscall_id, (uintptr_t)arg0, owner);
     if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
         return (uint64_t)handle_net_call(syscall_id, (uintptr_t)arg0, owner);
+    if (syscall_id >= SYS_BT_STATUS && syscall_id <= SYS_BT_DEVICE)
+        return (uint64_t)(int64_t)bluetooth_call(syscall_id, arg0);
     if (syscall_id == SYS_TOUCH_READ || syscall_id == SYS_TOUCH_CONTACT_READ) {
         TouchContact contact = {0};
         const void* payload = &contact.event;
