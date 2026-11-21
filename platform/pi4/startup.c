@@ -141,8 +141,28 @@ void pi4_drivers_start(void) {
         if (wifi_result == HW_OK) {
             wifi_link = pi4_net_link(&wifi);
             uart_writeText("[OK] CYW43455 firmware ready; use 'net join' to connect\n");
-        } else report("[ERR] CYW43455 firmware initialization failed (", wifi_result);
+        } else {
+            report("[ERR] CYW43455 firmware initialization failed (", wifi_result);
+            if (wifi.boot_stage) {
+                uart_writeText("[INFO] WLAN stage: ");
+                uart_writeText(wifi.boot_stage);
+                uart_writeText("\n");
+            }
+            if (wifi.backplane_failure) {
+                uart_writeText("[INFO] WLAN backplane address: ");
+                uart_writeHex(wifi.backplane_failure_address);
+                uart_writeText("\n");
+                report("[INFO] WLAN backplane result (", wifi.backplane_failure);
+            }
+        }
     } else report("[ERR] WLAN SDIO initialization failed (", wifi_result);
+    if (!wifi_link && sdio.failure_command) {
+        uart_writeText("[INFO] SDIO command/argument/response/interrupt: ");
+        uart_writeHex(sdio.failure_command); uart_writeText(" ");
+        uart_writeHex(sdio.failure_argument); uart_writeText(" ");
+        uart_writeHex(sdio.failure_response); uart_writeText(" ");
+        uart_writeHex(sdio.failure_interrupt); uart_writeText("\n");
+    }
 #elif VANTAGE_WIFI
     uart_writeText("[INFO] Wi-Fi skipped: supply firmware, NVRAM and CLM via tools/embed_wifi.py\n");
 #else

@@ -51,7 +51,11 @@ python tools/build.py sim --sdl C:/path/to/SDL2
 .\out\sim\sim\Release\vantage_sim.exe
 ```
 
-Type `help` to get started, using your keyboard or the on-screen keys. With a
+Vantage opens to Home with Console, Files and Network. Use the touchscreen or
+mouse to select a view. In the simulator, Enter opens Console and Esc returns
+to Home. The Console keeps its session while you visit Home.
+
+In Console, type `help` using your keyboard or the on-screen keys. With a
 storage image mounted, `edit`, `cat`, `ls` and `rm` read and write persistent
 files. See the [terminal guide](docs/TERMINAL.md) for usage.
 

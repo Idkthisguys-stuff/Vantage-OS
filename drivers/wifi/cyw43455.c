@@ -5,6 +5,7 @@
 
 #define RAM_BASE 0x198000U
 #define ENUM_BASE 0x18000000U
+#define EROM_BYTES 4096U
 #define CLOCK_CSR 0x1000eU
 
 static uint32_t le32(const unsigned char* p) {
@@ -63,7 +64,11 @@ static int backplane(Wifi* w, uint32_t address, void* data, unsigned int bytes, 
         if (count > bytes) count = bytes;
         if (count > 512) count = 512;
         int result = window(w, address);
-        if (result != HW_OK) return result;
+        if (result != HW_OK) {
+            w->backplane_failure_address = address;
+            w->backplane_failure = result;
+            return result;
+        }
         if (count >= 4) {
             count &= ~3U;
             result = w->bus.transfer(w->bus.context, 1, (address & 0x7fffU) | 0x8000U, 1, write, p, count);
@@ -71,7 +76,11 @@ static int backplane(Wifi* w, uint32_t address, void* data, unsigned int bytes, 
             for (unsigned int i = 0; i < count && result == HW_OK; i++)
                 result = reg8(w, 1, ((address + i) & 0x7fffU) | 0x8000U, write, p + i);
         }
-        if (result != HW_OK) return result;
+        if (result != HW_OK) {
+            w->backplane_failure_address = address;
+            w->backplane_failure = result;
+            return result;
+        }
         address += count; p += count; bytes -= count;
     }
     return HW_OK;
@@ -117,37 +126,54 @@ static int core_reset(Wifi* w, uint32_t wrap, uint32_t before, uint32_t after) {
     return write32(w, wrap + 0x408, 1U | after);
 }
 
+static int erom_word(Wifi* w, uint32_t base, unsigned int* offset, uint32_t* value) {
+    if (*offset >= EROM_BYTES) return HW_PROTOCOL;
+    int result = read32(w, base + *offset, value);
+    *offset += 4;
+    return result;
+}
+
 static int chip_probe(Wifi* w) {
     uint32_t value, erom;
-    if (read32(w, ENUM_BASE, &value) != HW_OK) return HW_IO;
+    w->boot_stage = "chip ID";
+    int result = read32(w, ENUM_BASE, &value);
+    if (result != HW_OK) return result;
     w->chip = value & 0xffffU; w->revision = (value >> 16) & 15U;
     if (w->chip != 0x4345 || w->revision != 6 || (value >> 28) != 1) return HW_UNSUPPORTED;
-    if (read32(w, ENUM_BASE + 0xfc, &erom) != HW_OK || (erom & 3) ||
-        erom < ENUM_BASE || erom > 0x18200000U - sizeof(w->erom)) return HW_PROTOCOL;
-    if (backplane(w, erom, w->erom, sizeof(w->erom), 0) != HW_OK) return HW_IO;
-    unsigned int core = 0, core_revision = 0, ended = 0;
-    for (unsigned int offset = 0; offset + 4 <= sizeof(w->erom); offset += 4) {
-        value = le32(w->erom + offset);
+
+    w->boot_stage = "core enumeration";
+    result = read32(w, ENUM_BASE + 0xfc, &erom);
+    if (result != HW_OK) return result;
+    if ((erom & 3) || erom < ENUM_BASE || erom > 0x18200000U - EROM_BYTES) return HW_PROTOCOL;
+    unsigned int core = 0, core_revision = 0, ended = 0, offset = 0;
+    /* The enumeration ROM terminates at END. Do not read later words. */
+    while (offset < EROM_BYTES) {
+        result = erom_word(w, erom, &offset, &value);
+        if (result != HW_OK) return result;
         unsigned int type = value & 15U;
         if (type == 15) { ended = 1; break; }
         if (!(value & 1)) continue;
         if (type == 1) {
-            if (offset + 8 > sizeof(w->erom) || (le32(w->erom + offset + 4) & 15U) != 1) return HW_PROTOCOL;
             core = (value >> 8) & 0xfffU;
-            core_revision = le32(w->erom + offset + 4) >> 24;
-            offset += 4;
+            uint32_t descriptor;
+            result = erom_word(w, erom, &offset, &descriptor);
+            if (result != HW_OK) return result;
+            if ((descriptor & 15U) != 1) return HW_PROTOCOL;
+            core_revision = descriptor >> 24;
         } else if ((type & ~8U) == 5) {
+            uint32_t descriptor;
             if (type & 8) {
-                if (offset + 8 > sizeof(w->erom) || le32(w->erom + offset + 4)) return HW_UNSUPPORTED;
-                offset += 4;
+                result = erom_word(w, erom, &offset, &descriptor);
+                if (result != HW_OK) return result;
+                if (descriptor) return HW_UNSUPPORTED;
             }
             unsigned int size_type = (value >> 4) & 3U;
             if (size_type == 3) {
-                if (offset + 8 > sizeof(w->erom)) return HW_PROTOCOL;
-                offset += 4;
-                if (le32(w->erom + offset) & 8U) {
-                    if (offset + 8 > sizeof(w->erom)) return HW_PROTOCOL;
-                    offset += 4;
+                result = erom_word(w, erom, &offset, &descriptor);
+                if (result != HW_OK) return result;
+                if (descriptor & 8U) {
+                    result = erom_word(w, erom, &offset, &descriptor);
+                    if (result != HW_OK) return result;
                 }
             }
             if (size_type > 1) continue;
@@ -161,8 +187,10 @@ static int chip_probe(Wifi* w) {
         }
     }
     if (!ended || !w->arm || !w->arm_wrap || !w->d11_wrap || !w->sdregs) return HW_PROTOCOL;
+    w->boot_stage = "core reset";
     if (core_reset(w, w->arm_wrap, 0x20, 0x20) != HW_OK ||
         core_disable(w, w->d11_wrap, 12, 4) != HW_OK) return HW_IO;
+    w->boot_stage = "RAM discovery";
     if (read32(w, w->arm + 4, &value) != HW_OK) return HW_IO;
     unsigned int banks = (value & 15U) + ((value >> 4) & 15U);
     if (!banks || banks > 16) return HW_UNSUPPORTED;
@@ -413,10 +441,12 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
     size_t nvram_bytes = 0;
     if (wifi_nvram_pack(f->nvram, f->nvram_bytes, w->nvram, sizeof(w->nvram), &nvram_bytes) != HW_OK)
         return fail(w, HW_INVALID);
+    w->boot_stage = "backplane clock";
     if (set8(w, 1, CLOCK_CSR, 0x28) != HW_OK || wait8(w, 1, CLOCK_CSR, 64, 64, 500000) != HW_OK ||
         set8(w, 1, CLOCK_CSR, 0x21) != HW_OK || bus->delay(bus->context, 65) != HW_OK) return fail(w, HW_TIMEOUT);
     int result = chip_probe(w);
     if (result != HW_OK) return fail(w, result);
+    w->boot_stage = "firmware upload and startup";
     if (w->sd_revision >= 12) {
         uint8_t sleep;
         if (reg8(w, 1, 0x1001f, 0, &sleep) != HW_OK || set8(w, 1, 0x1001f, sleep | 1U) != HW_OK)

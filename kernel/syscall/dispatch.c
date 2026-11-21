@@ -54,11 +54,17 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
         return (uint64_t)handle_file_call(syscall_id, (uintptr_t)arg0, owner);
     if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
         return (uint64_t)handle_net_call(syscall_id, (uintptr_t)arg0, owner);
-    if (syscall_id == SYS_TOUCH_READ) {
-        TouchEvent event;
-        if (!writable(arg0, sizeof(event), sizeof(uint32_t))) return 0;
-        uint32_t result = touch_read(&event);
-        return user_copy_out((uintptr_t)arg0, &event, sizeof(event)) ? result : 0;
+    if (syscall_id == SYS_TOUCH_READ || syscall_id == SYS_TOUCH_CONTACT_READ) {
+        TouchContact contact = {0};
+        const void* payload = &contact.event;
+        size_t size = sizeof(contact.event);
+        if (syscall_id == SYS_TOUCH_CONTACT_READ) {
+            payload = &contact;
+            size = sizeof(contact);
+        }
+        if (!writable(arg0, size, sizeof(uint32_t))) return 0;
+        uint32_t result = touch_read(&contact);
+        return user_copy_out((uintptr_t)arg0, payload, size) ? result : 0;
     }
     else if (syscall_id == SYS_CANVAS_SET_COLOR) {
         // Set Color (arg0 is the color value)

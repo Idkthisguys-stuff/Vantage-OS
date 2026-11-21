@@ -11,4 +11,4 @@
 
 uint32_t touch_init(void);
 /* Returns 1 when an event is available, otherwise 0 and type NONE. */
-uint32_t touch_read(TouchEvent* event);
+uint32_t touch_read(TouchContact* contact);

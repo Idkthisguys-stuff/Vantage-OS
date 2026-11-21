@@ -16,13 +16,18 @@ static uint32_t read32(void* context, uintptr_t address) {
         if (m->mode == 3) mailbox.words[4] = 8;
         if (m->mode == 5) mailbox.words[4] = 0x80000006U;
         if (m->mode == 6) mailbox.words[4] = 0x8000000cU;
+        if (m->mode == 7 || m->mode == 8) {
+            mailbox.words[4] = 0;
+            if (m->mode == 7) mailbox.words[5] = 0;
+        }
         return m->token;
     }
     return 0;
 }
 static void write32(void* context, uintptr_t address, uint32_t value) {
     Model* m = context; CHECK(address == 0xfe00b8a0ULL);
-    CHECK(mailbox.words[0] == 32 && mailbox.words[2] == 0x30002 && !mailbox.words[4]);
+    CHECK(mailbox.words[0] == 32 && !mailbox.words[4]);
+    CHECK(mailbox.words[2] == 0x30002 || mailbox.words[2] == 0x38041);
     m->submitted = 1; m->token = value;
 }
 static uint32_t clock_us(void* context) { Model* m = context; m->clock += m->mode == 4 ? 0U : 1000U; return m->clock; }
@@ -45,6 +50,12 @@ int main(void) {
     CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_OK && values[1] == 100000000);
     m.mode = 6; m.submitted = 0; values[1] = 123;
     CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_PROTOCOL && values[1] == 123);
+    m.mode = 7; m.submitted = 0; values[0] = 129; values[1] = 1;
+    CHECK(property_call(&mailbox, &io, 0x38041, values, 2) == HW_OK && values[0] == 0);
+    m.mode = 8; m.submitted = 0; values[0] = 129; values[1] = 1;
+    CHECK(property_call(&mailbox, &io, 0x38041, values, 2) == HW_PROTOCOL && values[0] == 129);
+    m.mode = 7; m.submitted = 0; values[0] = 1;
+    CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_PROTOCOL && values[0] == 1);
     m.mode = 1;
     CHECK(property_call(&mailbox, &io, 0x30002, values, 2) == HW_TIMEOUT && mailbox.state == 0);
     m.mode = 2;

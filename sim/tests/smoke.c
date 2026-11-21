@@ -1,6 +1,10 @@
 #include <vantage/kernel/window_manager.h>
 #include <vantage/user.h>
 #include <SDL2/SDL.h>
+#include "../platform/display_sim.h"
+
+void home_app_init(void);
+void home_app_step(void);
 
 static int check_pixel(SDL_Renderer* renderer, int x, int y, uint32_t expected) {
     SDL_Rect rect = { x, y, 1, 1 };
@@ -178,6 +182,25 @@ int main(int argc, char* argv[]) {
     env_ListenTouch(&test_window, &touch);
     if (test_window.x != 0 || test_window.y != 0 ||
         test_window.w != 480 || test_window.h != 800) return 1;
+
+    sim_set_coordinate_overlay(0);
+    home_app_init();
+    home_app_step();
+    if (!check_pixel(renderer, 30, 66, RGB(30, 61, 67)) ||
+        !check_pixel(renderer, 140, 66, RGB(30, 61, 67)) ||
+        !check_pixel(renderer, 250, 66, RGB(30, 61, 67)) ||
+        !check_pixel(renderer, 360, 66, RGB(13, 24, 29))) return 1;
+    SDL_zero(event);
+    event.type = SDL_KEYDOWN;
+    event.key.keysym.sym = SDLK_RETURN;
+    if (SDL_PushEvent(&event) != 1) return 1;
+    home_app_step();
+    home_app_step();
+    if (!check_pixel(renderer, 20, 12, RGB(33, 76, 74))) return 1;
+    event.key.keysym.sym = SDLK_ESCAPE;
+    if (SDL_PushEvent(&event) != 1) return 1;
+    home_app_step();
+    if (!check_pixel(renderer, 30, 66, RGB(30, 61, 67))) return 1;
 
     SDL_Quit();
     return 0;

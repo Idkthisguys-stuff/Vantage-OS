@@ -57,7 +57,9 @@ typedef struct {
     unsigned char frames[4][WIFI_FRAME_MAX];
     unsigned char tx[WIFI_PACKET_MAX], rx[WIFI_PACKET_MAX], control[4096];
     unsigned char nvram[WIFI_NVRAM_MAX];
-    unsigned char erom[4096];
+    const char* boot_stage;
+    uint32_t backplane_failure_address;
+    int backplane_failure;
 } Wifi;
 
 WifiBus wifi_sdio_bus(Sdio* host);

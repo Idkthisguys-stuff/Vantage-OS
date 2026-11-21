@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
     if (ethernet && !strcmp(ethernet, "1")) sim_net_set_cable(1);
     env_Init(480, 800);
     sim_set_coordinate_overlay(0);
-    SDL_SetWindowTitle(SDL_GetWindowFromID(1), "Vantage-OS Terminal");
+    SDL_SetWindowTitle(SDL_GetWindowFromID(1), "Vantage OS");
     user_task();
     return 0;
 }
