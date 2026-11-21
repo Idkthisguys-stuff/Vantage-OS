@@ -11,6 +11,8 @@
 enum { HOME, TERMINAL, FILES, NETWORK };
 enum { NONE, OPEN_TERMINAL, OPEN_FILES, OPEN_NETWORK, BACK, PREVIOUS, MORE, REFRESH };
 enum { FILE_ROWS = 12, SCAN_BUDGET = FILE_ROWS + 1 };
+enum { HOME_LEFT = 24, HOME_TOP = 40, HOME_TILE_WIDTH = 102, HOME_TILE_HEIGHT = 52,
+       HOME_TILE_PITCH = HOME_TILE_WIDTH + 8 };
 
 typedef struct {
     uint32_t action, x, y, width, height;
@@ -18,9 +20,9 @@ typedef struct {
 } Control;
 
 static const Control home_controls[] = {
-    {OPEN_TERMINAL, 24, 176, 432, 80, "Console"},
-    {OPEN_FILES,    24, 304, 432, 80, "Files"},
-    {OPEN_NETWORK,  24, 432, 432, 80, "Network"},
+    {OPEN_TERMINAL, HOME_LEFT, HOME_TOP, HOME_TILE_WIDTH, HOME_TILE_HEIGHT, "Console"},
+    {OPEN_FILES, HOME_LEFT + HOME_TILE_PITCH, HOME_TOP, HOME_TILE_WIDTH, HOME_TILE_HEIGHT, "Files"},
+    {OPEN_NETWORK, HOME_LEFT + 2 * HOME_TILE_PITCH, HOME_TOP, HOME_TILE_WIDTH, HOME_TILE_HEIGHT, "Network"},
     {NONE, 0, 0, 0, 0, ""}
 };
 static const Control file_controls[] = {
@@ -68,7 +70,6 @@ static void draw_controls(void) {
                                 .width = control->width, .height = control->height,
                                 .radius = 10, .foreground = TEXT,
                                 .background = control->action == pressed ? ACTIVE : TILE };
-        button.text_scale = control->height >= 80 ? 2 : 1;
         for (uint32_t i = 0; control->label[i]; i++) button.label[i] = control->label[i];
         sys_canvas_button(&button);
     }
@@ -136,13 +137,7 @@ static void draw(void) {
     sys_canvas_clear();
     if (view == FILES) draw_files();
     else if (view == NETWORK) draw_network();
-    else {
-        text(4, "Vantage OS", TEXT);
-        text(7, "Home", MUTED);
-        text(17, "Terminal and tools", MUTED);
-        text(25, "Browse device storage", MUTED);
-        text(33, "Check Wi-Fi, Ethernet and IP address", MUTED);
-    }
+    else text(1, "Vantage OS", TEXT);
     draw_controls();
     sys_canvas_present();
     dirty = 0;
