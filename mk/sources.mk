@@ -66,7 +66,9 @@ DRIVER_SOURCES := \
     drivers/wifi/sdio.c
 
 ifeq ($(USB),1)
-DRIVER_SOURCES += drivers/storage/pi4_usb.c drivers/storage/usb_storage.c drivers/storage/usb_fat32.c
+DRIVER_SOURCES += drivers/input/usb_hid.c
+DRIVER_SOURCES += drivers/storage/pi4_usb.c drivers/storage/pi4_xhci.c \
+    drivers/storage/usb_storage.c drivers/storage/usb_fat32.c
 endif
 
 PLATFORM_SOURCES := \
