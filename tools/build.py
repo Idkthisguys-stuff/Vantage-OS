@@ -33,6 +33,7 @@ def parser():
     p.add_argument('--wifi', choices=('0', '1'))
     p.add_argument('--ethernet', choices=('0', '1'))
     p.add_argument('--storage', choices=('0', '1'))
+    p.add_argument('--usb', choices=('0', '1'), help='enable the Pi 4 USB controller probe (default 0)')
     p.add_argument('--storage-validation', choices=('0', '1'))
     p.add_argument('--sd-base-clock-hz', type=int)
     p.add_argument('--storage-partition', type=int, choices=range(4))
@@ -101,7 +102,7 @@ def main(argv=None):
             p.error('--wifi-regrev is only valid for kernel builds that download the Wi-Fi firmware')
     if a.target != 'kernel':
         if any(getattr(a, key) is not None for key in
-               ('v3d', 'wifi', 'ethernet', 'storage', 'storage_validation', 'sd_base_clock_hz',
+               ('v3d', 'wifi', 'ethernet', 'storage', 'usb', 'storage_validation', 'sd_base_clock_hz',
                 'storage_partition', 'wifi_firmware_c', 'tls_trust_c', 'prefix', 'make')):
             p.error('kernel configuration options are only valid for kernel builds')
         build = a.build_dir or ('out/sim' if a.target == 'sim' else 'out/host')
@@ -158,6 +159,7 @@ def main(argv=None):
             p.error('a POSIX sh is required by GNU make on Windows; set VANTAGE_TOOLCHAIN_DIR')
         cmd.append('SHELL=' + Path(shell).as_posix())
     for option, name in (('v3d', 'V3D'), ('wifi', 'WIFI'), ('ethernet', 'ETHERNET'), ('storage', 'STORAGE'),
+                         ('usb', 'USB'),
                          ('storage_validation', 'STORAGE_VALIDATION'),
                          ('sd_base_clock_hz', 'SD_BASE_CLOCK_HZ'),
                          ('storage_partition', 'STORAGE_PARTITION'),

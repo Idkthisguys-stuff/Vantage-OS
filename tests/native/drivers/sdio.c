@@ -60,9 +60,13 @@ static void wr(void* context, uintptr_t address, uint32_t value) {
 static uint32_t time_us(void* context) { Model* m = context; m->clock += 1000; return m->clock; }
 static int owner(void* context) { return ((Model*)context)->owner; }
 static int property(void* context, uint32_t tag, uint32_t* values, unsigned int count) {
-    (void)context; CHECK(count == 2);
+    Model* m = context;
+    CHECK(count == 2);
     if (tag == 0x30002) { CHECK(values[0] == 1); values[1] = 100000000; }
-    else CHECK(tag == 0x38041 && values[0] == 129);
+    else {
+        CHECK(tag == 0x38041 && values[0] == 129);
+        if (m->mode == 3) values[0] = 0;
+    }
     return HW_OK;
 }
 int main(void) {
@@ -84,6 +88,10 @@ int main(void) {
     CHECK(sdio_transfer(&host, 2, 0, 0, 1, input, 1) == HW_INVALID && before == m.writes);
     m.owner = 1; m.mode = 2; uint8_t byte = 0;
     CHECK(sdio_direct(&host, 0, 3, 0, &byte) == HW_PROTOCOL && host.state == -1);
+    CHECK((host.failure_command >> 24) == 52 && host.failure_argument == (3U << 9));
+    CHECK(host.failure_response & (1U << 11));
+    memset(&host, 0, sizeof(host)); memset(&m, 0, sizeof(m)); m.owner = 1; m.mode = 3;
+    CHECK(sdio_init(&host, &io) == HW_OK);
     memset(&host, 0, sizeof(host)); memset(&m, 0, sizeof(m)); m.owner = 1; m.mode = 1; m.clock = 0xffff0000U;
     CHECK(sdio_init(&host, &io) == HW_TIMEOUT && host.state == -1);
     puts("PASS: SDIO PIO, CMD52/53, tail bytes, R5 errors, timeout, owner and SD-slot exclusion");

@@ -399,10 +399,12 @@ virtual network with injected loss, duplication, reordering and latency;
 type `TOUCH_EVENT_NONE` otherwise. A press emits `TOUCH_EVENT_DOWN`, a change
 in position while pressed emits `TOUCH_EVENT_MOVE`, and a release emits
 `TOUCH_EVENT_UP`. Each event includes `x` and `y` in canvas coordinates.
-The caller keeps its own pressed state between events. The hardware reports
-the last known position on release and ignores failed I2C reads; it can only
+Use `sys_touch_contact_read(&contact)` for the same events with a contact ID
+stable from press through release. Both calls consume the same queue. Track pressed
+state per contact ID when using the extended call. The hardware reports the
+last known position on release and ignores failed I2C reads; it can only
 detect transitions observed when polled. The desktop simulator preserves
-queued mouse transitions across reads.
+queued mouse transitions as contact zero.
 
 ## Drawing UI
 

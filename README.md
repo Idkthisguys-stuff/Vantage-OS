@@ -18,6 +18,8 @@ support default on, but Wi-Fi skips initialization without supplied assets and
 storage skips mounting without the confirmed SD clock and primary partition.
 Physical validation remains pending; see
 [the hardware guide](docs/HARDWARE.md) and [storage guide](docs/STORAGE.md).
+The opt-in Pi 4 USB controller probe and the path to USB file access are
+documented in the [hardware roadmap](docs/USB.md).
 
 New V3 storage images support 256 files/folders, 255-byte paths and 1 MiB per file
 (subject to shared disk space). The text editor retains its 4 KiB document limit.
@@ -51,7 +53,11 @@ python tools/build.py sim --sdl C:/path/to/SDL2
 .\out\sim\sim\Release\vantage_sim.exe
 ```
 
-Type `help` to get started, using your keyboard or the on-screen keys. With a
+Vantage opens to Home with Console, Files and Network. Use the touchscreen or
+mouse to select a view. In the simulator, Enter opens Console and Esc returns
+to Home. The Console keeps its session while you visit Home.
+
+In Console, type `help` using your keyboard or the on-screen keys. With a
 storage image mounted, `edit`, `cat`, `ls` and `rm` read and write persistent
 files. See the [terminal guide](docs/TERMINAL.md) for usage.
 

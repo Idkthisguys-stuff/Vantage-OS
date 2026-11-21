@@ -21,7 +21,7 @@ typedef struct {
  * EL1 kernel context. Tables only gain entries while the process lives; other
  * cores may walk them concurrently. A failed create leaves nothing allocated;
  * after a failed map the caller destroys the space. */
-uint32_t space_create(AddressSpace* space, const uint64_t kernel_level1[4]);
+uint32_t space_create(AddressSpace* space, const uint64_t* kernel_level1);
 /* Maps zeroed pages. access is SPACE_READ, optionally with exactly one of
  * SPACE_WRITE or SPACE_EXECUTE; the range must be unmapped user memory. */
 uint32_t space_map(AddressSpace* space, uint64_t address, uint64_t pages, uint32_t access);

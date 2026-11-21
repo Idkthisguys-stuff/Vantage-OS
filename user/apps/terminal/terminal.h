@@ -1,9 +1,9 @@
 #pragma once
 #include <vantage/abi/console.h>
 #include <vantage/abi/files.h>
+#include <vantage/abi/key.h>
 #include <vantage/abi/net.h>
 #include <vantage/abi/touch.h>
-#include "../keyboard/keyboard.h"
 
 #define TERMINAL_MAX_ROWS 60U
 #define TERMINAL_COMMAND_SIZE 288U
@@ -59,6 +59,8 @@ uint32_t terminal_editor_selected(const Terminal* terminal, uint32_t row);
 
 void terminal_app_init(void);
 void terminal_app_step(void);
+void terminal_app_open(void);
+uint32_t terminal_app_closed(void);
 
 void terminal_write(Terminal* terminal, const char* text);
 void terminal_put(Terminal* terminal, char character);

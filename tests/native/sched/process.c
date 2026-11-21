@@ -227,7 +227,11 @@ static void test_isolated_spaces(void) {
     CHECK(first->root != second->root && (first->root >> 48) == first->asid);
     for (unsigned int i = 0; i < 4; i++)
         CHECK(first->space.root[i] == kernel_level1[i] && second->space.root[i] == kernel_level1[i]);
-    for (unsigned int i = 5; i < 512; i++) CHECK(!first->space.root[i]);
+    CHECK(first->space.root[MMU_PCIE_DEVICE_SLOT] == kernel_level1[MMU_PCIE_DEVICE_SLOT]);
+    CHECK(second->space.root[MMU_PCIE_DEVICE_SLOT] == kernel_level1[MMU_PCIE_DEVICE_SLOT]);
+    for (unsigned int i = 5; i < MMU_TABLE_ENTRIES; i++) {
+        if (i != MMU_PCIE_DEVICE_SLOT) CHECK(!first->space.root[i] && !second->space.root[i]);
+    }
     /* Same virtual address, different pages and contents. */
     const uint64_t* data_a = leaf_of(first, DATA_ADDRESS);
     const uint64_t* data_b = leaf_of(second, DATA_ADDRESS);
@@ -355,6 +359,7 @@ static void test_threads_exit_and_kill(void) {
 }
 
 int main(void) {
+    kernel_level1[MMU_PCIE_DEVICE_SLOT] = 0x5003;
     host_programs[0] = exit_seven;
     host_programs[1] = marker_program;
     host_programs[2] = bad_pointer;

@@ -1,13 +1,16 @@
 #include <vantage/arch/mmu.h>
+#include <vantage/abi/syscall.h>
 #include <vantage/kernel/platform.h>
 #include <vantage/user.h>
 #include <stdio.h>
 
-static uint64_t level1[4];
+static uint64_t level1[MMU_TABLE_ENTRIES];
+static uint64_t pcie_level2[MMU_TABLE_ENTRIES];
 static uint64_t level2[4][512];
 static union {
     uint64_t words[64];
     TouchEvent touch;
+    TouchContact contact;
     KeyEvent key;
     TextRow row;
     ConsoleInfo info;
@@ -32,11 +35,9 @@ void fb_wait_frame(void) {}
 uint32_t time_us(void) { return 123456; }
 uint32_t net_port_random(void) { return 4; }
 int net_entropy(void* data, unsigned int bytes) { (void)data; (void)bytes; return NET_UNAVAILABLE; }
-uint32_t touch_read(TouchEvent* event) {
+uint32_t touch_read(TouchContact* contact) {
     reads++;
-    event->type = TOUCH_EVENT_DOWN;
-    event->x = 12;
-    event->y = 34;
+    *contact = (TouchContact){ {TOUCH_EVENT_DOWN, 12, 34}, 5 };
     return 1;
 }
 void canvas_set_color(uint32_t color) { (void)color; }
@@ -98,6 +99,17 @@ int main(void) {
                 (((level2[g][i] >> 2) & 7) != 0 || ((level2[g][i] >> 8) & 3) != 2)) return 1;
         }
     }
+    mmu_populate_pcie_tables(level1, pcie_level2);
+    if (level1[MMU_PCIE_DEVICE_SLOT] != ((uint64_t)(uintptr_t)pcie_level2 | 3)) return 1;
+    for (i = 0; i < MMU_TABLE_ENTRIES; i++) {
+        if (i >= MMU_PCIE_DEVICE_BYTES / 0x200000ULL) {
+            if (pcie_level2[i]) return 1;
+            continue;
+        }
+        uint64_t expected = (MMU_PCIE_DEVICE_BASE + (uint64_t)i * 0x200000ULL) |
+                            (1ULL << 53) | (1ULL << 54) | (1ULL << 10) | (2ULL << 8) | 1;
+        if (pcie_level2[i] != expected) return 1;
+    }
     /* Even an overlapping framebuffer range cannot make the transition gate
      * Normal memory. Its reserved Device mapping takes priority. */
     mmu_populate_tables(level1, level2, 0x600000, 0x200000, 0x600000);
@@ -116,6 +128,13 @@ int main(void) {
     if (reads || kernel_event.type != TOUCH_EVENT_NONE || kernel_event.x != 91) return 1;
     if (handle_sys_call(1, (uint64_t)start) != 1 || reads != 1 ||
         user_mem.touch.x != 12) return 1;
+
+    if (handle_sys_call(SYS_TOUCH_CONTACT_READ, end - sizeof(TouchEvent)) || reads != 1) return 1;
+    if (handle_sys_call(SYS_TOUCH_READ, end - sizeof(TouchEvent)) != 1 || reads != 2) return 1;
+    if (handle_sys_call(SYS_TOUCH_CONTACT_READ, start + 1) || reads != 2) return 1;
+    if (handle_sys_call(SYS_TOUCH_CONTACT_READ, start) != 1 || reads != 3 ||
+        user_mem.contact.event.type != TOUCH_EVENT_DOWN || user_mem.contact.event.x != 12 ||
+        user_mem.contact.event.y != 34 || user_mem.contact.id != 5) return 1;
 
     args->x = 12; args->y = 34; args->r = 5;
     handle_sys_call(4, (uint64_t)(uintptr_t)&kernel_event);
