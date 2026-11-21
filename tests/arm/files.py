@@ -125,14 +125,14 @@ class FileTests(unittest.TestCase):
         self.assertEqual(m.mount_files(), 0)
         m.launch(booted=True)
         m.command('edit hello')
-        self.assertEqual(m.rows[0], 'Edit   /ram/hello')
+        self.assertEqual(m.rows[2], 'Edit   /ram/hello')
         m.command('written by terminal')
         # Tap Save, then Exit, on the editor's control row above the keyboard.
         for x in (30, 150):
             m.touches.extend(((1, x, 440), (3, x, 440)))
             m.step()
         self.assertIn('Saved.', m.output.decode())
-        self.assertEqual(m.rows[0], 'Editor closed.')
+        self.assertEqual(m.rows[2], 'Editor closed.')
         self.assertEqual(self.kernel_read(m), b'written by terminal\n')
         m.command('cat hello')
         self.assertIn('written by terminal', m.output.decode().split('Editor closed.')[-1])
@@ -170,7 +170,7 @@ class FileTests(unittest.TestCase):
         m.launch(booted=True)
         for command in ('mkdir docs', 'cd docs', 'mkdir empty', 'pwd', 'ls', 'edit note'):
             m.command(command)
-        self.assertEqual(m.rows[0], 'Edit   /ram/docs/note')
+        self.assertEqual(m.rows[2], 'Edit   /ram/docs/note')
         m.command('nested ARM')
         for x in (30, 150):
             m.touches.extend(((1, x, 440), (3, x, 440)))
