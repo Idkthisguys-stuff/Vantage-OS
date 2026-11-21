@@ -19,6 +19,8 @@ static Task* current[TASK_CORES];
 static unsigned int cursor[TASK_CORES];
 static uint32_t scheduler_lock, initialized;
 static int dispatching, workers_reserved;
+/* Only core 0 blocks or wakes timed event waiters. */
+static unsigned int timed_waiters;
 
 static int owned(void) { return task_port_owned() && parallel_load(&initialized); }
 static void lock(void) { task_port_lock(&scheduler_lock); }
@@ -141,6 +143,7 @@ TaskId sched_spawn(TaskEntry entry, void* argument, uint32_t affinity, Process* 
         task->entry = entry;
         task->argument = argument;
         task->waiting_for = task->waiter = 0;
+        task->events = task->event_interests = task->wait_duration = 0;
         task->status = 0;
         task->affinity = affinity;
         task->core = TASK_CORES;
@@ -192,6 +195,45 @@ int task_yield(void) {
     return TASK_OK;
 }
 
+static void wake_events(Task* task) {
+    task->wait_duration = 0;
+    timed_waiters--;
+    task->state = TASK_RUNNABLE;
+}
+
+uint32_t task_wait_events(uint32_t interests, uint32_t timeout_us) {
+    if (!owned() || task_port_core() || timeout_us > TASK_WAIT_MAX_US) return 0;
+    Task* task = current[0];
+    if (!task || task->affinity != TASK_CORE0) return 0;
+    lock();
+    if (!(task->events & interests) && timeout_us) {
+        task->event_interests = interests;
+        task->wait_started = parallel_time_us();
+        task->wait_duration = timeout_us;
+        timed_waiters++;
+        task->state = TASK_BLOCKED;
+        task_context_switch(&task->context, &dispatcher[0]);
+        lock();
+    }
+    uint32_t events = task->events & interests;
+    task->events &= ~events;
+    unlock();
+    return events;
+}
+
+void task_notify_events(uint32_t events) {
+    if (!events || !owned() || task_port_core()) return;
+    lock();
+    for (unsigned int i = 0; i < TASK_LIMIT; i++) {
+        Task* task = &tasks[i];
+        if (task->affinity != TASK_CORE0 || task->state == TASK_FREE ||
+            task->state == TASK_EXITED) continue;
+        task->events |= events;
+        if (task->wait_duration && (task->event_interests & events)) wake_events(task);
+    }
+    unlock();
+}
+
 int task_preempt_begin(void) {
     if (!owned() || !current[task_port_core()]) return TASK_INVALID;
     task_port_irq_enable();
@@ -214,7 +256,7 @@ void task_tick(void) {
     if (!owned()) return;
     unsigned int core = task_port_core();
     Task* task = current[core];
-    if (!task) return;
+    if (!task) { parallel_wake(); return; }
     task_trap_boundary();
     /* The interrupted context is complete in the trap frame on this task's
      * kernel stack, so this is a yield from inside the interrupt handler. */
@@ -331,8 +373,31 @@ int task_state(TaskId id, enum TaskState* state) {
     return result;
 }
 
-int task_run(void) {
+static uint32_t remaining(uint32_t now, uint32_t started, uint32_t duration) {
+    uint32_t elapsed = now - started;
+    return elapsed < duration ? duration - elapsed : 0;
+}
+
+/* Core 0 rechecks deadlines before dispatch. The result is the earliest
+ * remaining interval; zero means there is no timed waiter left. */
+static uint32_t wake_timed_waiters(void) {
+    if (!timed_waiters) return 0;
+    uint32_t now = parallel_time_us(), next = 0;
+    lock();
+    for (unsigned int i = 0; i < TASK_LIMIT; i++) {
+        Task* task = &tasks[i];
+        if (!task->wait_duration) continue;
+        uint32_t left = remaining(now, task->wait_started, task->wait_duration);
+        if (!left || (task->process && task->process->terminating)) wake_events(task);
+        else if (!next || left < next) next = left;
+    }
+    unlock();
+    return next;
+}
+
+int task_run_with_service(void (*service)(void), uint32_t interval_us) {
     if (!owned() || task_port_core() || current[0]) return TASK_INVALID;
+    if (service && (!interval_us || interval_us > TASK_WAIT_MAX_US)) return TASK_INVALID;
     lock();
     if (dispatching) { unlock(); return TASK_INVALID; }
     dispatching = 1;
@@ -341,7 +406,21 @@ int task_run(void) {
         lock(); dispatching = 0; unlock();
         return TASK_INVALID;
     }
+    uint32_t last_service = service ? parallel_time_us() - interval_us : 0;
     for (;;) {
+        uint32_t until_service = 0;
+        if (service) {
+            uint32_t now = parallel_time_us();
+            until_service = remaining(now, last_service, interval_us);
+            if (!until_service) {
+                last_service = now;
+                service();
+                /* Recompute with the time spent servicing I/O included. */
+                until_service = remaining(parallel_time_us(), last_service, interval_us);
+                if (!until_service) until_service = 1;
+            }
+        }
+        uint32_t until_waiter = wake_timed_waiters();
         if (dispatch_one(0)) continue;
         lock();
         int live = 0, blocked = 0;
@@ -349,7 +428,7 @@ int task_run(void) {
             if (tasks[i].state == TASK_RUNNING || tasks[i].state == TASK_RUNNABLE) live = 1;
             if (tasks[i].state == TASK_BLOCKED) blocked = 1;
         }
-        if (!live) {
+        if (!live && !until_waiter) {
             dispatching = 0;
             unlock();
             parallel_task_stop();
@@ -357,6 +436,11 @@ int task_run(void) {
         }
         unlock();
         /* Publication -> SEV pairs with WFE, including check/sleep races. */
-        parallel_idle();
+        uint32_t interval = until_waiter;
+        if (until_service && (!interval || until_service < interval)) interval = until_service;
+        if (interval) task_port_idle_for(interval);
+        else parallel_idle();
     }
 }
+
+int task_run(void) { return task_run_with_service(NULL, 0); }

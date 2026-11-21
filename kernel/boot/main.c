@@ -3,6 +3,7 @@
 #include <vantage/arch/irq.h>
 #include <vantage/kernel/parallel.h>
 #include <vantage/kernel/memory.h>
+#include <vantage/kernel/events.h>
 #include <vantage/kernel/process.h>
 #include <vantage/platform/pi4/storage.h>
 #include <vantage/platform/pi4/io.h>
@@ -89,7 +90,7 @@ void main(uintptr_t dtb) {
         uart_writeText("[ERR] process_create rejected terminal_image binary!\n");
     }
     uart_writeText(app ? "[DEBUG] Process created, entering task_run\n" : "[ERR] process_create returned 0\n");
-    int run_res = task_run(); // Run result
+    int run_res = task_run_with_service(event_service, EVENT_SERVICE_US);
     uart_writeText("[DEBUG] task_run returned\n");
     if (!app || run_res != TASK_OK || process_reap(app, NULL) != TASK_OK)
         mm_halt("[ERR] Application scheduling failed; boot halted\n");

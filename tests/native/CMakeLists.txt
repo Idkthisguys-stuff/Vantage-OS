@@ -125,6 +125,7 @@ set(NET_SOURCES "${ROOT}/kernel/net/dhcp.c" "${ROOT}/kernel/net/dns.c" "${ROOT}/
   "${ROOT}/kernel/net/sntp.c" "${ROOT}/kernel/net/socket.c" "${ROOT}/kernel/net/tcp.c")
 vantage_native_test(user_memory_test user_memory user
   user/memory.c "${ROOT}/arch/armv8/mmu_tables.c" "${ROOT}/kernel/syscall/dispatch.c"
+  "${ROOT}/kernel/syscall/events.c"
   ${FILE_SOURCES} "${ROOT}/kernel/fs/file_syscall.c" ${NET_SOURCES})
 vantage_native_test(net_stack_test network_stack network
   net/stack.c ${NET_SOURCES} "${ROOT}/sim/platform/net_peer.c" "${ROOT}/sim/platform/net_sim.c")

@@ -355,7 +355,7 @@ void net_poll(void) {
     net_socket_poll();
 }
 
-int net_status(NetStatus* status) {
+void net_status_cached(NetStatus* status) {
     memset(status, 0, sizeof(*status));
     if (wifi) {
         status->available = !service.failed;
@@ -368,16 +368,7 @@ int net_status(NetStatus* status) {
             status->security = service.passphrase_bytes ? NET_SECURITY_WPA2 : NET_SECURITY_OPEN;
             status->flags = (service.hidden ? NET_STATUS_HIDDEN : 0U) | (service.from_profile ? NET_STATUS_PROFILE : 0U);
         }
-        if (wifi_up()) {
-            /* Each reading is a firmware round trip; refresh at most once a second. */
-            uint64_t now = net_now();
-            if (!service.rssi || now - service.rssi_at >= 1000U) {
-                int32_t rssi = 0;
-                service.rssi = wifi->rssi(wifi->context, &rssi) >= 0 ? rssi : 0;
-                service.rssi_at = now;
-            }
-            status->rssi = service.rssi;
-        }
+        if (wifi_up()) status->rssi = service.rssi;
     }
     if (ethernet) {
         status->ethernet = wired.failed ? NET_ETHERNET_ABSENT : wired.up ? NET_ETHERNET_UP : NET_ETHERNET_NO_CABLE;
@@ -395,7 +386,24 @@ int net_status(NetStatus* status) {
     status->rx_frames = net_interface.rx_frames;
     status->tx_frames = net_interface.tx_frames;
     status->rx_dropped = net_interface.rx_dropped;
+}
+
+int net_status(NetStatus* status) {
+    if (wifi_up()) {
+        /* Refresh signal strength only for an explicit status request. */
+        uint64_t now = net_now();
+        if (!service.rssi || now - service.rssi_at >= 1000U) {
+            int32_t rssi = 0;
+            service.rssi = wifi->rssi(wifi->context, &rssi) >= 0 ? rssi : 0;
+            service.rssi_at = now;
+        }
+    }
+    net_status_cached(status);
     return 0;
+}
+
+int net_scan_state(void) {
+    return net_wifi_usable() ? wifi->scan_status(wifi->context) : NET_UNAVAILABLE;
 }
 
 int net_scan(NetScan* request) {
@@ -407,7 +415,7 @@ int net_scan(NetScan* request) {
         return result < 0 ? result : 0;
     }
     if (request->operation != NET_SCAN_RESULT) return NET_BAD;
-    int status = wifi->scan_status(wifi->context);
+    int status = net_scan_state();
     if (status == NET_AGAIN) return NET_AGAIN;
     if (status < 0) return status;
     if (!status) return 0;

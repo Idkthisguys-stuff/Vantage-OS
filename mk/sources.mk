@@ -172,5 +172,5 @@ BEARSSL_SOURCES := \
 
 C_SOURCES := $(sort $(ARCH_C_SOURCES) $(MEMORY_SOURCES) $(FILESYSTEM_SOURCES) \
     $(NETWORK_SOURCES) $(SCHEDULER_SOURCES) $(UI_SOURCES) $(DRIVER_SOURCES) $(PLATFORM_SOURCES) \
-    kernel/boot/main.c kernel/syscall/dispatch.c lib/memory.c)
+    kernel/boot/main.c kernel/syscall/dispatch.c kernel/syscall/events.c lib/memory.c)
 S_SOURCES := $(ARCH_ASM_SOURCES) kernel/boot/terminal_image.s

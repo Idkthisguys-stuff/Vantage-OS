@@ -18,6 +18,8 @@ _Static_assert(sizeof(TouchEvent) == 12 && offsetof(TouchEvent, x) == 4 &&
                offsetof(TouchEvent, y) == 8 && sizeof(KeyEvent) == 8, "input ABI");
 _Static_assert(SYS_TOUCH_CONTACT_READ == 13 && sizeof(TouchContact) == 16 &&
                offsetof(TouchContact, id) == 12, "extended touch ABI");
+_Static_assert(SYS_EVENT_WAIT == 14 && EVENT_ALL == 15 && EVENT_WAIT_MAX_US == 1000000,
+               "event wait ABI");
 _Static_assert(sizeof(TextRow) == 116 && sizeof(CanvasButton) == 40, "graphics ABI");
 _Static_assert(sizeof(MemoryStats) == 40 && sizeof(ConsoleInfo) == 64, "console info ABI");
 _Static_assert(sizeof(ConsoleWrite) == 132, "console write ABI");

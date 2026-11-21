@@ -144,6 +144,27 @@ static void render_stress(void* argument) {
     }
 }
 
+static TaskId event_task;
+static unsigned int event_polls;
+
+static void poll_event(void) {
+    enum TaskState state;
+    CHECK(task_services_allowed() && !task_current());
+    CHECK(task_state(event_task, &state) == TASK_OK);
+    if (state == TASK_BLOCKED && !event_polls++) task_notify_events(3);
+}
+
+static void wait_for_event(void* argument) {
+    (void)argument;
+    CHECK(task_wait_events(1, 0) == 0);
+    CHECK(task_wait_events(1, TASK_WAIT_MAX_US) == 1);
+    CHECK(task_wait_events(2, 0) == 2);
+    CHECK(task_wait_events(3, 0) == 0);
+    uint32_t started = parallel_time_us();
+    CHECK(task_wait_events(1, 2000) == 0);
+    CHECK(parallel_time_us() - started >= 2000);
+}
+
 int main(void) {
     host_start_workers();
     CHECK(parallel_init() && parallel_self_test());
@@ -152,6 +173,9 @@ int main(void) {
     CHECK(task_self_test() && task_multicore_self_test());
     puts("PASS: simultaneous four-core entry, affinity, stacks and repeated yields");
     test_migration(); test_cross_core_join(); test_concurrent_creation();
+    event_task = task_create(wait_for_event, NULL);
+    CHECK(event_task && task_run_with_service(poll_event, 1000) == TASK_OK);
+    CHECK(event_polls && task_reap(event_task, NULL) == TASK_OK);
     TaskId render = task_create(render_task, NULL);
     TaskId compute = task_create_affinity(busy_compute, NULL, 2);
     CHECK(render && compute && task_run() == TASK_OK);

@@ -56,13 +56,17 @@ int main(int argc, char* argv[]) {
         touch.type != TOUCH_EVENT_NONE) {
         return 1;
     }
+    if (sys_event_wait(EVENT_ALL + 1, 0) != -1 ||
+        sys_event_wait(0, EVENT_WAIT_MAX_US + 1) != -1 ||
+        sys_event_wait(EVENT_TOUCH, 0) != 0 || sys_event_wait(0, 2000) != 0) return 1;
 
     SDL_zero(event);
     event.type = SDL_MOUSEBUTTONDOWN;
     event.button.button = SDL_BUTTON_LEFT;
     event.button.x = 120;
     event.button.y = 240;
-    if (SDL_PushEvent(&event) != 1 || sys_touch_read(&touch) != 1 ||
+    if (SDL_PushEvent(&event) != 1 || sys_event_wait(EVENT_TOUCH, 0) != EVENT_TOUCH ||
+        sys_event_wait(EVENT_TOUCH, 8000) != EVENT_TOUCH || sys_touch_read(&touch) != 1 ||
         touch.type != TOUCH_EVENT_DOWN || touch.x != 120 || touch.y != 240) {
         SDL_Log("Mouse press did not reach the syscall dispatcher");
         return 1;

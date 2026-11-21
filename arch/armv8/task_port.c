@@ -52,6 +52,14 @@ void task_port_slice_stop(void) { irq_timer_stop(); }
 void task_port_irq_enable(void) { __asm__ volatile("msr daifclr, #2" ::: "memory"); }
 void task_port_irq_disable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
 
+void task_port_idle_for(uint32_t microseconds) {
+    irq_timer_start(microseconds);
+    /* The idle timer handler signals SEV so an IRQ taken before WFE also
+     * leaves a wake event. Runnable work published by other cores does too. */
+    __asm__ volatile("msr daifclr, #2\nisb\nwfe\nmsr daifset, #2" ::: "memory");
+    irq_timer_stop();
+}
+
 /* EL0t with every exception unmasked: user code cannot hold off the tick. */
 #define USER_STATE ((1ULL << 8) | (1ULL << 9))
 

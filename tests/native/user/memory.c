@@ -20,6 +20,7 @@ static union {
     struct circle_args circle;
 } user_mem;
 static unsigned int reads, circles, keys, text_rows, buttons;
+static uint32_t clock_us = 123456;
 
 uint32_t mm_block_mapped(uint64_t address) {
     /* Independent synthetic hole and no-map block, away from test user data. */
@@ -34,7 +35,8 @@ uint32_t user_buffer_valid(uintptr_t buffer, size_t size) {
 }
 
 void fb_wait_frame(void) {}
-uint32_t time_us(void) { return 123456; }
+uint32_t time_us(void) { return clock_us; }
+void sim_event_delay(uint32_t microseconds) { clock_us += microseconds; }
 uint32_t net_port_random(void) { return 4; }
 int net_entropy(void* data, unsigned int bytes) { (void)data; (void)bytes; return NET_UNAVAILABLE; }
 uint32_t touch_read(TouchContact* contact) {

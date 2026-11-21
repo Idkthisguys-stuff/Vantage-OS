@@ -117,8 +117,10 @@ check these with real translation tables; they do not replace Pi validation.
 
 ### 4. Further multicore policies
 
-After hardware acceptance, evaluate real workloads before adding priorities,
-per-core run queues, sleeping or scheduling domains. Preserve the
+Core 0 supports [timed device waits](SCHEDULER.md#device-events-and-timed-waits)
+so Home can block while drivers progress. After hardware acceptance, evaluate
+real workloads before adding priorities, per-core run queues, or scheduling
+domains. Preserve the
 no-double-dispatch, safe stack-reclamation and address-space ownership
 invariants when changing queue design.
 

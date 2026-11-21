@@ -21,6 +21,7 @@ typedef struct {
     uint32_t affinity, core;
     uint64_t dispatches, preemptions;
     Process* process; /* NULL for kernel tasks; immutable while the slot is used. */
+    uint32_t events, event_interests, wait_started, wait_duration;
     uint64_t stack_alignment;
     TASK_ALIGN unsigned char stack[TASK_STACK_BYTES];
 } Task;

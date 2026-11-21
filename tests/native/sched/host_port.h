@@ -107,6 +107,10 @@ void parallel_idle(void) {
     sched_yield();
 #endif
 }
+void task_port_idle_for(uint32_t microseconds) {
+    (void)microseconds;
+    parallel_idle();
+}
 void parallel_wake(void) {}
 void parallel_completion_barrier(void) {
 #ifdef _WIN32

@@ -108,6 +108,13 @@ int main(int argc, char** argv) {
     text(NET_PEER_PASSPHRASE);
     capture("passphrase");
     enter();
+    /* Drive background I/O from the wait path with the UI and status reads
+     * paused. Association and DHCP should complete in the virtual network. */
+    uint32_t join_started = SDL_GetTicks();
+    while (!net_peer_stats()->dhcp_acks) {
+        CHECK(SDL_GetTicks() - join_started < 10000);
+        CHECK(sys_event_wait(EVENT_NETWORK, 250000) >= 0);
+    }
     WAIT_FOR(status().configuration == NET_ADDRESS_BOUND, 10000);
     wait_ms(300);
     command("net");

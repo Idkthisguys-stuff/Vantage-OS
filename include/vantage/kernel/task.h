@@ -12,6 +12,7 @@
 #define TASK_STACK_BYTES 16384U
 /* Longest a task keeps its core while preemptible. */
 #define TASK_SLICE_US 10000U
+#define TASK_WAIT_MAX_US 1000000U
 typedef uint64_t TaskId;
 typedef void (*TaskEntry)(void* argument);
 
@@ -38,6 +39,11 @@ unsigned int task_core(void);
 /* True only for boot/core-0-pinned tasks. Does not transfer driver ownership. */
 int task_services_allowed(void);
 int task_yield(void);
+/* Core-0 tasks consume latched interests, or block for a bounded interval.
+ * A zero interval never blocks. The return value is a subset of interests. */
+uint32_t task_wait_events(uint32_t interests, uint32_t timeout_us);
+/* Core 0 publishes events to its tasks and makes matching waiters runnable. */
+void task_notify_events(uint32_t events);
 /* Opens an interrupt-enabled region in the calling kernel task: the tick may
  * preempt it at any instruction and it may resume on another allowed core.
  * Inside the region the task must hold no kernel resource and call nothing
@@ -62,6 +68,9 @@ int task_info(TaskId id, TaskInfo* info);
  * PENDING for blocked tasks. A kernel task that neither yields nor opens a
  * preemptible region keeps its core. */
 int task_run(void);
+/* Run an optional bounded core-0 service in dispatcher context on a periodic
+ * deadline. The service cannot yield, block or call task_run. */
+int task_run_with_service(void (*service)(void), uint32_t interval_us);
 int task_self_test(void);
 int task_multicore_self_test(void);
 /* Every core must take timer ticks inside a preemptible kernel region. */
