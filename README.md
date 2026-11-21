@@ -21,8 +21,8 @@ support default on, but Wi-Fi skips initialization without supplied assets and
 storage skips mounting without the confirmed SD clock and primary partition.
 Physical validation remains pending; see
 [the hardware guide](docs/HARDWARE.md) and [storage guide](docs/STORAGE.md).
-The opt-in Pi 4 USB controller probe and the path to USB file access are
-documented in the [hardware roadmap](docs/USB.md).
+Opt-in Pi 4 USB keyboard and mouse support and the path to USB file access are
+documented in the [USB guide](docs/USB.md).
 The opt-in [Bluetooth driver](docs/BLUETOOTH.md) adds controller startup and
 BLE discovery from Home for the Pi 4 Model B. The UART model covers this path.
 Physical radio verification is pending.

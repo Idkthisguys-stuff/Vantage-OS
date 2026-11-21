@@ -5,7 +5,8 @@
 #define REPORT_CONTACTS 5U
 #define REPORT_HEADER 3U
 #define CONTACT_BYTES 6U
-#define QUEUE_SIZE (REPORT_CONTACTS + TOUCH_CONTACTS_MAX)
+#define PANEL_CONTACTS_MAX TOUCH_CONTACT_MOUSE
+#define QUEUE_SIZE (REPORT_CONTACTS + PANEL_CONTACTS_MAX)
 
 enum { CONTROLLER_DOWN, CONTROLLER_UP, CONTROLLER_CONTACT };
 
@@ -14,7 +15,7 @@ typedef struct {
     int x, y;
 } Slot;
 
-static Slot slots[TOUCH_CONTACTS_MAX];
+static Slot slots[PANEL_CONTACTS_MAX];
 static TouchContact queue[QUEUE_SIZE];
 static uint32_t next, count;
 static int last_x, last_y;
@@ -25,7 +26,7 @@ static void emit(TouchEventType type, uint32_t id, const Slot* slot) {
 
 static void poll(void) {
     uint8_t report[REPORT_HEADER + REPORT_CONTACTS * CONTACT_BYTES - 1];
-    uint8_t seen[TOUCH_CONTACTS_MAX] = {0};
+    uint8_t seen[PANEL_CONTACTS_MAX] = {0};
     if (!i2c_read_reg(TOUCH_ADDR, 0, report, sizeof(report))) return;
     uint32_t reported = report[2] & 0xf;
     if (reported > REPORT_CONTACTS) return;
@@ -40,7 +41,7 @@ static void poll(void) {
     for (uint32_t i = 0; i < reported; i++) {
         const uint8_t* p = report + REPORT_HEADER + CONTACT_BYTES * i;
         uint32_t id = p[2] >> 4;
-        if (id >= TOUCH_CONTACTS_MAX || seen[id]) continue;
+        if (id >= PANEL_CONTACTS_MAX || seen[id]) continue;
         seen[id] = 1;
         Slot* slot = &slots[id];
         slot->missed = 0;
@@ -63,7 +64,7 @@ static void poll(void) {
         slot->down = 1;
     }
 
-    for (uint32_t id = 0; id < TOUCH_CONTACTS_MAX; id++) {
+    for (uint32_t id = 0; id < PANEL_CONTACTS_MAX; id++) {
         Slot* slot = &slots[id];
         if (slot->down && !seen[id] && ++slot->missed >= 2) {
             slot->down = 0;
@@ -73,7 +74,7 @@ static void poll(void) {
 }
 
 uint32_t touch_init(void) {
-    for (uint32_t id = 0; id < TOUCH_CONTACTS_MAX; id++) slots[id] = (Slot){0};
+    for (uint32_t id = 0; id < PANEL_CONTACTS_MAX; id++) slots[id] = (Slot){0};
     next = count = 0;
     last_x = last_y = 0;
     i2c_init();

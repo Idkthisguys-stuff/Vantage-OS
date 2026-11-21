@@ -83,6 +83,10 @@ PLATFORM_SOURCES := \
     platform/pi4/storage.c \
     platform/pi4/timer.c
 
+ifeq ($(USB),1)
+PLATFORM_SOURCES += platform/pi4/usb_input.c
+endif
+
 ifeq ($(BLUETOOTH),1)
 DRIVER_SOURCES += drivers/bluetooth/hci.c
 PLATFORM_SOURCES += platform/pi4/bluetooth.c

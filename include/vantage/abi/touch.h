@@ -15,7 +15,8 @@ typedef struct {
 } TouchEvent;
 
 /* Contact IDs are stable from DOWN through UP. */
-#define TOUCH_CONTACTS_MAX 10U
+#define TOUCH_CONTACT_MOUSE 10U
+#define TOUCH_CONTACTS_MAX (TOUCH_CONTACT_MOUSE + 1U)
 typedef struct {
     TouchEvent event;
     uint32_t id;

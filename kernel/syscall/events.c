@@ -7,6 +7,9 @@
 #ifndef VANTAGE_SIM
 #include <vantage/kernel/task.h>
 #include <vantage/platform/pi4/drivers.h>
+#if VANTAGE_USB
+#include <vantage/platform/pi4/usb_input.h>
+#endif
 #endif
 
 #define INPUT_EVENTS (EVENT_KEY | EVENT_TOUCH)
@@ -17,15 +20,29 @@ static KeyEvent staged_key;
 static TouchContact staged_touch;
 static uint32_t input_events;
 
+static uint32_t read_key(KeyEvent* key) {
+#if VANTAGE_USB && !defined(VANTAGE_SIM)
+    if (pi4_usb_key_read(key)) return 1;
+#endif
+    return key_read(key);
+}
+
+static uint32_t read_touch(TouchContact* contact) {
+#if VANTAGE_USB && !defined(VANTAGE_SIM)
+    if (pi4_usb_touch_read(contact)) return 1;
+#endif
+    return touch_read(contact);
+}
+
 uint32_t event_read_key(KeyEvent* key) {
-    if (!(input_events & EVENT_KEY)) return key_read(key);
+    if (!(input_events & EVENT_KEY)) return read_key(key);
     *key = staged_key;
     input_events &= ~EVENT_KEY;
     return 1;
 }
 
 uint32_t event_read_touch(TouchContact* contact) {
-    if (!(input_events & EVENT_TOUCH)) return touch_read(contact);
+    if (!(input_events & EVENT_TOUCH)) return read_touch(contact);
     *contact = staged_touch;
     input_events &= ~EVENT_TOUCH;
     return 1;
@@ -33,8 +50,8 @@ uint32_t event_read_touch(TouchContact* contact) {
 
 static uint32_t input_ready(uint32_t interests) {
     uint32_t missing = interests & ~input_events;
-    if ((missing & EVENT_KEY) && key_read(&staged_key)) input_events |= EVENT_KEY;
-    if ((missing & EVENT_TOUCH) && touch_read(&staged_touch)) input_events |= EVENT_TOUCH;
+    if ((missing & EVENT_KEY) && read_key(&staged_key)) input_events |= EVENT_KEY;
+    if ((missing & EVENT_TOUCH) && read_touch(&staged_touch)) input_events |= EVENT_TOUCH;
     return input_events & interests;
 }
 

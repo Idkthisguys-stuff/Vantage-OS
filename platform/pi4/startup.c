@@ -1,7 +1,8 @@
 #include <vantage/platform/pi4/drivers.h>
-#include <vantage/drivers/pi4_usb.h>
+#include <vantage/drivers/touch.h>
 #include <vantage/drivers/v3d.h>
 #include <vantage/platform/pi4/display.h>
+#include <vantage/platform/pi4/usb_input.h>
 #include <vantage/kernel/memory.h>
 #include <vantage/kernel/render.h>
 #include <vantage/platform/pi4/io.h>
@@ -128,19 +129,28 @@ static const NetLink* ethernet_start(void) {
 #if VANTAGE_USB
 static void usb_start(void) {
     Pi4UsbProbe usb;
-    int usb_result = pi4_usb_probe(pi4_hardware_ops(), &usb);
+    int usb_result = pi4_usb_input_start(pi4_hardware_ops(), &usb, TOUCH_HEIGHT, TOUCH_WIDTH);
     if (usb_result == HW_OK) {
-        uart_writeText("[OK] VL805 xHCI PCIe probe: version ");
+        uart_writeText("[OK] VL805 xHCI running: version ");
         uart_writeHex(usb.version);
         uart_writeText(", logical ports ");
         uart_writeHex(usb.ports);
         uart_writeText("\n");
     } else {
-        static const char* const stages[] = {"", "bridge", "link", "endpoint", "BAR", "xHCI"};
-        uart_writeText("[WARN] VL805 xHCI probe failed at ");
-        uart_writeText(stages[usb.stage]);
+        static const char* const stages[] = {
+            [PI4_USB_BRIDGE] = "bridge", [PI4_USB_LINK] = "link",
+            [PI4_USB_ENDPOINT] = "endpoint", [PI4_USB_BAR] = "BAR",
+            [PI4_USB_XHCI] = "xHCI", [PI4_USB_READY] = "probe",
+            [PI4_USB_DMA] = "DMA", [PI4_USB_FIRMWARE] = "firmware",
+            [PI4_USB_RESET] = "reset", [PI4_USB_NO_OP] = "No Op",
+            [PI4_USB_RUNNING] = "root port power"
+        };
+        uart_writeText("[WARN] VL805 xHCI start failed at ");
+        unsigned int stage = (unsigned int)usb.stage;
+        uart_writeText(stage < sizeof(stages) / sizeof(stages[0]) && stages[stage]
+                       ? stages[stage] : "unknown stage");
         report(" (", usb_result);
-        uart_writeText("[INFO] USB probe detail ");
+        uart_writeText("[INFO] USB controller detail ");
         uart_writeHex(usb.detail);
         uart_writeText("\n");
     }
@@ -210,6 +220,10 @@ void pi4_drivers_start(void) {
 
 void pi4_drivers_poll(void) {
     net_poll();
+#if VANTAGE_USB
+    pi4_usb_input_poll();
+    fb_cursor_poll();
+#endif
 #if VANTAGE_BLUETOOTH
     pi4_bt_poll();
 #endif
