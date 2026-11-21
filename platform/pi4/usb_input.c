@@ -23,7 +23,9 @@ enum {
     PORT_CONNECTION = 0, PORT_ENABLE = 1, PORT_OVERCURRENT = 3, PORT_RESET = 4,
     PORT_POWER = 8, PORT_LOW_SPEED = 9, PORT_HIGH_SPEED = 10, C_PORT_CONNECTION = 16
 };
-enum { HUB_IDLE, HUB_DEBOUNCE, HUB_RESETTING, HUB_RECOVERY, HUB_ACTIVE, HUB_IGNORED };
+enum {
+    HUB_IDLE, HUB_DEBOUNCE, HUB_RESETTING, HUB_RECOVERY, HUB_ACTIVE, HUB_IGNORED, HUB_RESET_FAILED
+};
 
 typedef struct {
     unsigned int port;
@@ -157,7 +159,8 @@ static int read_configuration(unsigned int port, size_t* bytes) {
 
     result = control(port, setup, config, &actual);
     if (result != HW_OK) return result;
-    if (actual != setup.length || le16(config + 2) != setup.length) return HW_UNSUPPORTED;
+    if (actual != setup.length || config[0] != CONFIG_HEADER_BYTES ||
+        config[1] != DESCRIPTOR_CONFIGURATION || le16(config + 2) != setup.length) return HW_UNSUPPORTED;
     *bytes = actual;
     return HW_OK;
 }
@@ -217,7 +220,7 @@ static HubEndpoint find_hub_endpoint(size_t bytes) {
             if (length < 9) return (HubEndpoint){0};
             if (!descriptor[3] && default_interface_seen++) return (HubEndpoint){0};
             hub_interface = !descriptor[3] && descriptor[4] == 1 && descriptor[5] == USB_CLASS_HUB &&
-                            !descriptor[6] && !descriptor[7];
+                            !descriptor[6] && descriptor[7] <= 1;
         } else if (hub_interface && descriptor[1] == DESCRIPTOR_ENDPOINT) {
             if (length < 7 || endpoint.endpoint) return (HubEndpoint){0};
             uint8_t address = descriptor[2];
@@ -390,6 +393,13 @@ static void close_hub(void) {
     hub = (InputHub){0};
 }
 
+static int disable_hub_port(unsigned int port, uint8_t state) {
+    int result = hub_feature(hub.root, port, CLEAR_FEATURE, PORT_ENABLE);
+    hub.reset_port = 0;
+    set_hub_port_state(port, state);
+    return result;
+}
+
 static int attach_child(unsigned int port, unsigned int status, InputDevice* vacant) {
     unsigned int path = hub.root | (port << 8);
     unsigned int speed = (status & (1U << PORT_HIGH_SPEED)) ? 3
@@ -398,8 +408,8 @@ static int attach_child(unsigned int port, unsigned int status, InputDevice* vac
     size_t bytes;
     if (result == HW_OK) result = read_configuration(path, &bytes);
     if (result == HW_OK) result = configure_boot(path, bytes, vacant);
-    hub.reset_port = 0;
     if (result == HW_OK) {
+        hub.reset_port = 0;
         set_hub_port_state(port, HUB_ACTIVE);
         return HW_OK;
     }
@@ -407,9 +417,7 @@ static int attach_child(unsigned int port, unsigned int status, InputDevice* vac
     if (vacant) (void)pi4_usb_close_port(path);
     /* Failed enumeration may leave a device at the default address. Disable
      * this downstream link before allowing another port reset. */
-    int disabled = hub_feature(hub.root, port, CLEAR_FEATURE, PORT_ENABLE);
-    set_hub_port_state(port, result == HW_UNSUPPORTED ? HUB_IGNORED : HUB_DEBOUNCE);
-    return disabled;
+    return disable_hub_port(port, result == HW_UNSUPPORTED ? HUB_IGNORED : HUB_DEBOUNCE);
 }
 
 static int poll_hub_port(unsigned int port, InputDevice* vacant) {
@@ -444,7 +452,7 @@ static int poll_hub_port(unsigned int port, InputDevice* vacant) {
         case HUB_RESETTING:
             if (enabled && !(status & (1U << PORT_RESET)) && (changes & (1U << PORT_RESET)))
                 set_hub_port_state(port, HUB_RECOVERY);
-            else if (waited >= HUB_RESET_TIMEOUT_US) return HW_TIMEOUT;
+            else if (waited >= HUB_RESET_TIMEOUT_US) return disable_hub_port(port, HUB_RESET_FAILED);
             break;
         case HUB_RECOVERY:
             if (waited < HUB_RESET_RECOVERY_US) break;
