@@ -71,6 +71,22 @@ int pi4_usb_open_port(unsigned int port) {
     return HW_OK;
 }
 
+int pi4_usb_configure_hub(unsigned int root, unsigned int count, unsigned int think_time) {
+    (void)root;
+    (void)count;
+    (void)think_time;
+    CHECK(0);
+    return HW_INVALID;
+}
+
+int pi4_usb_open_child(unsigned int root, unsigned int downstream, unsigned int speed) {
+    (void)root;
+    (void)downstream;
+    (void)speed;
+    CHECK(0);
+    return HW_INVALID;
+}
+
 int pi4_usb_close_port(unsigned int port) {
     CHECK(running && ports[port].phase >= OPEN);
     ports[port].phase = CLOSED;

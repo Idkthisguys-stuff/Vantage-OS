@@ -68,6 +68,8 @@ vantage_native_test(usb_hid_test usb_boot_hid drivers
   drivers/usb_hid.c "${ROOT}/drivers/input/usb_hid.c")
 vantage_native_test(pi4_usb_input_test pi4_usb_boot_input drivers
   drivers/pi4_usb_input.c "${ROOT}/platform/pi4/usb_input.c" "${ROOT}/drivers/input/usb_hid.c")
+vantage_native_test(pi4_usb_input_hub_test pi4_usb_hub_input drivers
+  drivers/pi4_usb_input_hub.c "${ROOT}/platform/pi4/usb_input.c" "${ROOT}/drivers/input/usb_hid.c")
 vantage_native_test(bluetooth_test bluetooth_hci_discovery drivers
   drivers/bluetooth.c "${ROOT}/drivers/bluetooth/hci.c")
 vantage_native_test(delays_test delays drivers
