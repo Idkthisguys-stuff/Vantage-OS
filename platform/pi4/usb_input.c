@@ -1,8 +1,9 @@
 #include <vantage/platform/pi4/usb_input.h>
+#include <vantage/platform/pi4/usb_disk.h>
 #include <vantage/drivers/usb_hid.h>
 
 #define ROOT_PORTS_MAX 255U
-#define DEVICE_COUNT 2U
+#define DEVICE_COUNT 3U
 #define PORT_SCAN_US 100000U
 #define CONTROLLER_RETRY_US 1000000U
 #define KEY_QUEUE_SIZE 32U
@@ -57,6 +58,7 @@ typedef struct {
 static const HwOps* input_io;
 static InputDevice devices[DEVICE_COUNT];
 static InputDevice *keyboard_device, *mouse_device;
+static unsigned int storage_path;
 static InputHub hub;
 static UsbHidKeyboard keyboard;
 static UsbHidMouse mouse;
@@ -207,6 +209,21 @@ static int configure_boot(unsigned int port, size_t bytes, InputDevice* device) 
     return result;
 }
 
+static int configure_device(unsigned int path, size_t bytes, InputDevice* device) {
+    int result = configure_boot(path, bytes, device);
+    if (result != HW_UNSUPPORTED || storage_path) return result;
+    result = pi4_usb_disk_configure(path, config, bytes);
+    if (result == HW_OK) {
+        storage_path = path;
+        *device = (InputDevice){ .port = path };
+    }
+    return result;
+}
+
+static int looking_for_device(void) {
+    return !keyboard_device || !mouse_device || !storage_path;
+}
+
 /* USB 2.0 §11.23: high-speed hubs use the single TT at alternate setting zero. */
 static HubEndpoint find_hub_endpoint(size_t bytes) {
     HubEndpoint endpoint = {0};
@@ -353,6 +370,10 @@ static void disconnect_mouse(void) {
 }
 
 static void forget_device(InputDevice* device) {
+    if (storage_path && storage_path == device->port) {
+        pi4_usb_disk_detach();
+        storage_path = 0;
+    }
     if (device == keyboard_device) {
         keyboard_device = NULL;
         usb_hid_keyboard_reset(&keyboard);
@@ -407,7 +428,7 @@ static int attach_child(unsigned int port, unsigned int status, InputDevice* vac
     int result = vacant ? pi4_usb_open_child(hub.root, port, speed) : HW_UNSUPPORTED;
     size_t bytes = 0;
     if (result == HW_OK) result = read_configuration(path, &bytes);
-    if (result == HW_OK) result = configure_boot(path, bytes, vacant);
+    if (result == HW_OK) result = configure_device(path, bytes, vacant);
     if (result == HW_OK) {
         hub.reset_port = 0;
         set_hub_port_state(port, HUB_ACTIVE);
@@ -478,7 +499,7 @@ static int poll_hub(uint32_t now) {
         if (result != HW_OK) return result;
     }
     if (now - hub.powered_at < hub.power_delay_us) return HW_OK;
-    InputDevice* vacant = (!keyboard_device || !mouse_device) ? device_on_port(0) : NULL;
+    InputDevice* vacant = looking_for_device() ? device_on_port(0) : NULL;
     for (unsigned int i = 0; i < hub.ports; i++) {
         hub.next_port = hub.next_port == hub.ports ? 1 : hub.next_port + 1;
         unsigned int port = hub.next_port;
@@ -510,7 +531,7 @@ static void scan_devices(unsigned int ports) {
         if (result == HW_OK) result = read_configuration(scan_port, &bytes);
         if (result == HW_OK) {
             HubEndpoint endpoint = find_hub_endpoint(bytes);
-            if (!endpoint.endpoint) result = configure_boot(scan_port, bytes, vacant);
+            if (!endpoint.endpoint) result = configure_device(scan_port, bytes, vacant);
             else if (hub.root) result = HW_UNSUPPORTED;
             else result = open_hub(scan_port, endpoint);
         }
@@ -611,7 +632,7 @@ void pi4_usb_input_poll(void) {
         return;
     }
     bind_devices();
-    if (!hub.reset_port && (!keyboard_device || !mouse_device) && now - last_scan >= PORT_SCAN_US) {
+    if (!hub.reset_port && looking_for_device() && now - last_scan >= PORT_SCAN_US) {
         last_scan = now;
         scan_devices(ports);
         bind_devices();

@@ -6,9 +6,15 @@ the VL805's internal USB 2 hub. Keyboard presses go to Home and Console. The
 mouse moves a cursor and its left button acts as a touch contact. One keyboard
 and one mouse can be used together. The keyboard uses a US layout.
 
+The same host controller can read one USB 2 Mass Storage Bulk-Only drive.
+Files displays up to 256 regular files from the FAT32 root via their short
+names. Open a file for a read-only text preview and use Next to read through it.
+The filesystem accepts a FAT32 volume or a primary MBR FAT32 partition with
+512-byte sectors. A device removal invalidates the list and any open preview.
+
 Physical Pi validation is pending. The driver supports one high-speed USB 2
 hub tier to reach devices plugged directly into the Pi. Cascaded hubs, general
-HID report descriptors and flash-drive transfers are later steps.
+HID report descriptors, subdirectories, long filenames and writes are later steps.
 
 ## USB mass storage
 
@@ -20,18 +26,12 @@ HID report descriptors and flash-drive transfers are later steps.
 2. **Exercise ring and reset recovery.** Test completion across ring wrap,
    unplug during a transfer, failed commands, and safe DMA ownership through
    recovery. Compare the physical results with the controller model.
-3. **Enumerate one flash drive and read a sector.** Reset a USB-A port, read
-   descriptors over the control endpoint, configure the Bulk-Only interface,
-   and wire its two bulk endpoints into the existing SCSI transport. Exercise
-   capacity discovery and a known sector read in the model. On the Pi, check
-   the sector contents against the same drive on a PC and repeat after
-   unplugging and reconnecting it.
-4. **Open files from Home.** Mount the flash drive read-only and expose it
-   through Files. Read a known file on the Pi and compare its contents with
-   the PC copy, then confirm Files handles an unplug during a read. The
-   initial filesystem code reads short-name files in the FAT32 root on a
-   512-byte-sector volume. Extend the directory and filename handling as
-   required by the Files view.
+3. **Validate bulk transfers and FAT32 on the Pi.** The host model exercises
+   endpoint configuration, a Bulk-Only status stall and recovery, capacity
+   discovery and a known FAT32 file read. On the Pi, open the same file as on a
+   PC, advance across a sector boundary, and unplug and reconnect the drive.
+4. **Extend directory and filename handling.** Add subdirectories and long
+   filenames to the read-only Files view.
 5. **Enable writes and safe eject.** Add FAT allocation and metadata updates,
    verify flushing and error recovery, and test reconnects and interrupted
    writes on expendable media. Enable writes in Files after data survives
@@ -39,7 +39,7 @@ HID report descriptors and flash-drive transfers are later steps.
 
 ## First USB board run
 
-Build a Pi 4 image with USB input enabled:
+Build a Pi 4 image with USB enabled:
 
 ```sh
 python tools/build.py --usb 1 --wifi 0 --v3d 0 --ethernet 0 --tls-trust-c none --build-dir out/pi4-usb
@@ -50,9 +50,19 @@ capture UART. Expect `[OK] VL805 xHCI running` with the version and port count.
 Plug a wired boot-protocol keyboard and mouse directly into the USB-A ports.
 Press `1` to open Console, type `help` and press Enter, then use the mouse to
 click Home and another tile. Check reconnect and unplug while holding the
-left button. On failure, record the UART stage and detail, board revision,
+left button. Plug in a FAT32 stick with a short-name text file in the root,
+then open **Files → USB** and select it. On failure, record the UART stage and
+detail, board revision,
 bootloader version and device models. The USB controller is disabled in
 ordinary builds (`USB=0`).
+
+## Simulator
+
+Set the optional `VANTAGE_USB_IMAGE` environment variable to an existing
+regular FAT32 disk image to test **Files → USB** in the Windows simulator.
+The simulator opens the image read-only.
+
+`VANTAGE_USB_IMAGE` can be set independently of `VANTAGE_STORAGE_IMAGE`.
 
 ## Wi-Fi and V3D board runs
 
@@ -90,6 +100,8 @@ and [Pi firmware notes on the VL805 and inbound DMA](https://github.com/raspberr
 The [Intel xHCI specification](https://cdrdv2-public.intel.com/625472/625472_xHCI_Rev1_2b.pdf),
 [USB 2.0 specification](https://www.usb.org/document-library/usb-20-specification)
 and [USB-IF HID specification](https://www.usb.org/sites/default/files/hid1_11.pdf)
-define the controller rings, USB 2 hub behavior and boot reports. See
+define the controller rings, USB 2 hub behavior and boot reports. The
+[USB-IF Bulk-Only Transport specification](https://www.usb.org/sites/default/files/usbmassbulk_10.pdf)
+defines the mass storage wire protocol. See
 [Raspberry Pi USB hardware documentation](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#usb)
 for the Pi 4's USB-A routing.

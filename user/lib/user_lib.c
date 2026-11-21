@@ -39,6 +39,10 @@ int sys_event_wait(uint32_t interests, uint32_t timeout_us) {
     return (int)(int64_t)syscall(SYS_EVENT_WAIT, ((uint64_t)timeout_us << 32) | interests);
 }
 
+int sys_usb_files(UsbFileCall* call) {
+    return (int)(int64_t)syscall(SYS_USB_FILES, (uintptr_t)call);
+}
+
 int sys_bt_status(BtStatus* status) {
     return (int)syscall(SYS_BT_STATUS, (uintptr_t)status);
 }

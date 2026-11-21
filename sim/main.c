@@ -19,6 +19,11 @@ int main(int argc, char* argv[]) {
         if (result < 0) { fprintf(stderr, "Storage image mount failed (%d)\n", result); return 1; }
         if (result) fprintf(stderr, "Storage recovered one valid snapshot; inspect the image\n");
     }
+    const char* usb = getenv("VANTAGE_USB_IMAGE");
+    if (usb && sim_usb_open(usb) < 0) {
+        fprintf(stderr, "Could not mount the read-only FAT32 USB image\n");
+        return 1;
+    }
 
     /* The simulator's Wi-Fi is a built-in virtual network, not the host's. */
     sim_net_attach();

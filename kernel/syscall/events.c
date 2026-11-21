@@ -1,6 +1,7 @@
 #include <vantage/kernel/events.h>
 #include <vantage/kernel/net.h>
 #include <vantage/kernel/platform.h>
+#include <vantage/kernel/usb_media.h>
 #include <vantage/drivers/key.h>
 #include <vantage/drivers/touch.h>
 
@@ -64,6 +65,7 @@ static uint32_t status_changes(void) {
     static NetStatus previous_net;
     static int previous_scan, initialized;
     static uint32_t previous_sync;
+    static uint32_t previous_usb;
     NetStatus net;
     NetTime time;
     net_status_cached(&net);
@@ -75,6 +77,9 @@ static uint32_t status_changes(void) {
     net.lease_seconds = 0;
     net.rx_frames = net.tx_frames = net.rx_dropped = 0;
     uint32_t changes = 0;
+    uint32_t usb = usb_media_revision();
+    if (usb != previous_usb) changes |= EVENT_USB;
+    previous_usb = usb;
     if (initialized && (memcmp(&net, &previous_net, sizeof(net)) ||
                         scan != previous_scan || time.synced != previous_sync)) changes |= EVENT_NETWORK;
     memcpy(&previous_net, &net, sizeof(net));
@@ -96,11 +101,13 @@ static uint32_t simulated_changes;
 
 void event_service(void) {
     net_poll();
+    usb_media_poll();
     simulated_changes |= status_changes();
 }
 #else
 void event_service(void) {
     pi4_drivers_poll();
+    usb_media_poll();
     task_notify_events(status_changes() | input_ready(INPUT_EVENTS));
 }
 #endif

@@ -1,4 +1,5 @@
 #include <vantage/platform/pi4/usb_input.h>
+#include <vantage/platform/pi4/usb_disk.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -33,6 +34,12 @@ typedef struct {
 static Port ports[] = {{0}, {.connected = 1}, {.connected = 1}, {.connected = 1}};
 static uint32_t clock_us = 0xffff0000U;
 static int running, starts, stops, led_writes;
+
+int pi4_usb_disk_configure(unsigned int path, const uint8_t* config, size_t bytes) {
+    (void)path; (void)config; (void)bytes;
+    return HW_UNSUPPORTED;
+}
+void pi4_usb_disk_detach(void) {}
 
 static uint32_t read_clock(void* context) {
     (void)context;
@@ -233,6 +240,7 @@ int main(void) {
 
     ports[3].connected = 1;
     tick(100000);
+    tick(100000); /* A separate scan may probe the adjacent non-HID port first. */
     CHECK(ports[3].opened == 2);
     mouse_report(1, 0, 0);
     CHECK(pi4_usb_touch_pending());

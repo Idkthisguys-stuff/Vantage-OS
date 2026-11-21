@@ -15,6 +15,8 @@ typedef struct {
 
 typedef struct {
     uint32_t cluster, entry, visited, scanned;
+    uint32_t cached_sector, cached;
+    uint8_t sector[USB_STORAGE_SECTOR_BYTES];
 } UsbFat32Directory;
 
 typedef struct {
@@ -31,5 +33,8 @@ typedef struct {
 UsbFat32Source usb_fat32_storage_source(UsbStorage* disk);
 int usb_fat32_mount(UsbFat32* volume, const UsbFat32Source* source);
 int usb_fat32_next(const UsbFat32* volume, UsbFat32Directory* cursor, UsbFat32File* file);
+/* Inspect at most one directory sector, or advance the FAT chain. */
+#define USB_FAT32_MORE 2
+int usb_fat32_step(const UsbFat32* volume, UsbFat32Directory* cursor, UsbFat32File* file);
 /* Output must hold one sector. Returns bytes read, zero at EOF, or HwResult. */
 int usb_fat32_read(const UsbFat32* volume, const UsbFat32File* file, UsbFat32Reader* reader, void* sector);

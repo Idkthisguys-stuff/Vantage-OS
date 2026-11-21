@@ -2,6 +2,8 @@
  * with -DVANTAGE_SIM and -Iinclude. The DMA view changes only on cache calls. */
 #include <vantage/arch/mmu.h>
 #include <vantage/drivers/pi4_usb.h>
+#include <vantage/platform/pi4/usb_disk.h>
+#include <vantage/kernel/usb_media.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -41,7 +43,7 @@ typedef struct {
     unsigned int packet[32];
     unsigned int path, parent, speed, usb_address;
     unsigned int hub_ports;
-    int enabled, configured, halted;
+    int enabled, configured, halted, bulk_halted;
 } Slot;
 
 typedef struct {
@@ -56,6 +58,8 @@ typedef struct {
     unsigned int stall_recoveries, timeout_stops, disable_count, status_slot;
     unsigned int root_resets, hub_ports, think_time, nested_hub_port;
     unsigned int tt_child, tt_clears;
+    unsigned int bot_phase, bot_lba, bot_code, bot_stall, bot_clear;
+    uint8_t bot_tag[4];
     uint8_t child_speed[16];
     int firmware, running, drop_control;
     int root_hub, expect_hub_fields, hub_descriptor_needs_config;
@@ -138,10 +142,11 @@ static Trb fetch(Model* m, Ring* ring, uint64_t* address) {
 static void load_endpoint(Model* m, Slot* slot, unsigned int dci, const uint32_t* ep) {
     uint64_t pointer = ep[2] | ((uint64_t)ep[3] << 32);
     CHECK((ep[1] & 6) == 6 && (pointer & 63) == 1);
-    CHECK(((ep[1] >> 3) & 7) == (dci == 1 ? 4U : 7U));
+    unsigned int type = (ep[1] >> 3) & 7;
+    CHECK(dci == 1 ? type == 4 : type == 7 || type == (dci & 1 ? 6U : 2U));
     slot->ring[dci] = (Ring){pointer & ~63ULL, 1, 0};
     slot->packet[dci] = PACKET(ep);
-    if (dci != 1) CHECK(ep[4] == ((PACKET(ep) << 16) | PACKET(ep)));
+    if (dci != 1) CHECK(ep[4] == ((type == 7 ? PACKET(ep) << 16 : 0) | PACKET(ep)));
     (void)dma_ptr(m, pointer & ~63ULL, 16);
 }
 
@@ -219,19 +224,21 @@ static void command(Model* m) {
                 CHECK(!(slot_ctx[0] & HUB_FLAG) && !(slot_ctx[1] >> 24));
                 CHECK(slot_ctx[2] == (route && speed != 3 ? ((route << 8) | slot->parent) : 0));
             }
-            for (unsigned int i = 3; i < 32; i += 2) {
+            for (unsigned int i = 2; i < 32; i++) {
                 if (!(input[1] & (1U << i))) continue;
                 CHECK((slot_ctx[0] >> 27) >= i);
                 const uint32_t* ep = input + (i + 1) * m->stride;
-                CHECK(ep[0] == ((slot->speed == 3 ? 3U : 6U) << 16));
+                unsigned int interval = (ep[1] >> 3 & 7) != 7 ? 0U : slot->speed == 3 ? 3U : 6U;
+                CHECK(ep[0] == (interval << 16));
                 load_endpoint(m, slot, i, ep);
             }
         }
         break;
     }
     case 14:
-        CHECK(id && dci == 1 && slot->halted);
-        slot->halted = 0;
+        CHECK(id && ((dci == 1 && slot->halted) || (dci == 3 && slot->bulk_halted)));
+        if (dci == 1) slot->halted = 0;
+        else slot->bulk_halted = 0;
         m->stall_recoveries++;
         break;
     case 15:
@@ -239,7 +246,7 @@ static void command(Model* m) {
         m->timeout_stops++;
         break;
     case 16:
-        CHECK(id && dci == 1 && !slot->halted);
+        CHECK(id && ((dci == 1 && !slot->halted) || (dci == 3 && !slot->bulk_halted)));
         CHECK(m->tt_child != id);
         slot->ring[dci].next = trb.parameter & ~15ULL;
         slot->ring[dci].cycle = (unsigned int)trb.parameter & 1;
@@ -325,6 +332,10 @@ static void control(Model* m, unsigned int id, Slot* slot) {
         CHECK(slot->packet[3] && !slot->configured);
         slot->configured = 1;
     }
+    if (type == 2 && request == 1) {
+        CHECK(slot->bulk_halted && !value && index == 0x81 && !length);
+        m->bot_clear++;
+    }
     Trb status = fetch(m, &slot->ring[1], &address);
     CHECK(TYPE(status) == 4 && !status.status && (status.control & 32));
     CHECK(!!(status.control & 0x10000) == (!length || !in));
@@ -345,6 +356,67 @@ static void interrupt(Model* m, Slot* slot, unsigned int dci) {
     CHECK(TYPE(trb) == 1 && (trb.control & 32) && trb.status == slot->packet[dci]);
     slot->buffer[dci] = trb.parameter;
     if (slot->ring[dci].wraps) m->interrupt_wraps = slot->ring[dci].wraps;
+}
+
+static void put32(uint8_t* data, uint32_t value) {
+    for (unsigned int i = 0; i < 4; i++) data[i] = (uint8_t)(value >> (i * 8));
+}
+
+static void disk_sector(unsigned int lba, uint8_t* bytes) {
+    memset(bytes, 0, 512);
+    if (!lba) {
+        bytes[12] = 2; bytes[13] = 1; bytes[14] = 32; bytes[16] = 1;
+        put32(bytes + 32, 66100); put32(bytes + 36, 513); put32(bytes + 44, 2);
+        bytes[510] = 0x55; bytes[511] = 0xaa;
+    } else if (lba == 32) {
+        put32(bytes + 8, 0x0fffffff); put32(bytes + 12, 0x0fffffff);
+    } else if (lba == 545) {
+        memcpy(bytes, "HELLO   TXT", 11); bytes[26] = 3; put32(bytes + 28, 4);
+    } else {
+        CHECK(lba == 546);
+        memcpy(bytes, "test", 4);
+    }
+}
+
+static void bulk_transfer(Model* m, unsigned int slot, unsigned int dci) {
+    uint64_t pointer;
+    Trb trb = fetch(m, &m->slot[slot].ring[dci], &pointer);
+    CHECK(TYPE(trb) == 1 && (trb.control & 32));
+    CHECK((trb.parameter & 0xffff) + trb.status <= 0x10000);
+    uint8_t* data = dma_ptr(m, trb.parameter, trb.status);
+    if (!m->bot_phase) {
+        CHECK(dci == 4 && trb.status == 31 && !memcmp(data, "USBC", 4));
+        CHECK(data[12] == 0x80 && !data[13] && data[14] == 10);
+        memcpy(m->bot_tag, data + 4, 4);
+        m->bot_code = data[15];
+        m->bot_lba = (unsigned int)data[17] << 24 | (unsigned int)data[18] << 16 |
+                     (unsigned int)data[19] << 8 | data[20];
+        m->bot_phase = 1;
+    } else if (m->bot_phase == 1) {
+        CHECK(dci == 3);
+        if (m->bot_code == 0x25) {
+            const uint8_t capacity[] = {0, 1, 0x11, 0x6f, 0, 0, 2, 0};
+            CHECK(trb.status == sizeof(capacity));
+            memcpy(data, capacity, sizeof(capacity));
+        } else {
+            CHECK(m->bot_code == 0x28 && trb.status == 512);
+            disk_sector(m->bot_lba, data);
+        }
+        m->bot_phase = 2;
+    } else {
+        CHECK(dci == 3 && trb.status == 13);
+        if (m->bot_stall) {
+            m->bot_stall = 0;
+            m->slot[slot].bulk_halted = 1;
+            complete(m, 32, 6, slot, dci, trb.status, pointer);
+            return;
+        }
+        memset(data, 0, trb.status);
+        memcpy(data, "USBS", 4);
+        memcpy(data + 4, m->bot_tag, 4);
+        m->bot_phase = 0;
+    }
+    complete(m, 32, 1, slot, dci, 0, pointer);
 }
 
 static void deliver(Model* m, unsigned int path, unsigned int dci, const uint8_t* report,
@@ -435,6 +507,7 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
         unsigned int id = (offset - DOORBELL) / 4;
         CHECK(m->running && value && value < 32);
         if (value == 1) control(m, id, &m->slot[id]);
+        else if (m->slot[id].packet[value] == 512) bulk_transfer(m, id, value);
         else interrupt(m, &m->slot[id], value);
     }
 }
@@ -678,11 +751,34 @@ static void hub_test(unsigned int stride, uint64_t shift, int fallback) {
     CHECK(pi4_usb_close_port(CHILD(4)) == HW_OK && pi4_usb_stop() == HW_OK);
 }
 
+static void disk_test(void) {
+    setup_model(&model, 16, SHIFTED, 3, 2);
+    Pi4UsbProbe probe;
+    CHECK(pi4_usb_start(&io, &probe) == HW_OK);
+    CHECK(pi4_usb_open_port(1) == HW_OK);
+    const uint8_t config[] = {9, 2, 32, 0, 1, 1, 0, 0x80, 50,
+                              9, 4, 0, 0, 2, 8, 6, 0x50, 0,
+                              7, 5, 0x81, 2, 0, 2, 0,
+                              7, 5, 2, 2, 0, 2, 0};
+    model.bot_stall = 1;
+    CHECK(pi4_usb_disk_configure(1, config, sizeof(config)) == HW_OK);
+    CHECK(model.bot_clear == 1 && model.stall_recoveries == 1);
+    usb_media_poll();
+    UsbFileCall status = { .operation = USB_FILES_STATUS };
+    CHECK(!usb_media_call(1, &status) && status.state == USB_MEDIA_READY && status.count == 1);
+    UsbFileCall read = { .operation = USB_FILES_READ, .generation = status.generation };
+    CHECK(!usb_media_call(1, &read) && read.length == 4 && !memcmp(read.data, "test", 4));
+    pi4_usb_disk_detach();
+    CHECK(usb_media_call(1, &read) == FILE_UNAVAILABLE);
+    CHECK(pi4_usb_close_port(1) == HW_OK && pi4_usb_stop() == HW_OK);
+}
+
 int main(void) {
     transfer_test(8, 0, 2);
     transfer_test(16, SHIFTED, 3);
     hub_test(8, 0, 0);
     hub_test(16, SHIFTED, 1);
+    disk_test();
     puts("xHCI direct and hub USB 2 transfers passed (32-/64-byte contexts, legacy/shifted DMA)");
     return 0;
 }

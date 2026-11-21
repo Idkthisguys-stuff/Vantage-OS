@@ -59,6 +59,8 @@ DRIVER_SOURCES := \
     drivers/input/key.c \
     drivers/input/touch.c \
     drivers/storage/sd.c \
+    drivers/storage/usb_fat32.c \
+    drivers/storage/usb_storage.c \
     drivers/video/v3d.c \
     drivers/wifi/bus.c \
     drivers/wifi/cyw43455.c \
@@ -67,8 +69,7 @@ DRIVER_SOURCES := \
 
 ifeq ($(USB),1)
 DRIVER_SOURCES += drivers/input/usb_hid.c
-DRIVER_SOURCES += drivers/storage/pi4_usb.c drivers/storage/pi4_xhci.c \
-    drivers/storage/usb_storage.c drivers/storage/usb_fat32.c
+DRIVER_SOURCES += drivers/storage/pi4_usb.c drivers/storage/pi4_xhci.c
 endif
 
 PLATFORM_SOURCES := \
@@ -84,7 +85,7 @@ PLATFORM_SOURCES := \
     platform/pi4/timer.c
 
 ifeq ($(USB),1)
-PLATFORM_SOURCES += platform/pi4/usb_input.c
+PLATFORM_SOURCES += platform/pi4/usb_input.c platform/pi4/usb_disk.c
 endif
 
 ifeq ($(BLUETOOTH),1)
@@ -178,5 +179,5 @@ BEARSSL_SOURCES := \
 
 C_SOURCES := $(sort $(ARCH_C_SOURCES) $(MEMORY_SOURCES) $(FILESYSTEM_SOURCES) \
     $(NETWORK_SOURCES) $(SCHEDULER_SOURCES) $(UI_SOURCES) $(DRIVER_SOURCES) $(PLATFORM_SOURCES) \
-    kernel/boot/main.c kernel/syscall/dispatch.c kernel/syscall/events.c lib/memory.c)
+    kernel/boot/main.c kernel/fs/usb_media.c kernel/syscall/dispatch.c kernel/syscall/events.c lib/memory.c)
 S_SOURCES := $(ARCH_ASM_SOURCES) kernel/boot/terminal_image.s

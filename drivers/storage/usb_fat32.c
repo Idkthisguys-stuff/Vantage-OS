@@ -94,33 +94,35 @@ static int short_name(char output[13], const uint8_t* entry) {
     return used != 0;
 }
 
-int usb_fat32_next(const UsbFat32* volume, UsbFat32Directory* cursor, UsbFat32File* file) {
+int usb_fat32_step(const UsbFat32* volume, UsbFat32Directory* cursor, UsbFat32File* file) {
     if (!volume || !volume->root || !cursor || !file) return HW_PROTOCOL;
     if (!cursor->cluster) cursor->cluster = volume->root;
     uint32_t entries = volume->sectors_per_cluster * (SECTOR / 32);
-    uint8_t sector[SECTOR];
-    uint32_t cached = ~0U;
+    uint32_t loaded = 0;
     for (;;) {
         if (cursor->cluster == FAT32_EOF) return 0;
         if (!valid_cluster(volume, cursor->cluster) || cursor->entry > entries) return HW_PROTOCOL;
         if (cursor->entry == entries) {
+            if (loaded) return USB_FAT32_MORE;
             if (++cursor->visited >= volume->clusters) return HW_PROTOCOL;
             uint32_t next;
             int result = next_cluster(volume, cursor->cluster, &next);
             if (result < 0) return result;
             cursor->cluster = result ? next : FAT32_EOF;
             cursor->entry = 0;
-            cached = ~0U;
-            continue;
+            cursor->cached = 0;
+            return result ? USB_FAT32_MORE : 0;
         }
         uint32_t index = cursor->entry / (SECTOR / 32);
-        if (index != cached) {
-            int result = read_sector(volume, cursor->cluster, index, sector);
+        if (!cursor->cached || index != cursor->cached_sector) {
+            if (loaded) return USB_FAT32_MORE;
+            int result = read_sector(volume, cursor->cluster, index, cursor->sector);
             if (result != HW_OK) return result;
-            cached = index;
+            cursor->cached_sector = index;
+            cursor->cached = loaded = 1;
         }
         if (cursor->scanned++ >= MAX_ROOT_ENTRIES) return HW_UNSUPPORTED;
-        const uint8_t* entry = sector + (cursor->entry++ % (SECTOR / 32)) * 32;
+        const uint8_t* entry = cursor->sector + (cursor->entry++ % (SECTOR / 32)) * 32;
         if (!entry[0]) { cursor->cluster = FAT32_EOF; return 0; }
         if (entry[0] == 0xe5 || (entry[11] & 0x18U) || !short_name(file->name, entry)) continue;
         file->cluster = ((le16(entry + 20) << 16) | le16(entry + 26)) & 0x0fffffffU;
@@ -128,6 +130,12 @@ int usb_fat32_next(const UsbFat32* volume, UsbFat32Directory* cursor, UsbFat32Fi
         if (file->bytes && !valid_cluster(volume, file->cluster)) return HW_PROTOCOL;
         return HW_OK;
     }
+}
+
+int usb_fat32_next(const UsbFat32* volume, UsbFat32Directory* cursor, UsbFat32File* file) {
+    int result;
+    do { result = usb_fat32_step(volume, cursor, file); } while (result == USB_FAT32_MORE);
+    return result;
 }
 
 int usb_fat32_read(const UsbFat32* volume, const UsbFat32File* file, UsbFat32Reader* reader, void* sector) {

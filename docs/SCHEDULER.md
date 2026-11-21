@@ -166,7 +166,7 @@ wait deadlines can run late under load. The service uses the existing core 0
 driver ownership and never runs in interrupt context.
 
 `sys_event_wait(interests, timeout_us)` accepts `EVENT_KEY`, `EVENT_TOUCH`,
-`EVENT_NETWORK`, and `EVENT_BLUETOOTH` in any combination. Its result is a
+`EVENT_NETWORK`, `EVENT_BLUETOOTH`, and `EVENT_USB` in any combination. Its result is a
 bitmask of the requested events, zero on timeout, or −1 for invalid arguments.
 A zero timeout queries readiness immediately. A zero interest mask with a
 positive timeout sleeps. The maximum interval is one second. The kernel

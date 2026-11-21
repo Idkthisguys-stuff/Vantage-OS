@@ -20,6 +20,7 @@ int pi4_usb_probe(const HwOps* io, Pi4UsbProbe* probe);
 
 #define PI4_USB_CONTROL_MAX 4096U
 #define PI4_USB_INTERRUPT_MAX 1024U
+#define PI4_USB_BULK_MAX 16384U
 #define PI4_USB_HUB_MAX_PORTS 15U
 #define PI4_USB_STALL (-8) /* EP0 stalled and was recovered. */
 
@@ -75,3 +76,9 @@ int pi4_usb_configure_interrupt_in(unsigned int path, uint8_t endpoint_address,
  * Caller storage is only borrowed during the call. Reopen after endpoint error. */
 int pi4_usb_interrupt_in(unsigned int path, uint8_t endpoint_address, void* report,
                         size_t capacity, size_t* actual);
+
+/* USB 2 bulk endpoint configured before SET_CONFIGURATION. A synchronous
+ * transfer returns a byte count or HwResult. HW_BUSY indicates STALL. */
+int pi4_usb_configure_bulk(unsigned int path, uint8_t endpoint_address, uint16_t max_packet);
+int pi4_usb_bulk(unsigned int path, uint8_t endpoint_address, void* data, uint32_t bytes);
+int pi4_usb_clear_bulk_halt(unsigned int path, uint8_t endpoint_address);

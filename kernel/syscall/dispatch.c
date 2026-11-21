@@ -9,6 +9,7 @@
 #include <vantage/kernel/events.h>
 #include <vantage/kernel/net.h>
 #include <vantage/kernel/user_access.h>
+#include <vantage/kernel/usb_media.h>
 
 #ifndef VANTAGE_SIM
 #include <vantage/platform/pi4/io.h>
@@ -68,7 +69,7 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
         return 0;
     }
     if (!task_services_allowed()) {
-        if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_DIRECTORY_LONG)
+        if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_USB_FILES)
             return (uint64_t)(int64_t)FILE_UNAVAILABLE;
         if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
             return (uint64_t)(int64_t)NET_UNAVAILABLE;
@@ -85,6 +86,14 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 #endif
     if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_DIRECTORY_LONG)
         return (uint64_t)handle_file_call(syscall_id, (uintptr_t)arg0, owner);
+    if (syscall_id == SYS_USB_FILES) {
+        UsbFileCall call;
+        if (!fetch(&call, arg0, sizeof(call), 4) || !writable(arg0, sizeof(call), 4))
+            return (uint64_t)(int64_t)FILE_BAD;
+        int result = usb_media_call(owner, &call);
+        if (!result && !user_copy_out((uintptr_t)arg0, &call, sizeof(call))) result = FILE_BAD;
+        return (uint64_t)(int64_t)result;
+    }
     if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
         return (uint64_t)handle_net_call(syscall_id, (uintptr_t)arg0, owner);
     if (syscall_id >= SYS_BT_STATUS && syscall_id <= SYS_BT_DEVICE)

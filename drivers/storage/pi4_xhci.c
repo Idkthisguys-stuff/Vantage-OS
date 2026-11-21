@@ -87,6 +87,7 @@
 #define EVENT_TRBS 64U
 #define COMMAND_US 100000U
 #define CONTROL_US 250000U
+#define BULK_US 500000U
 #define RESET_US 1000000U
 #define WAIT_POLLS 8000000U
 #define FIRMWARE_XHCI_RESET 0x00030058U
@@ -146,6 +147,9 @@ static struct {
     };
     uint8_t scratch[SCRATCHPADS][DMA_PAGE];
     DeviceMemory device[DEVICE_SLOTS];
+    /* One core-0 synchronous bulk transfer at a time. Padding lets us place
+     * a single Normal TRB inside a 64 KiB boundary at any DMA base. */
+    HW_ALIGN(DMA_PAGE) uint8_t bulk[2 * PI4_USB_BULK_MAX];
 } dma;
 
 _Static_assert(sizeof(Trb) == 16 && sizeof(TransferRing) == 512, "Unexpected TRB layout");
@@ -164,12 +168,13 @@ typedef struct {
 
 typedef struct {
     Transfer transfer;
-    unsigned int dci, max_packet, interval;
-} InterruptEndpoint;
+    unsigned int dci, max_packet, interval, type;
+    int halted;
+} Endpoint;
 
 typedef struct {
     Transfer ep0;
-    InterruptEndpoint interrupt[INTERRUPT_ENDPOINTS];
+    Endpoint endpoint[INTERRUPT_ENDPOINTS];
     unsigned int path, slot, parent_slot, speed_id, speed, entries;
     unsigned int hub_ports, think_time;
     int is_hub;
@@ -447,7 +452,7 @@ static int transfer_event(const Trb* event, unsigned int slot, unsigned int code
 
     Transfer* transfer = dci == 1 ? &device->ep0 : NULL;
     for (unsigned int i = 0; i < INTERRUPT_ENDPOINTS; i++) {
-        if (device->interrupt[i].dci == dci) transfer = &device->interrupt[i].transfer;
+        if (device->endpoint[i].dci == dci) transfer = &device->endpoint[i].transfer;
     }
     if (!transfer || !transfer->pending || transfer->done) return HW_OK;
 
@@ -699,7 +704,7 @@ static void prepare_endpoint(uint32_t* entry, unsigned int type, unsigned int pa
     entry[1] = (packet << 16) | (type << 3) | (3U << 1);
     entry[2] = (uint32_t)dequeue;
     entry[3] = (uint32_t)(dequeue >> 32);
-    entry[4] = type == 4 ? 8 : (packet << 16) | packet;
+    entry[4] = (type == 7 ? packet << 16 : 0) | (type == 4 ? 8 : packet);
 }
 
 static int context_command(uint32_t type, unsigned int slot) {
@@ -763,13 +768,13 @@ static int recover_control(Device* device) {
     return command(TRB_SET_DEQUEUE | endpoint_target(1), dequeue, device->slot);
 }
 
-static int wait_control(Device* device) {
+static int wait_transfer(Device* device, const Transfer* transfer, uint32_t timeout) {
     uint32_t start = hc.io->time_us(hc.io->context);
     for (unsigned int i = 0; i < WAIT_POLLS; i++) {
         int result = pi4_usb_port_connected(device->path);
         if (result != HW_OK) return result;
-        if (device->ep0.done) return HW_OK;
-        if (hc.io->time_us(hc.io->context) - start >= CONTROL_US) break;
+        if (transfer->done) return HW_OK;
+        if (hc.io->time_us(hc.io->context) - start >= timeout) break;
     }
     return HW_TIMEOUT;
 }
@@ -818,7 +823,7 @@ int pi4_usb_control(unsigned int path, const Pi4UsbSetup* setup, void* data,
         .requested = length, .pending = 1, .data_in = in, .status_in = status_in
     };
     write32(hc.db + 4 * device->slot, 1);
-    result = wait_control(device);
+    result = wait_transfer(device, transfer, CONTROL_US);
     if (result != HW_OK) {
         if (result == HW_TIMEOUT) {
             /* Stop the TD before retiring the slot. A raced completion can
@@ -951,74 +956,86 @@ int pi4_usb_open_child(unsigned int root, unsigned int downstream, unsigned int 
     return HW_UNSUPPORTED;
 }
 
-static unsigned int interrupt_dci(uint8_t address) {
-    if ((address & 0xf0) != 0x80 || !(address & 15)) return 0;
-    return 2 * (address & 15) + 1;
+static unsigned int endpoint_dci(uint8_t address) {
+    if ((address & 0x70) || !(address & 15)) return 0;
+    return 2 * (address & 15) + (address >> 7);
 }
 
-static InterruptEndpoint* find_interrupt(Device* device, unsigned int dci) {
+static Endpoint* find_endpoint(Device* device, unsigned int dci) {
     for (unsigned int i = 0; i < INTERRUPT_ENDPOINTS; i++) {
-        if (device->interrupt[i].dci == dci) return &device->interrupt[i];
+        if (device->endpoint[i].dci == dci) return &device->endpoint[i];
     }
     return NULL;
 }
 
-int pi4_usb_configure_interrupt_in(unsigned int path, uint8_t endpoint_address,
-                                  uint16_t max_packet, uint8_t interval) {
-    unsigned int dci = interrupt_dci(endpoint_address);
-    if (!dci || !max_packet || max_packet > REPORT_MAX || !interval) return HW_INVALID;
+static int configure_endpoint(unsigned int path, unsigned int dci, uint16_t max_packet,
+                              uint8_t interval, unsigned int type) {
+    if (!dci || !max_packet || max_packet > REPORT_MAX) return HW_INVALID;
     int result = pi4_usb_port_connected(path);
     if (result != HW_OK) return result;
     Device* device = find_device(path);
     if (!device || device->unusable) return HW_OFF;
     if (device->configured) return HW_INVALID;
-    if ((device->speed == USB_LOW && max_packet > 8) ||
-        (device->speed == USB_FULL && max_packet > 64) ||
-        (device->speed == USB_HIGH && interval > 16)) return HW_INVALID;
-
     unsigned int esit = 0;
-    if (device->speed == USB_HIGH) esit = interval - 1;
-    else {
+    if (type == 7) {
+        if (!interval || (device->speed == USB_LOW && max_packet > 8) ||
+            (device->speed == USB_FULL && max_packet > 64) ||
+            (device->speed == USB_HIGH && interval > 16)) return HW_INVALID;
+        if (device->speed == USB_HIGH) esit = interval - 1;
+        else {
         /* USB 2 LS/FS descriptors use frames. Round down to a power of two
          * microframes so service is at least as frequent as requested. */
-        for (unsigned int microframes = interval * 8U; microframes > 1; microframes >>= 1) esit++;
+            for (unsigned int microframes = interval * 8U; microframes > 1; microframes >>= 1) esit++;
+        }
+    } else if (device->speed == USB_LOW || (device->speed == USB_HIGH && max_packet != 512) ||
+               (device->speed == USB_FULL && max_packet != 8 && max_packet != 16 &&
+                max_packet != 32 && max_packet != 64)) {
+        return HW_INVALID;
     }
-    InterruptEndpoint* endpoint = find_interrupt(device, dci);
+    Endpoint* endpoint = find_endpoint(device, dci);
     if (endpoint)
-        return endpoint->max_packet == max_packet && endpoint->interval == esit ? HW_OK : HW_BUSY;
-    endpoint = find_interrupt(device, 0);
+        return endpoint->max_packet == max_packet && endpoint->interval == esit && endpoint->type == type
+            ? HW_OK : HW_BUSY;
+    endpoint = find_endpoint(device, 0);
     if (!endpoint) return HW_NO_SPACE;
-    unsigned int index = (unsigned int)(endpoint - device->interrupt);
+    unsigned int index = (unsigned int)(endpoint - device->endpoint);
     TransferRing* ring = &device_memory(device)->interrupt[index];
     unsigned int entries = dci > device->entries ? dci : device->entries;
     init_ring(ring, &endpoint->transfer.producer);
     prepare_input(1U | (1U << dci));
     slot_context(device, entries);
-    prepare_endpoint(endpoint_context(dci), 7, max_packet, esit, ring);
+    prepare_endpoint(endpoint_context(dci), type, max_packet, esit, ring);
     result = context_command(TRB_CONFIGURE_EP, device->slot);
     if (result == HW_OK) {
         endpoint->dci = dci;
         endpoint->max_packet = max_packet;
         endpoint->interval = esit;
+        endpoint->type = type;
         device->entries = entries;
     }
     return result;
 }
 
+int pi4_usb_configure_interrupt_in(unsigned int path, uint8_t endpoint_address,
+                                  uint16_t max_packet, uint8_t interval) {
+    if (!(endpoint_address & 0x80)) return HW_INVALID;
+    return configure_endpoint(path, endpoint_dci(endpoint_address), max_packet, interval, 7);
+}
+
 int pi4_usb_interrupt_in(unsigned int path, uint8_t endpoint_address, void* report,
                         size_t capacity, size_t* actual) {
-    unsigned int dci = interrupt_dci(endpoint_address);
-    if (!dci || !report || !actual) return HW_INVALID;
+    unsigned int dci = endpoint_dci(endpoint_address);
+    if (!(endpoint_address & 0x80) || !dci || !report || !actual) return HW_INVALID;
     *actual = 0;
     int result = pi4_usb_port_connected(path);
     if (result != HW_OK) return result;
     Device* device = find_device(path);
     if (!device || device->unusable || !device->configured) return HW_OFF;
-    InterruptEndpoint* endpoint = find_interrupt(device, dci);
-    if (!endpoint || capacity < endpoint->max_packet) return HW_INVALID;
+    Endpoint* endpoint = find_endpoint(device, dci);
+    if (!endpoint || endpoint->type != 7 || capacity < endpoint->max_packet) return HW_INVALID;
     Transfer* transfer = &endpoint->transfer;
     if (transfer->pending && !transfer->done) return HW_BUSY;
-    unsigned int index = (unsigned int)(endpoint - device->interrupt);
+    unsigned int index = (unsigned int)(endpoint - device->endpoint);
     DeviceMemory* memory = device_memory(device);
     uint8_t* buffer = memory->report[index];
     result = HW_BUSY;
@@ -1039,4 +1056,86 @@ int pi4_usb_interrupt_in(unsigned int path, uint8_t endpoint_address, void* repo
     };
     write32(hc.db + 4 * device->slot, dci);
     return result;
+}
+
+int pi4_usb_configure_bulk(unsigned int path, uint8_t address, uint16_t packet) {
+    return configure_endpoint(path, endpoint_dci(address), packet, 0, address & 0x80 ? 6 : 2);
+}
+
+static Endpoint* bulk_endpoint(Device* device, uint8_t address) {
+    unsigned int dci = endpoint_dci(address);
+    Endpoint* endpoint = dci ? find_endpoint(device, dci) : NULL;
+    return endpoint && (endpoint->type == 2 || endpoint->type == 6) ? endpoint : NULL;
+}
+
+int pi4_usb_bulk(unsigned int path, uint8_t address, void* data, uint32_t bytes) {
+    if (!data || !bytes || bytes > PI4_USB_BULK_MAX) return HW_INVALID;
+    int result = pi4_usb_port_connected(path);
+    if (result != HW_OK) return result;
+    Device* device = find_device(path);
+    if (!device || !device->configured || device->unusable) return HW_OFF;
+    Endpoint* endpoint = bulk_endpoint(device, address);
+    if (!endpoint) return HW_INVALID;
+    if (endpoint->halted) return HW_BUSY;
+
+    int in = endpoint->type == 6;
+    uint8_t* buffer = dma.bulk;
+    uint32_t remaining = 0x10000U - (uint32_t)(bus(buffer) & 0xffffU);
+    if (remaining < bytes) buffer += remaining;
+    if (!in) memcpy(buffer, data, bytes);
+    cache(buffer, bytes, in ? HW_CLEAN_INVALIDATE : HW_CLEAN);
+    unsigned int index = (unsigned int)(endpoint - device->endpoint);
+    Transfer* transfer = &endpoint->transfer;
+    Trb trb = {bus(buffer), bytes, TRB_NORMAL | TRB_IOC};
+    uint64_t pointer;
+    queue_trbs(&device_memory(device)->interrupt[index], &transfer->producer, &trb, 1, &pointer);
+    *transfer = (Transfer){.producer = transfer->producer, .last_trb = pointer,
+                           .requested = bytes, .pending = 1};
+    write32(hc.db + 4 * device->slot, endpoint->dci);
+    result = wait_transfer(device, transfer, BULK_US);
+    if (result != HW_OK || (transfer->code != CC_SUCCESS && transfer->code != CC_SHORT &&
+                            transfer->code != CC_STALL)) {
+        /* The staging buffer cannot be lent to another device until this
+         * slot is disabled or the controller has been reset/quarantined. */
+        if (hc.running) (void)close_device(device);
+        return HW_OFF;
+    }
+    transfer->pending = 0;
+    if (transfer->code == CC_STALL) { endpoint->halted = 1; return HW_BUSY; }
+    if (in) {
+        cache(buffer, bytes, HW_INVALIDATE);
+        memcpy(data, buffer, transfer->actual);
+    }
+    return (int)transfer->actual;
+}
+
+int pi4_usb_clear_bulk_halt(unsigned int path, uint8_t address) {
+    int result = pi4_usb_port_connected(path);
+    if (result != HW_OK) return result;
+    Device* device = find_device(path);
+    if (!device || device->unusable || !device->configured) return HW_OFF;
+    Endpoint* endpoint = bulk_endpoint(device, address);
+    if (!endpoint) return HW_INVALID;
+    if (!endpoint->halted) {
+        /* A BOT phase reset also resets the device toggle. Re-enumerate the
+         * slot if the xHC endpoint was still running. */
+        (void)close_device(device);
+        return HW_OFF;
+    }
+    const Pi4UsbSetup setup = {2, 1, 0, address, 0};
+    size_t actual;
+    result = pi4_usb_control(path, &setup, NULL, &actual);
+    if (result == HW_OK) result = command(TRB_RESET_EP | endpoint_target(endpoint->dci), 0, device->slot);
+    if (result == HW_OK) {
+        unsigned int index = (unsigned int)(endpoint - device->endpoint);
+        const Producer* producer = &endpoint->transfer.producer;
+        uint64_t pointer = bus(&device_memory(device)->interrupt[index].trb[producer->index]) | producer->cycle;
+        result = command(TRB_SET_DEQUEUE | endpoint_target(endpoint->dci), pointer, device->slot);
+    }
+    if (result != HW_OK) {
+        if (hc.running && device->slot) (void)close_device(device);
+        return HW_OFF;
+    }
+    endpoint->halted = 0;
+    return HW_OK;
 }

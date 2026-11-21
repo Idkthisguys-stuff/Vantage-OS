@@ -1,6 +1,13 @@
 #include <vantage/platform/pi4/usb_input.h>
+#include <vantage/platform/pi4/usb_disk.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+int pi4_usb_disk_configure(unsigned int path, const uint8_t* config, size_t bytes) {
+    (void)path; (void)config; (void)bytes;
+    return HW_UNSUPPORTED;
+}
+void pi4_usb_disk_detach(void) {}
 
 #define CHECK(test) do { if (!(test)) { \
     fprintf(stderr, "USB input hub check failed at line %d: %s\n", __LINE__, #test); exit(1); \
