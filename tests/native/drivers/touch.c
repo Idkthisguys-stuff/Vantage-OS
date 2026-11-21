@@ -84,5 +84,11 @@ int main(void) {
     set_contact(1, 9, 1, 0, 0);
     if (!expect_contact(TOUCH_EVENT_MOVE, 7, 80, 399) ||
         !expect_contact(TOUCH_EVENT_UP, 9, 300, 649)) return 1;
+
+    set_sample(2, 0, 0, 0);
+    set_contact(0, 7, 1, 0, 0);
+    set_contact(1, TOUCH_CONTACT_MOUSE, 0, 150, 300);
+    if (!expect_contact(TOUCH_EVENT_UP, 7, 80, 399) ||
+        !expect(TOUCH_EVENT_NONE, 80, 399)) return 1;
     return 0;
 }

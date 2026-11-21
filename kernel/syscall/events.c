@@ -14,8 +14,8 @@
 
 #define INPUT_EVENTS (EVENT_KEY | EVENT_TOUCH)
 
-/* Stage one event from each driver without consuming it on behalf of Home.
- * The driver retains the rest of its queue. All access is serialized on core 0. */
+/* Stage one event from polled input sources that lack a peek operation.
+ * USB retains its queue entries so detach can cancel an unread gesture. */
 static KeyEvent staged_key;
 static TouchContact staged_touch;
 static uint32_t input_events;
@@ -49,10 +49,15 @@ uint32_t event_read_touch(TouchContact* contact) {
 }
 
 static uint32_t input_ready(uint32_t interests) {
-    uint32_t missing = interests & ~input_events;
-    if ((missing & EVENT_KEY) && read_key(&staged_key)) input_events |= EVENT_KEY;
-    if ((missing & EVENT_TOUCH) && read_touch(&staged_touch)) input_events |= EVENT_TOUCH;
-    return input_events & interests;
+    uint32_t usb_ready = 0;
+#if VANTAGE_USB && !defined(VANTAGE_SIM)
+    if (pi4_usb_key_pending()) usb_ready |= EVENT_KEY;
+    if (pi4_usb_touch_pending()) usb_ready |= EVENT_TOUCH;
+#endif
+    uint32_t missing = interests & ~(input_events | usb_ready);
+    if ((missing & EVENT_KEY) && key_read(&staged_key)) input_events |= EVENT_KEY;
+    if ((missing & EVENT_TOUCH) && touch_read(&staged_touch)) input_events |= EVENT_TOUCH;
+    return (input_events | usb_ready) & interests;
 }
 
 static uint32_t status_changes(void) {

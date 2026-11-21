@@ -102,7 +102,7 @@ typedef struct {
     HW_ALIGN(256) Trb trb[RING_TRBS];
     /* The VL805 may fetch four TRBs past a Link. Keep that memory dedicated
      * to this ring so it cannot prefetch stale entries of another endpoint. */
-    Trb reserved[4];
+    Trb reserved[RING_TRBS];
 } TransferRing;
 
 typedef struct {
@@ -111,23 +111,44 @@ typedef struct {
 } EventSegment;
 
 typedef struct {
-    HW_ALIGN(2048) uint32_t output[32 * 16];
-    TransferRing ep0, interrupt[INTERRUPT_ENDPOINTS];
-    HW_ALIGN(DMA_PAGE) uint8_t control[PI4_USB_CONTROL_MAX];
-    HW_ALIGN(REPORT_MAX) uint8_t report[INTERRUPT_ENDPOINTS][REPORT_MAX];
+    union {
+        HW_ALIGN(DMA_PAGE) uint8_t context_page[DMA_PAGE];
+        struct {
+            uint32_t output[32 * 16];
+            TransferRing ep0, interrupt[INTERRUPT_ENDPOINTS];
+        };
+    };
+    uint8_t control[PI4_USB_CONTROL_MAX];
+    union {
+        uint8_t report_page[DMA_PAGE];
+        uint8_t report[INTERRUPT_ENDPOINTS][REPORT_MAX];
+    };
 } DeviceMemory;
 
 /* Static DMA storage survives link loss, firmware timeouts and failed resets.
- * Keep controller-written structures on cache lines separate from CPU data. */
+ * Page placement also keeps individual DMA objects within 64 KiB boundaries
+ * and separates controller-written structures from CPU-written cache lines. */
 static struct {
-    HW_ALIGN(DMA_PAGE) uint32_t input[33 * 16];
-    HW_ALIGN(64) uint64_t dcbaa[DEVICE_SLOTS + 1], scratch_array[SCRATCHPADS];
-    HW_ALIGN(64) EventSegment segment;
-    HW_ALIGN(1024) Trb event[EVENT_TRBS];
-    TransferRing command;
-    HW_ALIGN(DMA_PAGE) uint8_t scratch[SCRATCHPADS][DMA_PAGE];
+    union {
+        HW_ALIGN(DMA_PAGE) uint8_t input_page[DMA_PAGE];
+        uint32_t input[33 * 16];
+    };
+    union {
+        HW_ALIGN(DMA_PAGE) uint8_t controller_page[DMA_PAGE];
+        struct {
+            Trb event[EVENT_TRBS];
+            TransferRing command;
+            /* Separate the pointer arrays and ERST on 64-byte boundaries. */
+            uint64_t dcbaa[8], scratch_array[8];
+            EventSegment segment;
+        };
+    };
+    uint8_t scratch[SCRATCHPADS][DMA_PAGE];
     DeviceMemory device[DEVICE_SLOTS];
 } dma;
+
+_Static_assert(sizeof(Trb) == 16 && sizeof(TransferRing) == 512, "Unexpected TRB layout");
+_Static_assert(sizeof(DeviceMemory) == DMA_PAGE * 3, "Unexpected device DMA layout");
 
 typedef struct {
     unsigned int index, cycle;
