@@ -136,8 +136,7 @@ static void usb_start(void) {
         uart_writeHex(usb.ports);
         uart_writeText("\n");
     } else {
-        static const char* const stages[] = {"", "bridge", "link", "endpoint",
-                                            "firmware", "BAR", "xHCI"};
+        static const char* const stages[] = {"", "bridge", "link", "endpoint", "BAR", "xHCI"};
         uart_writeText("[WARN] VL805 xHCI probe failed at ");
         uart_writeText(stages[usb.stage]);
         report(" (", usb_result);

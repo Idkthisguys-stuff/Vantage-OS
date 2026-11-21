@@ -1,4 +1,4 @@
-"""Exercise the linked USB probe with modelled PCIe, xHCI and VideoCore.
+"""Exercise the linked USB probe with modelled PCIe and xHCI.
 
 Usage: python tests/arm/usb_boot.py usb-enabled.elf usb-disabled.elf -v
 Both images use V3D=0, ETHERNET=0 and no Wi-Fi assets.
@@ -11,17 +11,17 @@ from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
 from unicorn import arm64_const as regs
 from memory_management import FRAMEBUFFER, Image, Machine
 
-PCIE, XHCI, TIMER, MAILBOX = 0xfd500000, 0x600000000, 0xfe003000, 0xfe00b000
+PCIE, XHCI, TIMER = 0xfd500000, 0x600000000, 0xfe003000
 
 
 class Board(Machine):
     def __init__(self, image):
         super().__init__(image)
         self.log = []
-        self.clock = self.token = self.host_reads = self.xhci_reads = 0
+        self.clock = self.host_reads = self.xhci_reads = 0
         self.link = True
         self.host = {0: 0x271114e4, 0x8000: 0x34831106, 0x8008: 0x0c033001}
-        for base, size in ((PCIE, 0xa000), (XHCI, 0x1000), (TIMER, 0x1000), (MAILBOX, 0x1000)):
+        for base, size in ((PCIE, 0xa000), (XHCI, 0x1000), (TIMER, 0x1000)):
             self.uc.mem_map(base, size)
             self.uc.hook_add(UC_HOOK_MEM_READ, self.read, begin=base, end=base + size - 1)
             self.uc.hook_add(UC_HOOK_MEM_WRITE, self.write, begin=base, end=base + size - 1)
@@ -44,10 +44,6 @@ class Board(Machine):
         if address == TIMER + 4:
             self.clock += 100
             result = self.clock
-        elif address == MAILBOX + 0x898:
-            result = 0 if self.token else 0x40000000
-        elif address == MAILBOX + 0x880:
-            result, self.token = self.token, 0
         elif PCIE <= address < PCIE + 0xa000:
             self.host_reads += 1
             offset = address - PCIE
@@ -64,21 +60,11 @@ class Board(Machine):
         uc.mem_write(address, struct.pack('<I', result))
 
     def write(self, uc, access, address, size, value, _):
-        assert size == 4
-        value &= 0xffffffff
-        if PCIE <= address < PCIE + 0xa000:
-            offset = address - PCIE
-            if offset in (4, 0x8004):
-                assert not value & 4
-            self.host[offset] = value
-            return
-        assert address == MAILBOX + 0x8a0 and value & 15 == 8
-        physical = value & ~15
-        words = list(struct.unpack('<7I', uc.mem_read(physical, 28)))
-        assert words == [28, 0, 0x30058, 4, 0, 0x100000, 0]
-        words[1], words[4] = 0x80000000, 0x80000004
-        uc.mem_write(physical, struct.pack('<7I', *words))
-        self.token = value
+        assert size == 4 and PCIE <= address < PCIE + 0xa000
+        offset = address - PCIE
+        if offset in (4, 0x8004):
+            assert not value & 4
+        self.host[offset] = value & 0xffffffff
 
     def start(self):
         self.call('mmu_init', FRAMEBUFFER, 0x200000)

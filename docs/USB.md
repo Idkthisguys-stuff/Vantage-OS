@@ -6,14 +6,15 @@
    PCIe link, identifies the VIA VL805 and reads its xHCI capabilities. UART
    reports the xHCI version and logical port count or the failed stage. PCIe
    bus mastering stays disabled. Native and linked ARM models cover link
-   timeout, endpoint discovery, firmware notification and BAR validation. The next
+   timeout, endpoint discovery and BAR validation. The next
    check on a Pi is a repeatable cold boot from microSD with the same xHCI
    version reported each time and Home reachable after the probe.
 2. **Enumerate one directly connected drive.** Initialize the xHCI command,
    event and transfer rings, maintain cache coherence within the controller's
-   DMA address range, and add bounded port reset, USB descriptor reads,
-   device addressing and endpoint configuration. The first target is one
-   FAT32 flash drive connected directly to a Pi 4 USB-A port. The milestone is
+   DMA address range, and load VL805 firmware on boards that require it. Add
+   bounded port reset, descriptor reads, device addressing and endpoint
+   configuration. Start with one FAT32 flash drive connected directly to a
+   Pi 4 USB-A port. The milestone is
    a reported mass-storage interface and a repeatable sector read across
    unplug and reconnect. The kernel already has model-tested SCSI Bulk-Only
    and read-only FAT32 code that the xHCI transport can call.
@@ -56,4 +57,4 @@ disabled in ordinary builds (`USB=0`).
 
 Register and firmware references are the [BCM2711 device tree](https://github.com/torvalds/linux/blob/v6.12/arch/arm/boot/dts/broadcom/bcm2711.dtsi),
 [Broadcom PCIe host driver](https://github.com/torvalds/linux/blob/v6.12/drivers/pci/controller/pcie-brcmstb.c),
-and [Pi firmware reset driver](https://github.com/torvalds/linux/blob/v6.12/drivers/reset/reset-raspberrypi.c).
+and [Pi firmware notes on the VL805 and inbound DMA](https://github.com/raspberrypi/firmware/issues/1495#issuecomment-728112060).

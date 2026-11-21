@@ -29,7 +29,6 @@
 #define PCIE_EXT_DATA 0x8000
 #define VL805_BDF (1U << 20)
 #define VL805_ID 0x34831106U
-#define VL805_FIRMWARE_TAG 0x00030058U
 #define PCI_XHCI_CLASS 0x0c0330U
 #define PCI_COMMAND 0x04
 #define PCI_MEMORY 2U
@@ -50,6 +49,13 @@ static void write_reg(const HwOps* io, unsigned int offset, uint32_t value) {
 static void update_reg(const HwOps* io, unsigned int offset, uint32_t mask, uint32_t value) {
     write_reg(io, offset, (read_reg(io, offset) & ~mask) | value);
     (void)read_reg(io, offset);
+}
+
+static int link_ready(const HwOps* io, Pi4UsbProbe* probe) {
+    uint32_t status = read_reg(io, PCIE_STATUS);
+    if ((status & PCIE_LINK_UP) == PCIE_LINK_UP) return 1;
+    probe->detail = status;
+    return 0;
 }
 
 static int start_link(const HwOps* io, Pi4UsbProbe* probe) {
@@ -91,6 +97,9 @@ static void map_outbound_window(const HwOps* io) {
 
 static int probe_bar(const HwOps* io, Pi4UsbProbe* probe) {
     const unsigned int endpoint = PCIE_EXT_DATA;
+    if (!link_ready(io, probe)) return HW_TIMEOUT;
+    write_reg(io, endpoint + PCI_COMMAND, PCI_INTX_DISABLE);
+    if (read_reg(io, endpoint + PCI_COMMAND) & (PCI_MASTER | PCI_MEMORY)) return HW_IO;
     uint32_t bar = read_reg(io, endpoint + PCI_BAR0);
     probe->detail = bar;
     if ((bar & 15) != 4) return HW_UNSUPPORTED;  /* 64-bit non-prefetchable memory. */
@@ -106,11 +115,13 @@ static int probe_bar(const HwOps* io, Pi4UsbProbe* probe) {
     if (bytes < 32 || bytes > MMU_PCIE_DEVICE_BYTES || (bytes & (bytes - 1))) return HW_PROTOCOL;
 
     map_outbound_window(io);
+    if (!link_ready(io, probe)) return HW_TIMEOUT;
     write_reg(io, endpoint + PCI_BAR0, PCI_MEMORY_BASE);
     write_reg(io, endpoint + PCI_BAR1, 0);
     write_reg(io, PCI_COMMAND, PCI_MEMORY | PCI_INTX_DISABLE);
     write_reg(io, endpoint + PCI_COMMAND, PCI_MEMORY | PCI_INTX_DISABLE);
     uint32_t pci_decode = PCI_MEMORY | PCI_MASTER;
+    if (!link_ready(io, probe)) return HW_TIMEOUT;
     if (read_reg(io, endpoint + PCI_BAR0) != (PCI_MEMORY_BASE | 4U) ||
         read_reg(io, endpoint + PCI_BAR1) != 0 ||
         (read_reg(io, PCI_COMMAND) & pci_decode) != PCI_MEMORY ||
@@ -123,27 +134,19 @@ static int probe_controller(const HwOps* io, Pi4UsbProbe* probe) {
     probe->stage = PI4_USB_ENDPOINT;
     write_reg(io, PCI_COMMAND, PCI_INTX_DISABLE);
     update_reg(io, 0x18, 0x00ffffffU, 0x00010100U);  /* Primary 0, secondary/subordinate 1. */
+    if (!link_ready(io, probe)) return HW_TIMEOUT;
     write_reg(io, PCIE_EXT_INDEX, VL805_BDF);
     probe->detail = read_reg(io, endpoint);
     if (probe->detail != VL805_ID ||
         (read_reg(io, endpoint + 0x08) >> 8) != PCI_XHCI_CLASS) return HW_UNSUPPORTED;
-    write_reg(io, endpoint + PCI_COMMAND, PCI_INTX_DISABLE);
 
-    /* VideoCore reloads the VL805 firmware on boards without a dedicated
-     * EEPROM. Issue the notification before touching the xHCI registers. */
-    probe->stage = PI4_USB_FIRMWARE;
-    uint32_t address = VL805_BDF;
-    int result = io->property(io->context, VL805_FIRMWARE_TAG, &address, 1);
-    if (result != HW_OK) return result;
-    if (hw_delay(io, 1000) != HW_OK) return HW_TIMEOUT;
-    write_reg(io, PCIE_EXT_INDEX, VL805_BDF);
-    write_reg(io, endpoint + PCI_COMMAND, PCI_INTX_DISABLE);
-    if (read_reg(io, endpoint + PCI_COMMAND) & (PCI_MASTER | PCI_MEMORY)) return HW_IO;
-
+    /* Firmware reloading can require inbound DMA. Leave it to the xHCI
+     * transport setup, after it owns the inbound address window. */
     probe->stage = PI4_USB_BAR;
-    result = probe_bar(io, probe);
+    int result = probe_bar(io, probe);
     if (result != HW_OK) return result;
     probe->stage = PI4_USB_XHCI;
+    if (!link_ready(io, probe)) return HW_TIMEOUT;
     probe->detail = io->read(io->context, MMU_PCIE_DEVICE_BASE);
     uint32_t version = probe->detail >> 16;
     if (version < 0x0090 || version >= 0x0200 || (probe->detail & 0xff) < 0x20) return HW_PROTOCOL;
@@ -159,7 +162,7 @@ static int probe_controller(const HwOps* io, Pi4UsbProbe* probe) {
 int pi4_usb_probe(const HwOps* io, Pi4UsbProbe* probe) {
     if (!probe) return HW_INVALID;
     *probe = (Pi4UsbProbe){ .stage = PI4_USB_BRIDGE };
-    if (!hw_ops_valid(io) || !io->property || !io->owned(io->context)) return HW_INVALID;
+    if (!hw_ops_valid(io) || !io->owned(io->context)) return HW_INVALID;
     probe->detail = read_reg(io, 0);
     if ((probe->detail & 0xffff) != 0x14e4) return HW_UNSUPPORTED;
 

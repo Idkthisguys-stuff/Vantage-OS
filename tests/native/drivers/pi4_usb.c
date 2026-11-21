@@ -10,8 +10,8 @@
 
 typedef struct {
     uint32_t regs[0x9214 / 4];
-    uint32_t time, released, config_reads, capability_reads, firmware_calls, bar_mask;
-    int owned, force_down, invalid_bus, bad_caps, bad_access, firmware_result;
+    uint32_t time, released, config_reads, capability_reads, bar_mask;
+    int owned, force_down, drop_after_class, invalid_bus, bad_caps, bad_access;
 } Model;
 
 static uint32_t read32(void* context, uintptr_t address) {
@@ -41,10 +41,11 @@ static uint32_t read32(void* context, uintptr_t address) {
         return 0x80U | (!model->force_down && model->released ? 0x30U : 0U);
     if (offset >= 0x8000 && offset < 0x9000) {
         model->config_reads++;
-        if (!model->released || model->time - model->released < 100000 ||
+        if (model->force_down || !model->released || model->time - model->released < 100000 ||
             model->regs[0x9000 / 4] != 0x100000 ||
             (model->regs[0x18 / 4] & 0xffffffU) != 0x010100) model->bad_access = 1;
         if (offset == 0x8000 && model->invalid_bus) return 0xffffffff;
+        if (offset == 0x8008 && model->drop_after_class) model->force_down = 1;
         if (offset == 0x8010 && model->regs[offset / 4] == 0xffffffff)
             return model->bar_mask | 4;
         if (offset == 0x8010) return model->regs[offset / 4] | 4;
@@ -64,6 +65,7 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
         if (value & 1) model->released = 0;
     }
     if ((offset == 0x4 || offset == 0x8004) && (value & 4)) model->bad_access = 1;
+    if (offset >= 0x8000 && offset < 0x9000 && model->force_down) model->bad_access = 1;
     if ((offset == 0x8010 || offset == 0x8014) && (model->regs[0x8004 / 4] & 2))
         model->bad_access = 1;
     model->regs[offset / 4] = offset == 0x8010 ? value | 4 : value;
@@ -76,18 +78,9 @@ static uint32_t clock_us(void* context) {
 
 static int owned(void* context) { return ((Model*)context)->owned; }
 
-static int firmware(void* context, uint32_t tag, uint32_t* values, unsigned int count) {
-    Model* model = context;
-    model->firmware_calls++;
-    if (tag != 0x30058 || count != 1 || values[0] != 0x100000 ||
-        model->regs[0x8004 / 4] != 0x400 || model->capability_reads) model->bad_access = 1;
-    return model->firmware_result;
-}
-
 static void reset_model(Model* model) {
     memset(model, 0, sizeof(*model));
     model->owned = 1;
-    model->firmware_result = HW_OK;
     model->bar_mask = 0xfffff000;
     model->regs[0] = 0x271114e4;
     model->regs[0x8000 / 4] = 0x34831106;
@@ -97,7 +90,7 @@ static void reset_model(Model* model) {
 
 int main(void) {
     Model model;
-    HwOps io = {&model, read32, write32, clock_us, owned, NULL, NULL, firmware};
+    HwOps io = {&model, read32, write32, clock_us, owned, NULL, NULL, NULL};
     Pi4UsbProbe probe;
     reset_model(&model);
     model.owned = 0;
@@ -112,12 +105,12 @@ int main(void) {
     reset_model(&model);
     model.invalid_bus = 1;
     CHECK(pi4_usb_probe(&io, &probe) == HW_UNSUPPORTED && probe.stage == PI4_USB_ENDPOINT);
-    CHECK(!model.firmware_calls && !model.capability_reads && !model.bad_access);
+    CHECK(!model.capability_reads && !model.bad_access);
 
     reset_model(&model);
-    model.firmware_result = HW_PROTOCOL;
-    CHECK(pi4_usb_probe(&io, &probe) == HW_PROTOCOL && probe.stage == PI4_USB_FIRMWARE);
-    CHECK(model.firmware_calls == 1 && !model.capability_reads && !model.bad_access);
+    model.drop_after_class = 1;
+    CHECK(pi4_usb_probe(&io, &probe) == HW_TIMEOUT && probe.stage == PI4_USB_BAR);
+    CHECK(model.config_reads == 2 && !model.capability_reads && !model.bad_access);
 
     reset_model(&model);
     model.bar_mask = 0xf8000000;
@@ -132,7 +125,7 @@ int main(void) {
     reset_model(&model);
     CHECK(pi4_usb_probe(&io, &probe) == HW_OK && probe.stage == PI4_USB_READY);
     CHECK(probe.version == 0x100 && probe.ports == 6 && !model.bad_access);
-    CHECK(model.firmware_calls == 1 && model.capability_reads == 2 && model.released);
+    CHECK(model.capability_reads == 2 && model.released);
     CHECK(!model.regs[0x4034 / 4]);
     return 0;
 }
