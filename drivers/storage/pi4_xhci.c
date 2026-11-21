@@ -74,9 +74,10 @@
 #define CC_TRANSACTION 4
 #define CC_STALL 6
 #define CC_SHORT 13
+#define SLOT_HUB (1U << 26)
 
 #define ROOT_PORTS 32U
-#define DEVICE_SLOTS 4U
+#define DEVICE_SLOTS 5U  /* The integrated hub and its four USB-A ports. */
 #define INTERRUPT_ENDPOINTS 2U
 #define SCRATCHPADS 4U
 #define REPORT_MAX PI4_USB_INTERRUPT_MAX
@@ -158,7 +159,7 @@ typedef struct {
     Producer producer;
     uint64_t setup_trb, data_trb, last_trb;
     unsigned int requested, actual, code;
-    int pending, done, short_data;
+    int pending, done, short_data, data_in, status_in, error_in;
 } Transfer;
 
 typedef struct {
@@ -169,7 +170,9 @@ typedef struct {
 typedef struct {
     Transfer ep0;
     InterruptEndpoint interrupt[INTERRUPT_ENDPOINTS];
-    unsigned int port, slot, speed_id, speed, entries;
+    unsigned int path, slot, parent_slot, speed_id, speed, entries;
+    unsigned int hub_ports, think_time;
+    int is_hub;
     int detached, unusable, configured;
 } Device;
 
@@ -220,9 +223,22 @@ static uintptr_t port_reg(unsigned int port) {
     return hc.op + PORTSC + (port - 1) * PORT_STRIDE;
 }
 
-static Device* find_device(unsigned int port) {
-    for (unsigned int i = 0; i < DEVICE_SLOTS; i++)
-        if (hc.device[i].port == port) return &hc.device[i];
+static unsigned int root_port(unsigned int path) {
+    return path & 0xffU;
+}
+
+static unsigned int downstream_port(unsigned int path) {
+    return path >> 8;
+}
+
+static int valid_path(unsigned int path) {
+    return root_port(path) && root_port(path) <= hc.ports &&
+           downstream_port(path) <= PI4_USB_HUB_MAX_PORTS;
+}
+
+static Device* find_device(unsigned int path) {
+    for (unsigned int i = 0; i < hc.slots; i++)
+        if (hc.device[i].path == path) return &hc.device[i];
     return NULL;
 }
 
@@ -410,9 +426,12 @@ static int initialize_dma(void) {
 static int port_status(unsigned int port, uint32_t* status) {
     uint32_t value = read32(port_reg(port));
     if (value == 0xffffffffU) return HW_IO;
-    Device* device = find_device(port);
-    if (device && (!(value & PORT_CONNECTED) || (value & PORT_CONNECT_CHANGE)))
-        device->detached = 1;
+    if (!(value & PORT_CONNECTED) || (value & PORT_CONNECT_CHANGE)) {
+        for (unsigned int i = 0; i < hc.slots; i++) {
+            Device* device = &hc.device[i];
+            if (root_port(device->path) == port) device->detached = 1;
+        }
+    }
     if (value & PORT_CHANGES) write_port(port, value, value & PORT_CHANGES);
     *status = value;
     return HW_OK;
@@ -459,6 +478,7 @@ static int transfer_event(const Trb* event, unsigned int slot, unsigned int code
         }
     }
     transfer->code = code;
+    transfer->error_in = (data && transfer->data_in) || (last && transfer->status_in);
     transfer->done = 1;
     return HW_OK;
 }
@@ -597,17 +617,25 @@ unsigned int pi4_usb_port_count(void) {
     return hc.running && owned() ? hc.ports : 0;
 }
 
-int pi4_usb_port_connected(unsigned int port) {
+int pi4_usb_port_connected(unsigned int path) {
     if (!hc.running) return HW_OFF;
-    if (!owned() || !port || port > hc.ports) return HW_INVALID;
+    if (!owned() || !valid_path(path)) return HW_INVALID;
     int result = poll_events();
     if (result != HW_OK) return result;
+    unsigned int port = root_port(path);
     if (!hc.root[port].usb2) return HW_UNSUPPORTED;
     uint32_t status;
     result = port_status(port, &status);
     if (result != HW_OK) return fatal(result);
-    Device* device = find_device(port);
-    if ((device && device->detached) || !(status & PORT_CONNECTED)) return HW_OFF;
+    Device* root = find_device(port);
+    if ((root && root->detached) || !(status & PORT_CONNECTED)) return HW_OFF;
+    if (path != port) {
+        if (!root || !root->hub_ports || !root->configured || root->unusable) return HW_OFF;
+        if (downstream_port(path) > root->hub_ports) return HW_INVALID;
+        const Device* child = find_device(path);
+        if (!child || !child->slot || child->detached || child->parent_slot != root->slot)
+            return HW_OFF;
+    }
     return status & PORT_OVERCURRENT ? HW_IO : HW_OK;
 }
 
@@ -646,8 +674,18 @@ static void prepare_input(uint32_t add) {
 
 static void slot_context(const Device* device, unsigned int entries) {
     uint32_t* slot = dma.input + hc.context_words;
-    slot[0] = (entries << 27) | (device->speed_id << 20);
-    slot[1] = device->port << 16;
+    unsigned int route = downstream_port(device->path);
+    slot[0] = (entries << 27) | (device->speed_id << 20) | route;
+    slot[1] = root_port(device->path) << 16;
+    if (device->hub_ports) {
+        /* xHCI 4.5.2 loads these fields on the first Configure Endpoint.
+         * MTT remains zero for the default single-TT alternate setting. */
+        slot[0] |= SLOT_HUB;
+        slot[1] |= device->hub_ports << 24;
+        slot[2] = device->think_time << 16;
+    } else if (route && device->speed != USB_HIGH) {
+        slot[2] = (route << 8) | device->parent_slot;
+    }
 }
 
 static uint32_t* endpoint_context(unsigned int dci) {
@@ -678,20 +716,48 @@ static int release_device(Device* device) {
     return HW_OK;
 }
 
-int pi4_usb_close_port(unsigned int port) {
+static int close_device(Device* device) {
+    if (!device->parent_slot) {
+        for (unsigned int i = 0; i < hc.slots; i++) {
+            Device* child = &hc.device[i];
+            if (child->parent_slot != device->slot) continue;
+            int result = release_device(child);
+            if (result != HW_OK) return result;
+        }
+    }
+    return release_device(device);
+}
+
+int pi4_usb_close_port(unsigned int path) {
     if (!hc.running) return HW_OFF;
-    if (!owned() || !port || port > hc.ports) return HW_INVALID;
-    Device* device = find_device(port);
-    return device ? release_device(device) : HW_OK;
+    if (!owned() || !valid_path(path)) return HW_INVALID;
+    Device* device = find_device(path);
+    return device ? close_device(device) : HW_OK;
 }
 
 static unsigned int endpoint_target(unsigned int dci) {
     return dci << 16;
 }
 
+static int clear_control_tt(const Device* device, int in) {
+    uint32_t* slot = device_memory(device)->output;
+    cache(slot, hc.context_words * sizeof(*slot), HW_INVALIDATE);
+    unsigned int address = slot[3] & 0xff;
+    if (!address || address > 127) return HW_PROTOCOL;
+    /* USB 2 section 11.24.2.3: clear EP0's control buffer on the single TT
+     * (wIndex 1). The direction identifies the affected split transaction. */
+    const Pi4UsbSetup clear = {0x23, 8, (uint16_t)((address << 4) | (in ? 0x8000U : 0)), 1, 0};
+    size_t actual;
+    return pi4_usb_control(root_port(device->path), &clear, NULL, &actual);
+}
+
 static int recover_control(Device* device) {
     int result = command(TRB_RESET_EP | endpoint_target(1), 0, device->slot);
     if (result != HW_OK) return result;
+    if (device->parent_slot && device->speed != USB_HIGH) {
+        result = clear_control_tt(device, device->ep0.error_in);
+        if (result != HW_OK) return result == PI4_USB_STALL ? HW_IO : result;
+    }
     const Producer* producer = &device->ep0.producer;
     uint64_t dequeue = bus(&device_memory(device)->ep0.trb[producer->index]) | producer->cycle;
     return command(TRB_SET_DEQUEUE | endpoint_target(1), dequeue, device->slot);
@@ -700,7 +766,7 @@ static int recover_control(Device* device) {
 static int wait_control(Device* device) {
     uint32_t start = hc.io->time_us(hc.io->context);
     for (unsigned int i = 0; i < WAIT_POLLS; i++) {
-        int result = pi4_usb_port_connected(device->port);
+        int result = pi4_usb_port_connected(device->path);
         if (result != HW_OK) return result;
         if (device->ep0.done) return HW_OK;
         if (hc.io->time_us(hc.io->context) - start >= CONTROL_US) break;
@@ -708,14 +774,14 @@ static int wait_control(Device* device) {
     return HW_TIMEOUT;
 }
 
-int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
+int pi4_usb_control(unsigned int path, const Pi4UsbSetup* setup, void* data,
                     size_t* actual) {
     if (!actual) return HW_INVALID;
     *actual = 0;
     if (!setup || setup->length > PI4_USB_CONTROL_MAX || (setup->length && !data)) return HW_INVALID;
-    int result = pi4_usb_port_connected(port);
+    int result = pi4_usb_port_connected(path);
     if (result != HW_OK) return result;
-    Device* device = find_device(port);
+    Device* device = find_device(path);
     if (!device || device->unusable) return HW_OFF;
     if ((!setup->request_type && setup->request == 5) ||
         (setup->request_type == 1 && setup->request == 11)) return HW_UNSUPPORTED;
@@ -726,6 +792,7 @@ int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
 
     unsigned int length = setup->length;
     int in = !!(setup->request_type & 0x80);
+    int status_in = !length || !in;
     DeviceMemory* memory = device_memory(device);
     if (length) {
         if (!in) memcpy(memory->control, data, length);
@@ -740,7 +807,7 @@ int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
     if (length) {
         trbs[count++] = (Trb){bus(memory->control), length, TRB_DATA | (in ? TRB_IN | TRB_ISP : 0)};
     }
-    trbs[count++] = (Trb){0, 0, TRB_STATUS | TRB_IOC | ((!length || !in) ? TRB_IN : 0)};
+    trbs[count++] = (Trb){0, 0, TRB_STATUS | TRB_IOC | (status_in ? TRB_IN : 0)};
 
     Transfer* transfer = &device->ep0;
     uint64_t addresses[3];
@@ -748,7 +815,7 @@ int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
     *transfer = (Transfer){
         .producer = transfer->producer, .setup_trb = addresses[0],
         .data_trb = length ? addresses[1] : 0, .last_trb = addresses[count - 1],
-        .requested = length, .pending = 1
+        .requested = length, .pending = 1, .data_in = in, .status_in = status_in
     };
     write32(hc.db + 4 * device->slot, 1);
     result = wait_control(device);
@@ -757,7 +824,7 @@ int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
             /* Stop the TD before retiring the slot. A raced completion can
              * make Stop fail harmlessly. Disable Slot still proves retirement. */
             (void)command(TRB_STOP_EP | endpoint_target(1), 0, device->slot);
-            if (hc.running) (void)release_device(device);
+            if (hc.running) (void)close_device(device);
         } else {
             device->unusable = 1;
         }
@@ -767,7 +834,7 @@ int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
     unsigned int code = transfer->code;
     if (code == CC_STALL || code == CC_TRANSACTION) {
         result = recover_control(device);
-        if (result != HW_OK) device->unusable = 1;
+        if (result != HW_OK && device->slot) device->unusable = 1;
         if (result == HW_OK && code == CC_STALL) return PI4_USB_STALL;
         return result == HW_OK ? HW_IO : result;
     }
@@ -784,18 +851,12 @@ int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
     return HW_OK;
 }
 
-int pi4_usb_open_port(unsigned int port) {
-    int result = pi4_usb_port_connected(port);
-    if (result != HW_OK) return result;
-    if (find_device(port)) return HW_BUSY;
-    Device* device = find_device(0);
-    if (!device) return HW_NO_SPACE;
-    unsigned int speed_id;
-    result = reset_port(port, &speed_id);
-    if (result != HW_OK) return result;
-    *device = (Device){.port = port, .speed_id = speed_id, .speed = hc.root[port].speed[speed_id],
-                       .entries = 1};
-    result = command(TRB_ENABLE_SLOT | (hc.root[port].slot_type << 16), 0, 0);
+static int open_device(Device* device, unsigned int path, unsigned int speed_id,
+                       unsigned int parent_slot) {
+    const RootPort* protocol = &hc.root[root_port(path)];
+    *device = (Device){.path = path, .parent_slot = parent_slot, .speed_id = speed_id,
+                       .speed = protocol->speed[speed_id], .entries = 1};
+    int result = command(TRB_ENABLE_SLOT | (protocol->slot_type << 16), 0, 0);
     if (result != HW_OK) {
         *device = (Device){0};
         return result;
@@ -818,12 +879,13 @@ int pi4_usb_open_port(unsigned int port) {
         const Pi4UsbSetup get_device = {0x80, 6, 0x0100, 0, 8};
         uint8_t descriptor[8];
         size_t actual;
-        result = pi4_usb_control(port, &get_device, descriptor, &actual);
+        result = pi4_usb_control(path, &get_device, descriptor, &actual);
         if (result == HW_OK) {
+            device->is_hub = actual == sizeof(descriptor) && descriptor[4] == 9;
             if (actual != sizeof(descriptor) || descriptor[0] != 18 || descriptor[1] != 1)
                 result = HW_PROTOCOL;
-            else if (descriptor[4] == 9)
-                result = HW_UNSUPPORTED;  /* Direct root devices only. */
+            else if (device->is_hub && (parent_slot || device->speed != USB_HIGH))
+                result = HW_UNSUPPORTED;
             else if (descriptor[7] != packet) {
                 unsigned int reported = descriptor[7];
                 if (device->speed != USB_FULL || (reported != 16 && reported != 32 && reported != 64))
@@ -837,12 +899,56 @@ int pi4_usb_open_port(unsigned int port) {
         }
     }
     if (result == PI4_USB_STALL) result = HW_IO;
-    if (result == HW_OK) result = pi4_usb_port_connected(port);
+    if (result == HW_OK) result = pi4_usb_port_connected(path);
     if (result != HW_OK && hc.running && device->slot) {
         int released = release_device(device);
         if (released != HW_OK) return released;
     }
     return result;
+}
+
+int pi4_usb_open_port(unsigned int port) {
+    if (downstream_port(port)) return HW_INVALID;
+    int result = pi4_usb_port_connected(port);
+    if (result != HW_OK) return result;
+    if (find_device(port)) return HW_BUSY;
+    Device* device = find_device(0);
+    if (!device) return HW_NO_SPACE;
+    unsigned int speed_id;
+    result = reset_port(port, &speed_id);
+    return result == HW_OK ? open_device(device, port, speed_id, 0) : result;
+}
+
+int pi4_usb_configure_hub(unsigned int root, unsigned int num_ports, unsigned int think_time) {
+    if (downstream_port(root) || !num_ports || num_ports > PI4_USB_HUB_MAX_PORTS || think_time > 3)
+        return HW_INVALID;
+    int result = pi4_usb_port_connected(root);
+    if (result != HW_OK) return result;
+    Device* hub = find_device(root);
+    if (!hub || hub->unusable) return HW_OFF;
+    if (!hub->is_hub) return HW_UNSUPPORTED;
+    if (hub->entries != 1 || hub->configured) return HW_BUSY;
+    hub->hub_ports = num_ports;
+    hub->think_time = think_time;
+    return HW_OK;
+}
+
+int pi4_usb_open_child(unsigned int root, unsigned int downstream, unsigned int speed) {
+    if (downstream_port(root) || !downstream || downstream > PI4_USB_HUB_MAX_PORTS ||
+        speed < USB_FULL || speed > USB_HIGH) return HW_INVALID;
+    int result = pi4_usb_port_connected(root);
+    if (result != HW_OK) return result;
+    const Device* hub = find_device(root);
+    if (!hub || !hub->hub_ports || !hub->configured || hub->unusable) return HW_OFF;
+    if (downstream > hub->hub_ports) return HW_INVALID;
+    unsigned int path = root | (downstream << 8);
+    if (find_device(path)) return HW_BUSY;
+    Device* device = find_device(0);
+    if (!device) return HW_NO_SPACE;
+    for (unsigned int id = 1; id < 16; id++) {
+        if (hc.root[root].speed[id] == speed) return open_device(device, path, id, hub->slot);
+    }
+    return HW_UNSUPPORTED;
 }
 
 static unsigned int interrupt_dci(uint8_t address) {
@@ -857,13 +963,13 @@ static InterruptEndpoint* find_interrupt(Device* device, unsigned int dci) {
     return NULL;
 }
 
-int pi4_usb_configure_interrupt_in(unsigned int port, uint8_t endpoint_address,
+int pi4_usb_configure_interrupt_in(unsigned int path, uint8_t endpoint_address,
                                   uint16_t max_packet, uint8_t interval) {
     unsigned int dci = interrupt_dci(endpoint_address);
     if (!dci || !max_packet || max_packet > REPORT_MAX || !interval) return HW_INVALID;
-    int result = pi4_usb_port_connected(port);
+    int result = pi4_usb_port_connected(path);
     if (result != HW_OK) return result;
-    Device* device = find_device(port);
+    Device* device = find_device(path);
     if (!device || device->unusable) return HW_OFF;
     if (device->configured) return HW_INVALID;
     if ((device->speed == USB_LOW && max_packet > 8) ||
@@ -899,14 +1005,14 @@ int pi4_usb_configure_interrupt_in(unsigned int port, uint8_t endpoint_address,
     return result;
 }
 
-int pi4_usb_interrupt_in(unsigned int port, uint8_t endpoint_address, void* report,
+int pi4_usb_interrupt_in(unsigned int path, uint8_t endpoint_address, void* report,
                         size_t capacity, size_t* actual) {
     unsigned int dci = interrupt_dci(endpoint_address);
     if (!dci || !report || !actual) return HW_INVALID;
     *actual = 0;
-    int result = pi4_usb_port_connected(port);
+    int result = pi4_usb_port_connected(path);
     if (result != HW_OK) return result;
-    Device* device = find_device(port);
+    Device* device = find_device(path);
     if (!device || device->unusable || !device->configured) return HW_OFF;
     InterruptEndpoint* endpoint = find_interrupt(device, dci);
     if (!endpoint || capacity < endpoint->max_packet) return HW_INVALID;

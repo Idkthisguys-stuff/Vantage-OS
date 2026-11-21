@@ -20,6 +20,7 @@ int pi4_usb_probe(const HwOps* io, Pi4UsbProbe* probe);
 
 #define PI4_USB_CONTROL_MAX 4096U
 #define PI4_USB_INTERRUPT_MAX 1024U
+#define PI4_USB_HUB_MAX_PORTS 15U
 #define PI4_USB_STALL (-8) /* EP0 stalled and was recovered. */
 
 typedef struct {
@@ -33,33 +34,44 @@ typedef struct {
 int pi4_usb_start(const HwOps* io, Pi4UsbProbe* probe);
 int pi4_usb_stop(void);
 
-/* Scan 1-based xHCI logical ports. connected returns HW_OK for an attached
- * USB 2 device, HW_OFF for an empty/detached port, and HW_UNSUPPORTED for a
- * SuperSpeed port. Count is zero when the controller is unavailable. */
+/* Scan 1-based xHCI logical root ports. For an opened child use the path
+ * root | (downstream << 8), with a 1-based downstream port. This checks its
+ * slot and the root link. Hub class code monitors downstream connection changes
+ * and closes the affected slots. Count is zero when the controller is offline. */
 unsigned int pi4_usb_port_count(void);
-int pi4_usb_port_connected(unsigned int port);
+int pi4_usb_port_connected(unsigned int path);
 
 /* Open resets and addresses a direct-root device and discovers EP0's packet
- * size. Close releases its slot, including any pending interrupt transfers.
- * On detach close the old slot before attempting to open the port again. */
+ * size. Close accepts root and child paths and retires any children before
+ * their parent, including pending transfers. Close an old slot before reopening. */
 int pi4_usb_open_port(unsigned int port);
-int pi4_usb_close_port(unsigned int port);
+int pi4_usb_close_port(unsigned int path);
+
+/* Stage a root-attached high-speed hub's single-TT fields before its first
+ * Configure Endpoint command. think_time is the raw 0..3 hub descriptor field.
+ * Leave the hub in its default single-TT alternate setting. */
+int pi4_usb_configure_hub(unsigned int root, unsigned int num_ports, unsigned int think_time);
+
+/* Address a child after hub class code has debounced and reset its port and
+ * waited for reset recovery. Speed values are 1 (full), 2 (low) and 3 (high).
+ * The parent must have completed USB configuration and hub slot setup. */
+int pi4_usb_open_child(unsigned int root, unsigned int downstream, unsigned int speed);
 
 /* EP0 data has setup->length bytes of caller storage (or NULL for length 0).
  * Direction comes from request_type. HW_OK sets actual, including short IN.
  * The transport owns SET_ADDRESS. Send SET_CONFIGURATION once, after adding
  * the endpoints below. After a control timeout reopen the port. PI4_USB_STALL
  * means the request failed and EP0 is ready for the next request. */
-int pi4_usb_control(unsigned int port, const Pi4UsbSetup* setup, void* data,
+int pi4_usb_control(unsigned int path, const Pi4UsbSetup* setup, void* data,
                     size_t* actual);
 
 /* Before SET_CONFIGURATION pass USB descriptor values, including the IN bit in
  * endpoint_address. Up to two interrupt IN endpoints per device are supported. */
-int pi4_usb_configure_interrupt_in(unsigned int port, uint8_t endpoint_address,
+int pi4_usb_configure_interrupt_in(unsigned int path, uint8_t endpoint_address,
                                   uint16_t max_packet, uint8_t interval);
 
 /* After SET_CONFIGURATION call on each input tick with capacity >= max_packet.
  * HW_BUSY means a request is pending; HW_OK copies one report and sets actual.
  * Caller storage is only borrowed during the call. Reopen after endpoint error. */
-int pi4_usb_interrupt_in(unsigned int port, uint8_t endpoint_address, void* report,
+int pi4_usb_interrupt_in(unsigned int path, uint8_t endpoint_address, void* report,
                         size_t capacity, size_t* actual);
