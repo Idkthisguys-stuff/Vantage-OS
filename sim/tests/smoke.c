@@ -186,7 +186,10 @@ int main(int argc, char* argv[]) {
     sim_set_coordinate_overlay(0);
     home_app_init();
     home_app_step();
-    if (!check_pixel(renderer, 30, 194, RGB(30, 61, 67))) return 1;
+    if (!check_pixel(renderer, 30, 66, RGB(30, 61, 67)) ||
+        !check_pixel(renderer, 140, 66, RGB(30, 61, 67)) ||
+        !check_pixel(renderer, 250, 66, RGB(30, 61, 67)) ||
+        !check_pixel(renderer, 360, 66, RGB(13, 24, 29))) return 1;
     SDL_zero(event);
     event.type = SDL_KEYDOWN;
     event.key.keysym.sym = SDLK_RETURN;
@@ -197,7 +200,7 @@ int main(int argc, char* argv[]) {
     event.key.keysym.sym = SDLK_ESCAPE;
     if (SDL_PushEvent(&event) != 1) return 1;
     home_app_step();
-    if (!check_pixel(renderer, 30, 194, RGB(30, 61, 67))) return 1;
+    if (!check_pixel(renderer, 30, 66, RGB(30, 61, 67))) return 1;
 
     SDL_Quit();
     return 0;

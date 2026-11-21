@@ -89,7 +89,7 @@ class TerminalMachine(CpuMachine):
         self.start('task_run')
         self.step()
         if terminal:
-            self.tap(100, 210)
+            self.tap(75, 66)
             self.step()
 
     def tap(self, x, y):
@@ -127,23 +127,26 @@ class TerminalTests(unittest.TestCase):
     def test_home_opens_terminal_and_returns_without_losing_input(self):
         m = TerminalMachine(self.image)
         m.launch(terminal=False)
-        self.assertEqual(m.rows[4].strip(), 'Vantage OS')
-        m.tap(100, 340)
+        self.assertEqual(m.rows[1].strip(), 'Vantage OS')
+        presentations = m.presentations
+        m.tap(405, 66)
+        self.assertEqual(m.presentations, presentations)
+        m.tap(185, 66)
         self.assertEqual(m.rows[7].strip(), 'Files')
         self.assertIn('Storage unavailable', m.rows[12])
         m.tap(40, 50)
-        m.tap(100, 470)
+        m.tap(295, 66)
         self.assertEqual(m.rows[7].strip(), 'Network')
         self.assertIn('No IP address', m.rows[14])
         m.tap(40, 50)
-        m.tap(100, 210)
+        m.tap(75, 66)
         m.step()
         m.keys.append((1, ord('x')))
         m.step()
         self.assertEqual(m.rows[5], '> x')
         m.tap(40, 16)
-        self.assertEqual(m.rows[4].strip(), 'Vantage OS')
-        m.tap(100, 210)
+        self.assertEqual(m.rows[1].strip(), 'Vantage OS')
+        m.tap(75, 66)
         m.step()
         self.assertEqual(m.rows[5], '> x')
 
