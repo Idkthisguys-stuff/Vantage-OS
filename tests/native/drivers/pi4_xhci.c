@@ -18,6 +18,10 @@
 #define DOORBELL 0x700
 #define IRQ 0x820
 #define EVENT_COUNT 64
+#define MODEL_SLOTS 5
+#define CHILD(port) (1U | ((port) << 8))
+#define HUB_FLAG (1U << 26)
+#define MTT_FLAG (1U << 25)
 #define TYPE(trb) (((trb).control >> 10) & 63)
 #define PACKET(context) ((context)[1] >> 16)
 
@@ -35,7 +39,8 @@ typedef struct {
     Ring ring[32];
     uint64_t pending[32], buffer[32];
     unsigned int packet[32];
-    unsigned int port, speed;
+    unsigned int path, parent, speed, usb_address;
+    unsigned int hub_ports;
     int enabled, configured, halted;
 } Slot;
 
@@ -49,9 +54,13 @@ typedef struct {
     unsigned int stride, event_index, event_cycle, event_wraps, event_consumer;
     unsigned int ep0_wraps, interrupt_wraps, firmware_calls, resets;
     unsigned int stall_recoveries, timeout_stops, disable_count, status_slot;
+    unsigned int root_resets, hub_ports, think_time, nested_hub_port;
+    unsigned int tt_child, tt_clears;
+    uint8_t child_speed[16];
     int firmware, running, drop_control;
+    int root_hub, expect_hub_fields, hub_descriptor_needs_config;
     Ring command;
-    Slot slot[5];
+    Slot slot[MODEL_SLOTS + 1];
 } Model;
 
 static Model model;
@@ -66,6 +75,12 @@ static uint64_t reg64(Model* m, unsigned int offset) {
 }
 
 static unsigned int port_offset(unsigned int port) { return PORTSC + (port - 1) * 16; }
+
+static unsigned int slot_for_path(const Model* m, unsigned int path) {
+    for (unsigned int id = 1; id <= MODEL_SLOTS; id++)
+        if (m->slot[id].path == path) return id;
+    return 0;
+}
 
 static void* dma_ptr(Model* m, uint64_t pointer, size_t bytes) {
     CHECK(m->running && m->firmware);
@@ -134,7 +149,7 @@ static void command(Model* m) {
     uint64_t address;
     Trb trb = fetch(m, &m->command, &address);
     unsigned int id = trb.control >> 24, dci = (trb.control >> 16) & 31;
-    CHECK(id < 5);
+    CHECK(id <= MODEL_SLOTS);
     Slot* slot = &m->slot[id];
     switch (TYPE(trb)) {
     case 23:
@@ -142,12 +157,13 @@ static void command(Model* m) {
         break;
     case 9:
         CHECK(!id);
-        for (id = 1; id < 5 && m->slot[id].enabled; id++) {}
-        CHECK(id < 5);
+        for (id = 1; id <= MODEL_SLOTS && m->slot[id].enabled; id++) {}
+        CHECK(id <= MODEL_SLOTS && id <= *reg(m, OP + 0x38));
         m->slot[id].enabled = 1;
         break;
     case 10:
         CHECK(id && slot->enabled);
+        for (unsigned int i = 1; i <= MODEL_SLOTS; i++) CHECK(m->slot[i].parent != id);
         m->disable_count++;
         *slot = (Slot){0};
         break;
@@ -160,16 +176,32 @@ static void command(Model* m) {
         memcpy(input, dma_ptr(m, trb.parameter, bytes), bytes);
         CHECK(!input[0]);
         const uint32_t* slot_ctx = input + m->stride;
-        unsigned int port = slot_ctx[1] >> 16;
+        unsigned int port = (slot_ctx[1] >> 16) & 0xff;
+        unsigned int route = slot_ctx[0] & 0xfffff;
+        unsigned int speed = (slot_ctx[0] >> 20) & 15;
+        unsigned int path = port | (route << 8);
         if (TYPE(trb) == 11) {
             CHECK(input[1] == 3 && (slot_ctx[0] >> 27) == 1);
+            CHECK(!(trb.control & (1U << 9))); /* SET_ADDRESS must run. */
             CHECK(port == 1 || port == 2);
-            slot->port = port;
-            slot->speed = (*reg(m, port_offset(port)) >> 10) & 15;
-            CHECK(((slot_ctx[0] >> 20) & 15) == slot->speed && !(slot_ctx[0] & 0xfffff));
+            CHECK(!(slot_ctx[0] & (HUB_FLAG | MTT_FLAG)) && !(slot_ctx[1] >> 24));
+            slot->path = path;
+            slot->usb_address = 0x20 + id;
+            if (route) {
+                unsigned int parent = slot_for_path(m, port);
+                CHECK(parent && m->slot[parent].configured && route <= m->slot[parent].hub_ports);
+                CHECK(speed && speed == m->child_speed[route]);
+                slot->parent = parent;
+                CHECK(slot_ctx[2] == (speed != 3 ? ((route << 8) | parent) : 0));
+            } else {
+                CHECK(!slot_ctx[2] && speed == ((*reg(m, port_offset(port)) >> 10) & 15));
+            }
+            slot->speed = speed;
             uint64_t output = read_dma64(m, reg64(m, OP + 0x30) + 8 * id);
             CHECK(output && !(output & 63));
             memset(dma_ptr(m, output, 32 * m->stride * 4), 0x3c, 32 * m->stride * 4);
+            uint32_t address_word = slot->usb_address;
+            memcpy(dma_ptr(m, output + 12, sizeof(address_word)), &address_word, sizeof(address_word));
             load_endpoint(m, slot, 1, input + 2 * m->stride);
             CHECK(slot->packet[1] == (slot->speed == 3 ? 64U : 8U));
         } else if (TYPE(trb) == 13) {
@@ -177,7 +209,16 @@ static void command(Model* m) {
             CHECK(input[2 * m->stride + 1] == 32U << 16);
             slot->packet[1] = 32;
         } else {
-            CHECK((input[1] & 3) == 1 && port == slot->port && !slot->configured);
+            CHECK((input[1] & 3) == 1 && path == slot->path && speed == slot->speed &&
+                  !slot->configured && !(slot_ctx[0] & MTT_FLAG));
+            if (m->root_hub && path == 1 && m->expect_hub_fields) {
+                CHECK(!slot->packet[3] && (slot_ctx[0] & HUB_FLAG));
+                CHECK((slot_ctx[1] >> 24) == m->hub_ports && slot_ctx[2] == (m->think_time << 16));
+                slot->hub_ports = slot_ctx[1] >> 24;
+            } else {
+                CHECK(!(slot_ctx[0] & HUB_FLAG) && !(slot_ctx[1] >> 24));
+                CHECK(slot_ctx[2] == (route && speed != 3 ? ((route << 8) | slot->parent) : 0));
+            }
             for (unsigned int i = 3; i < 32; i += 2) {
                 if (!(input[1] & (1U << i))) continue;
                 CHECK((slot_ctx[0] >> 27) >= i);
@@ -199,6 +240,7 @@ static void command(Model* m) {
         break;
     case 16:
         CHECK(id && dci == 1 && !slot->halted);
+        CHECK(m->tt_child != id);
         slot->ring[dci].next = trb.parameter & ~15ULL;
         slot->ring[dci].cycle = (unsigned int)trb.parameter & 1;
         break;
@@ -216,12 +258,20 @@ static void control(Model* m, unsigned int id, Slot* slot) {
     unsigned int type = (uint8_t)setup.parameter, request = (uint8_t)(setup.parameter >> 8);
     unsigned int length = (unsigned int)(setup.parameter >> 48);
     int in = !!(type & 0x80);
+    unsigned int value = (setup.parameter >> 16) & 0xffff;
+    unsigned int index = (setup.parameter >> 32) & 0xffff;
     CHECK(((setup.control >> 16) & 3) == (length ? (in ? 3U : 2U) : 0));
     if (m->drop_control) return;
     if (type == 0x21 && request == 10) {
         slot->halted = 1;
         complete(m, 32, 6, id, 1, 0, address);
         return;
+    }
+    if (type == 0x23 && request == 8) {
+        CHECK(m->tt_child && m->slot[m->tt_child].parent == id && !m->slot[m->tt_child].halted);
+        CHECK(index == 1 && value == (0x8000 | (m->slot[m->tt_child].usb_address << 4)) && !length);
+        m->tt_child = 0;
+        m->tt_clears++;
     }
     int short_in = 0;
     if (length) {
@@ -230,11 +280,37 @@ static void control(Model* m, unsigned int id, Slot* slot) {
         CHECK((data.parameter & 0xffff) + length <= 0x10000);
         uint8_t* buffer = dma_ptr(m, data.parameter, length);
         if (in) {
-            CHECK(type == 0x80 && request == 6 && ((setup.parameter >> 16) & 0xffff) == 0x100);
+            if (type == 0xa1 && request == 1) {
+                CHECK(slot->parent && slot->speed != 3 && !m->tt_child);
+                slot->halted = 1;
+                m->tt_child = id;
+                complete(m, 32, 6, id, 1, length, address);
+                return;
+            }
             uint8_t descriptor[18] = {18, 1, 0x00, 0x02, 0, 0, 0, 32, 0x34, 0x12};
-            if (slot->speed == 2) descriptor[7] = 8;
-            if (slot->speed == 3) descriptor[7] = 64;
-            unsigned int count = length < sizeof(descriptor) ? length : sizeof(descriptor);
+            unsigned int count = sizeof(descriptor);
+            if (type == 0xa0 && request == 6 && value == 0x2900) {
+                CHECK(m->root_hub && slot->path == 1 && !index);
+                if (m->hub_descriptor_needs_config && !slot->configured) {
+                    slot->halted = 1;
+                    complete(m, 32, 6, id, 1, length, address);
+                    return;
+                }
+                const uint8_t hub[9] = {9, 0x29, (uint8_t)m->hub_ports, (uint8_t)(m->think_time << 5),
+                                        0, 50, 0, 0, 0xff};
+                memcpy(descriptor, hub, sizeof(hub));
+                count = sizeof(hub);
+            } else {
+                CHECK(type == 0x80 && request == 6 && value == 0x100);
+                if (slot->speed == 2) descriptor[7] = 8;
+                if (slot->speed == 3) descriptor[7] = 64;
+                if ((m->root_hub && slot->path == 1) ||
+                    (slot->parent && (slot->path >> 8) == m->nested_hub_port)) {
+                    descriptor[4] = 9;
+                    descriptor[6] = 1;
+                }
+            }
+            if (count > length) count = length;
             memcpy(buffer, descriptor, count);
             if (count < length) {
                 CHECK(data.control & 4);
@@ -271,19 +347,16 @@ static void interrupt(Model* m, Slot* slot, unsigned int dci) {
     if (slot->ring[dci].wraps) m->interrupt_wraps = slot->ring[dci].wraps;
 }
 
-static void deliver(Model* m, unsigned int port, unsigned int dci, const uint8_t* report,
+static void deliver(Model* m, unsigned int path, unsigned int dci, const uint8_t* report,
                     unsigned int length) {
-    for (unsigned int id = 1; id < 5; id++) {
-        Slot* slot = &m->slot[id];
-        if (slot->port != port) continue;
-        CHECK(slot->pending[dci] && length <= slot->packet[dci]);
-        memcpy(dma_ptr(m, slot->buffer[dci], slot->packet[dci]), report, length);
-        unsigned int residue = slot->packet[dci] - length;
-        complete(m, 32, residue ? 13 : 1, id, dci, residue, slot->pending[dci]);
-        slot->pending[dci] = 0;
-        return;
-    }
-    CHECK(0);
+    unsigned int id = slot_for_path(m, path);
+    CHECK(id);
+    Slot* slot = &m->slot[id];
+    CHECK(slot->pending[dci] && length <= slot->packet[dci]);
+    memcpy(dma_ptr(m, slot->buffer[dci], slot->packet[dci]), report, length);
+    unsigned int residue = slot->packet[dci] - length;
+    complete(m, 32, residue ? 13 : 1, id, dci, residue, slot->pending[dci]);
+    slot->pending[dci] = 0;
 }
 
 static uint32_t read32(void* context, uintptr_t address) {
@@ -336,6 +409,7 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
         *place &= ~(value & (0x7fU << 17));
         if (value & (1U << 4)) {
             CHECK((*place & 1) && (value & (1U << 9)));
+            m->root_resets++;
             *place |= 2 | (1U << 21);
             complete(m, 34, 1, 0, 0, 0, (uint64_t)port << 24);
         }
@@ -357,7 +431,7 @@ static void write32(void* context, uintptr_t address, uint32_t value) {
     if (offset == DOORBELL) {
         CHECK(m->running && !value);
         command(m);
-    } else if (offset > DOORBELL && offset <= DOORBELL + 16) {
+    } else if (offset > DOORBELL && offset <= DOORBELL + 4 * MODEL_SLOTS) {
         unsigned int id = (offset - DOORBELL) / 4;
         CHECK(m->running && value && value < 32);
         if (value == 1) control(m, id, &m->slot[id]);
@@ -427,12 +501,12 @@ static void setup_model(Model* m, unsigned int stride, uint64_t shift,
 
 static const HwOps io = {&model, read32, write32, time_us, owned, cache, physical, property};
 
-static void configure(unsigned int port, unsigned int endpoint, unsigned int packet, unsigned int interval) {
+static void configure(unsigned int path, unsigned int endpoint, unsigned int packet, unsigned int interval) {
     size_t actual;
     const Pi4UsbSetup set_config = {0, 9, 1, 0, 0};
-    CHECK(pi4_usb_configure_interrupt_in(port, (uint8_t)endpoint, (uint16_t)packet,
+    CHECK(pi4_usb_configure_interrupt_in(path, (uint8_t)endpoint, (uint16_t)packet,
                                         (uint8_t)interval) == HW_OK);
-    CHECK(pi4_usb_control(port, &set_config, NULL, &actual) == HW_OK && !actual);
+    CHECK(pi4_usb_control(path, &set_config, NULL, &actual) == HW_OK && !actual);
 }
 
 static void transfer_test(unsigned int stride, uint64_t shift, unsigned int speed2) {
@@ -498,9 +572,117 @@ static void transfer_test(unsigned int stride, uint64_t shift, unsigned int spee
     CHECK((model.pcie[0x9210 / 4] & 1) && !(model.pcie[0x4034 / 4] & 31));
 }
 
+static void hub_test(unsigned int stride, uint64_t shift, int fallback) {
+    setup_model(&model, stride, shift, 3, 1);
+    model.root_hub = 1;
+    model.hub_ports = 4;
+    model.think_time = 2;
+    model.hub_descriptor_needs_config = fallback;
+    model.child_speed[1] = 1;
+    model.child_speed[2] = 2;
+    model.child_speed[3] = 1;
+    model.child_speed[4] = 3;
+
+    Pi4UsbProbe probe;
+    CHECK(pi4_usb_start(&io, &probe) == HW_OK);
+    CHECK(pi4_usb_open_port(1) == HW_OK);
+    CHECK(pi4_usb_open_child(1, 1, 1) == HW_OFF);
+    CHECK(pi4_usb_port_connected(CHILD(1)) == HW_OFF);
+    CHECK(pi4_usb_open_port(CHILD(1)) == HW_INVALID);
+    CHECK(pi4_usb_open_child(CHILD(1), 1, 1) == HW_INVALID);
+    CHECK(pi4_usb_open_child(1, 0, 1) == HW_INVALID);
+    CHECK(pi4_usb_open_child(1, 1, 4) == HW_INVALID);
+    CHECK(pi4_usb_configure_hub(1, 0, 0) == HW_INVALID);
+    CHECK(pi4_usb_configure_hub(1, 16, 0) == HW_INVALID);
+    CHECK(pi4_usb_configure_hub(1, 4, 4) == HW_INVALID);
+    CHECK(pi4_usb_port_connected(CHILD(16)) == HW_INVALID);
+
+    const Pi4UsbSetup get_hub = {0xa0, 6, 0x2900, 0, 9};
+    uint8_t descriptor[9];
+    size_t actual;
+    int result = pi4_usb_control(1, &get_hub, descriptor, &actual);
+    if (fallback) {
+        CHECK(result == PI4_USB_STALL && !actual);
+        configure(1, 0x81, 1, 4);
+        CHECK(pi4_usb_control(1, &get_hub, descriptor, &actual) == HW_OK);
+        CHECK(pi4_usb_configure_hub(1, 4, 2) == HW_BUSY);
+        CHECK(pi4_usb_open_child(1, 1, 1) == HW_OFF);
+        CHECK(pi4_usb_close_port(1) == HW_OK && pi4_usb_open_port(1) == HW_OK);
+    } else {
+        CHECK(result == HW_OK);
+    }
+    CHECK(actual == sizeof(descriptor) && descriptor[1] == 0x29);
+    model.expect_hub_fields = 1;
+    CHECK(pi4_usb_configure_hub(1, descriptor[2], (descriptor[3] >> 5) & 3) == HW_OK);
+    CHECK(!model.slot[slot_for_path(&model, 1)].hub_ports);
+    CHECK(pi4_usb_open_child(1, 1, 1) == HW_OFF);
+    configure(1, 0x81, 1, 4);
+    CHECK(pi4_usb_configure_hub(1, 4, 2) == HW_BUSY);
+    CHECK(pi4_usb_open_child(1, 5, 1) == HW_INVALID);
+    CHECK(pi4_usb_port_connected(CHILD(5)) == HW_INVALID);
+
+    /* A high-speed hub on a downstream port is outside the one-tier topology. */
+    model.nested_hub_port = 4;
+    CHECK(pi4_usb_open_child(1, 4, 3) == HW_UNSUPPORTED);
+    CHECK(!slot_for_path(&model, CHILD(4)));
+    model.nested_hub_port = 0;
+    uint8_t report[8];
+    for (unsigned int port = 1; port <= 4; port++) {
+        unsigned int path = CHILD(port), speed = model.child_speed[port];
+        CHECK(pi4_usb_open_child(1, port, speed) == HW_OK);
+        CHECK(pi4_usb_open_child(1, port, speed) == HW_BUSY);
+        CHECK(pi4_usb_port_connected(path) == HW_OK);
+        configure(path, 0x81, 8, speed == 3 ? 4U : 10U);
+        CHECK(pi4_usb_interrupt_in(path, 0x81, report, sizeof(report), &actual) == HW_BUSY);
+    }
+    CHECK(model.root_resets == (fallback ? 2U : 1U));
+    CHECK(pi4_usb_open_port(2) == HW_NO_SPACE);
+    CHECK(pi4_usb_interrupt_in(1, 0x81, report, sizeof(report), &actual) == HW_BUSY);
+
+    const uint8_t change_bitmap[] = {2};
+    deliver(&model, 1, 3, change_bitmap, sizeof(change_bitmap));
+    for (unsigned int port = 1; port <= 4; port++) {
+        const uint8_t input[] = {(uint8_t)port, 2, 3};
+        deliver(&model, CHILD(port), 3, input, sizeof(input));
+    }
+
+    const Pi4UsbSetup get_report = {0xa1, 1, 0x100, 0, sizeof(report)};
+    CHECK(pi4_usb_control(CHILD(2), &get_report, report, &actual) == PI4_USB_STALL && !actual);
+    CHECK(model.tt_clears == 1 && !model.tt_child);
+    const Pi4UsbSetup get_device = {0x80, 6, 0x100, 0, sizeof(report)};
+    CHECK(pi4_usb_control(CHILD(2), &get_device, report, &actual) == HW_OK && actual == 8);
+    CHECK(pi4_usb_interrupt_in(1, 0x81, report, sizeof(report), &actual) == HW_OK);
+    CHECK(actual == 1 && report[0] == change_bitmap[0]);
+    for (unsigned int port = 1; port <= 4; port++) {
+        CHECK(pi4_usb_interrupt_in(CHILD(port), 0x81, report, sizeof(report), &actual) == HW_OK);
+        CHECK(actual == 3 && report[0] == port);
+    }
+
+    CHECK(pi4_usb_close_port(CHILD(2)) == HW_OK);
+    CHECK(pi4_usb_port_connected(CHILD(2)) == HW_OFF);
+    CHECK(pi4_usb_port_connected(CHILD(1)) == HW_OK);
+    CHECK(pi4_usb_open_child(1, 2, 2) == HW_OK);
+    if (fallback) {
+        /* A hung parent EP0 must retire the whole subtree before its slot. */
+        model.drop_control = 1;
+        CHECK(pi4_usb_control(1, &get_hub, descriptor, &actual) == HW_TIMEOUT && !actual);
+        CHECK(model.timeout_stops == 1);
+    } else {
+        *reg(&model, port_offset(1)) = (1U << 9) | (1U << 17);
+        complete(&model, 34, 1, 0, 0, 0, 1U << 24);
+        CHECK(pi4_usb_port_connected(CHILD(1)) == HW_OFF);
+        CHECK(pi4_usb_interrupt_in(CHILD(4), 0x81, report, sizeof(report), &actual) == HW_OFF);
+        CHECK(pi4_usb_close_port(1) == HW_OK);
+    }
+    for (unsigned int id = 1; id <= MODEL_SLOTS; id++) CHECK(!model.slot[id].enabled);
+    CHECK(pi4_usb_close_port(CHILD(4)) == HW_OK && pi4_usb_stop() == HW_OK);
+}
+
 int main(void) {
     transfer_test(8, 0, 2);
     transfer_test(16, SHIFTED, 3);
-    puts("xHCI direct USB 2 transfers passed (32-/64-byte contexts, legacy/shifted DMA)");
+    hub_test(8, 0, 0);
+    hub_test(16, SHIFTED, 1);
+    puts("xHCI direct and hub USB 2 transfers passed (32-/64-byte contexts, legacy/shifted DMA)");
     return 0;
 }
