@@ -1,9 +1,11 @@
-/* Portions of MMU/cache/reset sequencing Copyright (C) 2017-2018 Broadcom,
- * used under GPL version 3 through upstream's GPL-2.0-or-later grant.
+/* Earlier MMU/cache/reset sequencing included portions Copyright (C)
+ * 2017-2018 Broadcom, used under GPL version 3 through upstream's
+ * GPL-2.0-or-later grant.
+ *
+ * Register and bridge behavior references are Linux v6.12 drivers/gpu/drm/v3d
+ * and drivers/pmdomain/bcm/bcm2835-power.c (GPL-2.0-or-later).
  * V3D 4.2 packet layout follows Random06457's MIT-licensed Pi 4 examples and
  * Mesa's MIT-licensed src/broadcom/cle/v3d_packet.xml.
- * Register, MMU, cache and power-bridge semantics: Linux v6.12
- * drivers/gpu/drm/v3d and drivers/pmdomain/bcm/bcm2835-power.c (GPL-2.0+).
  * See docs/licenses/v3d-examples-MIT.txt and docs/HARDWARE.md. */
 #include <vantage/drivers/v3d.h>
 #include <vantage/kernel/render.h>
@@ -107,46 +109,68 @@ static void cache(V3d* gpu, void* memory, size_t bytes, enum HwCache operation) 
     gpu->io->cache(gpu->io->context, memory, bytes, operation);
 }
 
-static int bridge(V3d* gpu, uintptr_t control, int run) {
-    uint32_t value = rd(gpu, control);
-    wr(gpu, control, PM_PASSWORD | (run ? value & ~ASB_REQ_STOP : value | ASB_REQ_STOP));
-    return settle(gpu, control, ASB_ACK, run ? 0 : ASB_ACK);
+static void write_power_bit(V3d* gpu, uintptr_t control, uint32_t bit, int set) {
+    uint32_t value = rd(gpu, control) & ~bit;
+    wr(gpu, control, PM_PASSWORD | value | (set ? bit : 0));
 }
 
-/* Returns nonzero only when both bridges acknowledged the stop and the reset
- * line reads back asserted: the core can then no longer reach memory. */
-static int hold_reset(V3d* gpu) {
-    int slave = bridge(gpu, ASB_V3D_S_CTRL, 0), master = bridge(gpu, ASB_V3D_M_CTRL, 0);
-    wr(gpu, PM_GRAFX, PM_PASSWORD | (rd(gpu, PM_GRAFX) & ~PM_V3DRSTN));
-    return slave == HW_OK && master == HW_OK && !(rd(gpu, PM_GRAFX) & PM_V3DRSTN);
+/* Stop slave first. Start in reverse order so the GPU's memory path is open
+ * before the CPU can reach the core. */
+static const uintptr_t bridge_stop_order[] = {ASB_V3D_S_CTRL, ASB_V3D_M_CTRL};
+enum { BRIDGE_COUNT = sizeof(bridge_stop_order) / sizeof(bridge_stop_order[0]) };
+
+static int isolate_core(V3d* gpu) {
+    unsigned int stopped = 0;
+    for (unsigned int i = 0; i < BRIDGE_COUNT; i++) {
+        uintptr_t control = bridge_stop_order[i];
+        write_power_bit(gpu, control, ASB_REQ_STOP, 1);
+        if (settle(gpu, control, ASB_ACK, ASB_ACK) == HW_OK) stopped++;
+    }
+
+    /* Attempt reset even after a bridge timeout. Reuse of DMA memory requires
+     * evidence from both bridges as well as reset readback. */
+    write_power_bit(gpu, PM_GRAFX, PM_V3DRSTN, 0);
+    uint32_t reset = rd(gpu, PM_GRAFX);
+    return stopped == BRIDGE_COUNT && !(reset & PM_V3DRSTN);
+}
+
+static int restart_core(V3d* gpu) {
+    /* A bridge that has never run may miss the initial stop acknowledgement. */
+    (void)isolate_core(gpu);
+    if (hw_delay(gpu->io, 10) != HW_OK) return HW_TIMEOUT;
+    write_power_bit(gpu, PM_GRAFX, PM_V3DRSTN, 1);
+
+    for (unsigned int i = BRIDGE_COUNT; i > 0; i--) {
+        uintptr_t control = bridge_stop_order[i - 1];
+        write_power_bit(gpu, control, ASB_REQ_STOP, 0);
+        if (settle(gpu, control, ASB_ACK, 0) != HW_OK) return HW_TIMEOUT;
+    }
+    return HW_OK;
+}
+
+static void quiesce_core(V3d* gpu) {
+    gpu->detail = rd(gpu, ERR_STAT);
+    wr(gpu, CTL_INT_MSK_SET, ~0U);
+    wr(gpu, HUB_INT_MSK_SET, ~0U);
+    wr(gpu, GMP_CFG, GMP_CFG_STOP_REQ);
+    /* The bridges and reset provide the stop proof even if GMP cannot drain. */
+    (void)settle(gpu, GMP_STATUS, GMP_STATUS_BUSY, 0);
 }
 
 static void shutdown(V3d* gpu) {
-    int confirmed = 1;
+    if (gpu->level >= LEVEL_CORE) quiesce_core(gpu);
+    int isolated = gpu->level < LEVEL_BRIDGE || isolate_core(gpu);
 
-    if (gpu->level >= LEVEL_CORE) {
-        gpu->detail = rd(gpu, ERR_STAT);
-        wr(gpu, CTL_INT_MSK_SET, ~0U);
-        wr(gpu, HUB_INT_MSK_SET, ~0U);
-        wr(gpu, GMP_CFG, GMP_CFG_STOP_REQ);
-        (void)settle(gpu, GMP_STATUS, GMP_STATUS_BUSY, 0);
-    }
-
-    if (gpu->level >= LEVEL_BRIDGE) {
-        confirmed = hold_reset(gpu);
-    }
-
-    /* Keep the firmware domain powered for the kernel lifetime. Asking
-     * firmware to power it off after our direct bridge/reset sequence hangs
-     * on the tested Pi 4 and blocks later framebuffer property requests.
-     * Buffer ownership depends on the confirmed bridge/reset stop above,
-     * never on an unacknowledged firmware power-off. */
-
+    /* Keeping the firmware domain powered preserves later framebuffer property
+     * calls after a direct stop on the tested Pi 4. */
     gpu->present = 0;
-    gpu->state = (!gpu->mapped || confirmed)? V3D_STOPPED : V3D_QUARANTINED;
-    if (gpu->state == V3D_STOPPED) gpu->target = NULL;
+    if (gpu->mapped && !isolated) {
+        gpu->state = V3D_QUARANTINED;
+        return;
+    }
+    gpu->target = NULL;
+    gpu->state = V3D_STOPPED;
 }
-
 
 static int fail(V3d* gpu, int stage, int error) {
     gpu->stage = stage;
@@ -155,13 +179,45 @@ static int fail(V3d* gpu, int stage, int error) {
     return error;
 }
 
-static int mmu_flush(V3d* gpu) {
+static int sync_translations(V3d* gpu) {
+    static const struct {
+        uintptr_t control;
+        uint32_t command;
+        uint32_t busy;
+    } invalidations[] = {
+        /* Use the driver's configuration so the clear command does not
+         * write back any latched write-one-to-clear MMU faults. */
+        {MMU_CTL, MMU_CTL_CONFIG | MMU_CTL_TLB_CLEAR, MMU_CTL_TLB_CLEARING},
+        {MMUC_CONTROL, MMUC_ENABLE | MMUC_FLUSH, MMUC_FLUSHING}
+    };
+    const size_t count = sizeof(invalidations) / sizeof(invalidations[0]);
+
+    /* Begin with an idle TLB. Issue both commands before checking completion
+     * of either, and require both to finish before using the updated table. */
     if (settle(gpu, MMU_CTL, MMU_CTL_TLB_CLEARING, 0) != HW_OK) return HW_TIMEOUT;
-    wr(gpu, MMU_CTL, rd(gpu, MMU_CTL) | MMU_CTL_TLB_CLEAR);
-    wr(gpu, MMUC_CONTROL, MMUC_FLUSH | MMUC_ENABLE);
-    if (settle(gpu, MMU_CTL, MMU_CTL_TLB_CLEARING, 0) != HW_OK ||
-        settle(gpu, MMUC_CONTROL, MMUC_FLUSHING, 0) != HW_OK) return HW_TIMEOUT;
+    for (size_t i = 0; i < count; i++)
+        wr(gpu, invalidations[i].control, invalidations[i].command);
+    for (size_t i = 0; i < count; i++) {
+        if (settle(gpu, invalidations[i].control, invalidations[i].busy, 0) != HW_OK)
+            return HW_TIMEOUT;
+    }
     return HW_OK;
+}
+
+static int install_translations(V3d* gpu, uint64_t table, uint64_t scratch) {
+    uint32_t table_page = (uint32_t)(table >> 12);
+    uint32_t scratch_page = (uint32_t)(scratch >> 12);
+    /* Publish the fault target and table before enabling translation. Once
+     * the device can see the arena, stopping it is required to free memory. */
+    gpu->mapped = 1;
+    wr(gpu, MMU_ILLEGAL_ADDR, (1U << 31) | scratch_page);
+    wr(gpu, MMU_PT_PA_BASE, table_page);
+    wr(gpu, MMU_CTL, MMU_CTL_CONFIG);
+    wr(gpu, MMUC_CONTROL, MMUC_ENABLE);
+    int result = sync_translations(gpu);
+    if (result != HW_OK) return result;
+    return rd(gpu, MMU_PT_PA_BASE) == table_page && (rd(gpu, MMU_CTL) & 1U)
+        ? HW_OK : HW_IO;
 }
 
 /* Page-aligned physical run of size bytes below the peripheral window that
@@ -178,14 +234,14 @@ static uint64_t physical_run(V3d* gpu, const HwOps* io, const void* memory, uint
     return start;
 }
 
-/* Map (address != 0) or unmap the present window, then flush the device TLB. */
+/* Map (address != 0) or unmap the present window, then synchronize translations. */
 static int map_target(V3d* gpu, uint64_t address) {
     uint32_t* entry = gpu->table + (V3D_TARGET_BASE >> 12);
     uint32_t pages = gpu->bytes >> 12;
     for (uint32_t page = 0; page < pages; page++)
         entry[page] = address ? (uint32_t)((address >> 12) + page) | PTE_VALID_WRITEABLE : 0;
     cache(gpu, entry, pages * sizeof(uint32_t), HW_CLEAN);
-    return mmu_flush(gpu);
+    return sync_translations(gpu);
 }
 
 static void put16(unsigned char* p, uint32_t value) { p[0] = (unsigned char)value; p[1] = (unsigned char)(value >> 8); }
@@ -267,10 +323,14 @@ static int faults(V3d* gpu) {
            (rd(gpu, CTL_INT_STS) & CTL_INT_FAULTS);
 }
 
-/* Drop the device's texture and slice caches so it re-reads CPU-written memory. */
+/* Discard texture data before invalidating its consumers in the slice cache. */
 static int invalidate_caches(V3d* gpu) {
-    wr(gpu, CTL_L2TCACTL, 1U);
-    if (settle(gpu, CTL_L2TCACTL, 1U, 0) != HW_OK) return HW_TIMEOUT;
+    const uint32_t texture_flush = 1U;
+    int result = settle(gpu, CTL_L2TCACTL, texture_flush, 0);
+    if (result != HW_OK) return result;
+    wr(gpu, CTL_L2TCACTL, texture_flush);
+    result = settle(gpu, CTL_L2TCACTL, texture_flush, 0);
+    if (result != HW_OK) return result;
     wr(gpu, CTL_SLCACTL, 0x0f0f0f0fU);
     return HW_OK;
 }
@@ -317,14 +377,9 @@ int v3d_init(V3d* gpu, const HwOps* io, void* table, void* arena,
     if (result != HW_OK) return fail(gpu, V3D_STAGE_CLOCK, result);
     if (values[0] != FIRMWARE_CLOCK_V3D || !values[1]) return fail(gpu, V3D_STAGE_CLOCK, HW_PROTOCOL);
 
-    /* Full reset cycle. A bridge that never ran may not acknowledge this
-     * first stop, so only the restart below is required to succeed. */
     gpu->level = LEVEL_BRIDGE;
-    (void)hold_reset(gpu);
-    if (hw_delay(io, 10) != HW_OK) return fail(gpu, V3D_STAGE_BRIDGE, HW_TIMEOUT);
-    wr(gpu, PM_GRAFX, PM_PASSWORD | rd(gpu, PM_GRAFX) | PM_V3DRSTN);
-    if (bridge(gpu, ASB_V3D_M_CTRL, 1) != HW_OK || bridge(gpu, ASB_V3D_S_CTRL, 1) != HW_OK)
-        return fail(gpu, V3D_STAGE_BRIDGE, HW_TIMEOUT);
+    result = restart_core(gpu);
+    if (result != HW_OK) return fail(gpu, V3D_STAGE_BRIDGE, result);
 
     /* Only V3D 4.2 with one core and an MMU is supported. */
     uint32_t core0 = rd(gpu, CTL_IDENT0), core1 = rd(gpu, CTL_IDENT1);
@@ -351,15 +406,9 @@ int v3d_init(V3d* gpu, const HwOps* io, void* table, void* arena,
     wr(gpu, CTL_INT_MSK_SET, ~0U); wr(gpu, HUB_INT_MSK_SET, ~0U);
     wr(gpu, CTL_INT_CLR, ~0U); wr(gpu, HUB_INT_CLR, ~0U);
     wr(gpu, CTL_L2TFLSTA, 0); wr(gpu, CTL_L2TFLEND, ~0U);
-    gpu->mapped = 1;
-    wr(gpu, MMU_PT_PA_BASE, (uint32_t)(pt >> 12));
-    wr(gpu, MMU_CTL, MMU_CTL_CONFIG);
-    /* Faulting accesses are redirected to the scratch page, never to RAM. */
-    wr(gpu, MMU_ILLEGAL_ADDR, (uint32_t)((memory + SCRATCH) >> 12) | (1U << 31));
-    wr(gpu, MMUC_CONTROL, MMUC_ENABLE);
-    if (mmu_flush(gpu) != HW_OK) return fail(gpu, V3D_STAGE_MMU, HW_TIMEOUT);
-    if (rd(gpu, MMU_PT_PA_BASE) != (uint32_t)(pt >> 12) || !(rd(gpu, MMU_CTL) & 1U) || faults(gpu))
-        return fail(gpu, V3D_STAGE_MMU, HW_IO);
+    result = install_translations(gpu, pt, memory + SCRATCH);
+    if (result != HW_OK || faults(gpu))
+        return fail(gpu, V3D_STAGE_MMU, result != HW_OK ? result : HW_IO);
     gpu->state = V3D_READY;
     return HW_OK;
 }
