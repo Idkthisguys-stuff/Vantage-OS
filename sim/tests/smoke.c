@@ -2,6 +2,7 @@
 #include <vantage/user.h>
 #include <SDL2/SDL.h>
 #include "../platform/display_sim.h"
+#include "../platform/net_sim.h"
 
 void home_app_init(void);
 void home_app_step(void);
@@ -32,6 +33,41 @@ static int push_click(int x, int y) {
     if (SDL_PushEvent(&event) != 1) return 0;
     event.type = SDL_MOUSEBUTTONUP;
     return SDL_PushEvent(&event) == 1;
+}
+
+enum { NETWORK_ROW_WIDTH = 28 * TEXT_CELL_WIDTH };
+
+static int read_ethernet_row(SDL_Renderer* renderer, uint32_t* pixels) {
+    SDL_Rect rect = { 3 * TEXT_CELL_WIDTH, 12 * TEXT_CELL_HEIGHT,
+                      NETWORK_ROW_WIDTH, TEXT_CELL_HEIGHT };
+    return SDL_RenderReadPixels(renderer, &rect, SDL_PIXELFORMAT_XRGB8888,
+                                pixels, NETWORK_ROW_WIDTH * sizeof(*pixels)) == 0;
+}
+
+static int test_network_refresh(SDL_Renderer* renderer) {
+    uint32_t unplugged[NETWORK_ROW_WIDTH * TEXT_CELL_HEIGHT];
+    uint32_t current[NETWORK_ROW_WIDTH * TEXT_CELL_HEIGHT];
+    if (!push_click(295, 66)) return 0;
+    home_app_step();
+    if (!read_ethernet_row(renderer, unplugged)) return 0;
+
+    for (int cable = 1; cable >= 0; cable--) {
+        sim_net_set_cable(cable);
+        uint32_t started = SDL_GetTicks();
+        do {
+            home_app_step();
+            if (!read_ethernet_row(renderer, current)) return 0;
+            if ((memcmp(current, unplugged, sizeof(current)) != 0) == cable) break;
+            if (SDL_GetTicks() - started >= 2000) {
+                SDL_Log("Network view did not update for cable state %d", cable);
+                return 0;
+            }
+            SDL_Delay(10);
+        } while (1);
+    }
+    if (!push_click(40, 50)) return 0;
+    home_app_step();
+    return 1;
 }
 
 int main(int argc, char* argv[]) {
@@ -200,6 +236,7 @@ int main(int argc, char* argv[]) {
         test_window.w != 480 || test_window.h != 800) return 1;
 
     sim_set_coordinate_overlay(0);
+    sim_net_attach();
     home_app_init();
     home_app_step();
     if (!check_pixel(renderer, 30, 66, RGB(30, 61, 67)) ||
@@ -207,6 +244,8 @@ int main(int argc, char* argv[]) {
         !check_pixel(renderer, 250, 66, RGB(30, 61, 67)) ||
         !check_pixel(renderer, 350, 66, RGB(13, 24, 29)) ||
         !check_pixel(renderer, 360, 66, RGB(30, 61, 67))) return 1;
+
+    if (!test_network_refresh(renderer)) return 1;
 
     if (!push_click(405, 66)) return 1;
     home_app_step();

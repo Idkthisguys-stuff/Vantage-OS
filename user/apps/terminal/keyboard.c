@@ -144,6 +144,10 @@ uint32_t keyboard_touch(const TouchContact* contact, KeyEvent* event) {
     return 1;
 }
 
+uint32_t keyboard_repeat_pending(void) {
+    return key_holders[DELETE] || key_holders[SPACE];
+}
+
 uint32_t keyboard_repeat(KeyEvent* event) {
     static const uint32_t keys[] = {DELETE, SPACE};
     uint32_t now = sys_time_us();

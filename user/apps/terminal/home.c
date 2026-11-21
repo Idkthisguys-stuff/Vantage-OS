@@ -47,6 +47,7 @@ static const Control bluetooth_controls[] = {
 
 static uint32_t view, dirty, pressed, contact_id;
 static uint32_t file_page, file_more;
+static NetStatus network_status;
 static BtStatus bluetooth_status;
 static uint32_t bluetooth_polled, bluetooth_scan_failed;
 
@@ -140,25 +141,39 @@ static void address_text(uint32_t address, char output[16]) {
     output[used] = '\0';
 }
 
+static void poll_network(void) {
+    NetStatus status = {0};
+    if (sys_net_status(&status) < 0) status = (NetStatus){0};
+    status.ssid[NET_SSID_MAX] = '\0';
+    uint32_t connected = status.available && status.link == NET_LINK_UP;
+    uint32_t was_connected = network_status.available && network_status.link == NET_LINK_UP;
+    uint32_t bound = status.configuration == NET_ADDRESS_BOUND;
+    uint32_t was_bound = network_status.configuration == NET_ADDRESS_BOUND;
+
+    if (status.available != network_status.available || connected != was_connected ||
+        (connected && memcmp(status.ssid, network_status.ssid, NET_SSID_MAX)) ||
+        status.ethernet != network_status.ethernet || bound != was_bound ||
+        (bound && status.address != network_status.address)) dirty = 1;
+    network_status = status;
+}
+
 static void draw_network(void) {
     text(7, "Network", TEXT);
-    NetStatus status = {0};
-    sys_net_status(&status);
+    const NetStatus* status = &network_status;
 
-    if (!status.available) text(9, "Wi-Fi unavailable", MUTED);
-    else if (status.link == NET_LINK_UP) {
+    if (!status->available) text(9, "Wi-Fi unavailable", MUTED);
+    else if (status->link == NET_LINK_UP) {
         text(9, "Wi-Fi connected", TEXT);
-        status.ssid[NET_SSID_MAX] = '\0';
-        text(10, status.ssid, MUTED);
+        text(10, status->ssid, MUTED);
     } else text(9, "Wi-Fi disconnected", MUTED);
 
-    text(12, status.ethernet == NET_ETHERNET_UP ? "Ethernet connected" :
-             status.ethernet == NET_ETHERNET_NO_CABLE ? "Ethernet cable unplugged" :
+    text(12, status->ethernet == NET_ETHERNET_UP ? "Ethernet connected" :
+             status->ethernet == NET_ETHERNET_NO_CABLE ? "Ethernet cable unplugged" :
              "Ethernet unavailable", MUTED);
 
-    if (status.configuration == NET_ADDRESS_BOUND) {
+    if (status->configuration == NET_ADDRESS_BOUND) {
         char address[16];
-        address_text(status.address, address);
+        address_text(status->address, address);
         text(14, "IP address", TEXT);
         text(15, address, MUTED);
     } else text(14, "No IP address", MUTED);
@@ -244,7 +259,7 @@ static void activate(uint32_t action) {
     switch (action) {
         case OPEN_TERMINAL: view = TERMINAL; terminal_app_open(); break;
         case OPEN_FILES: view = FILES; file_page = 0; break;
-        case OPEN_NETWORK: view = NETWORK; break;
+        case OPEN_NETWORK: view = NETWORK; poll_network(); break;
         case OPEN_BLUETOOTH:
             view = BLUETOOTH;
             bluetooth_scan_failed = 0;
@@ -253,7 +268,7 @@ static void activate(uint32_t action) {
         case BACK: view = HOME; break;
         case PREVIOUS: file_page--; break;
         case MORE: file_page++; break;
-        case REFRESH: break;
+        case REFRESH: poll_network(); break;
         case SCAN:
             bluetooth_scan_failed = sys_bt_scan_start() <= 0;
             poll_bluetooth(sys_time_us());
@@ -300,15 +315,14 @@ void home_app_init(void) {
     pressed = NONE;
 }
 
-void home_app_step(void) {
+static void step(int refresh_network, int bluetooth_changed) {
+    if (view == NETWORK && refresh_network) poll_network();
     if (view == BLUETOOTH) {
         uint32_t now = sys_time_us();
-        if (now - bluetooth_polled >= BT_POLL_US) poll_bluetooth(now);
+        if (bluetooth_changed || now - bluetooth_polled >= BT_POLL_US) poll_bluetooth(now);
+        if (bluetooth_changed) dirty = 1;
     }
-    if (view == TERMINAL) {
-        terminal_app_step();
-        if (terminal_app_closed()) activate(BACK);
-    } else {
+    if (view != TERMINAL) {
         KeyEvent key;
         TouchContact contact;
         for (uint32_t i = 0; i < 64 && view != TERMINAL && sys_key_read(&key); i++) {
@@ -324,13 +338,41 @@ void home_app_step(void) {
             if (contact.id < TOUCH_CONTACTS_MAX) handle_touch(&contact);
         }
     }
+    if (view == TERMINAL) {
+        terminal_app_step();
+        if (terminal_app_closed()) activate(BACK);
+    }
     if (view != TERMINAL && dirty) draw();
 }
 
+void home_app_step(void) {
+    step(1, 0);
+}
+
 void user_task(void) {
+    enum { FRAME_US = 16667 };
     home_app_init();
+    int ready = 0;
     for (;;) {
-        home_app_step();
-        sys_frame_wait();
+        /* A timeout also resamples status if the view opened before its first wait. */
+        step(!ready || (ready & EVENT_NETWORK), ready & EVENT_BLUETOOTH);
+
+        uint32_t interests = EVENT_KEY | EVENT_TOUCH;
+        uint32_t timeout = EVENT_WAIT_MAX_US;
+        if (view == TERMINAL && terminal_app_needs_frame()) timeout = FRAME_US;
+        else if (view == NETWORK) interests |= EVENT_NETWORK;
+        else if (view == BLUETOOTH) {
+            interests |= EVENT_BLUETOOTH;
+            if (bluetooth_status.state == BT_BOOTING || bluetooth_status.state == BT_SCANNING)
+                timeout = BT_POLL_US;
+        }
+
+        ready = sys_event_wait(interests, timeout);
+        if (ready < 0) {
+            static const char message[] = "[ERR] Home event wait failed\n";
+            sys_console_write(message, sizeof(message) - 1);
+            sys_task_exit(ready);
+            return;
+        }
     }
 }

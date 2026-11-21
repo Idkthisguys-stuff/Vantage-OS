@@ -12,10 +12,10 @@ import unittest
 
 from unicorn import arm64_const as regs
 
-from cpu import CpuMachine, X, USER_BASE, USER_END, OK
+from cpu import COUNTER_HZ, CpuMachine, X, USER_BASE, USER_END, OK
 from memory_management import Image, Machine
 
-FRAME_WAIT = 9
+EVENT_WAIT = 14
 STACK_BYTES = 16384
 
 
@@ -27,6 +27,8 @@ class TerminalMachine(CpuMachine):
         self.app_clock_us = 0
         self.presentations = 0
         self.parked = False
+        self.idle_timer_wakes = 0
+        self.model_idle_timer = False
         self.lowest_user_sp = USER_END
         self.stub('canvas_text_columns', result=60)
         self.stub('canvas_text_rows', result=50)
@@ -70,23 +72,35 @@ class TerminalMachine(CpuMachine):
 
     def syscall(self, uc, address, size, _):
         if self.parked:
-            self.parked = False   # Resuming the frame wait that ended the last step.
+            self.parked = False   # Resume the wait syscall that ended the last step.
             return
         super().syscall(uc, address, size, _)
         self.lowest_user_sp = min(self.lowest_user_sp, uc.reg_read(regs.UC_ARM64_REG_SP_EL0))
-        if uc.reg_read(X[0]) == FRAME_WAIT:
+        if uc.reg_read(X[0]) == EVENT_WAIT:
             self.parked = True
             self.cpu.idle = True
             uc.emu_stop()
 
-    def launch(self, booted=False, terminal=True):
+    def wait(self, uc, address, size, _):
+        if self.model_idle_timer and self.cpu.armed and not self.owners()[0]:
+            # Advance the hardware clock to the armed deadline during WFE.
+            ticks = self.cpu.timer_log[-2][1]
+            self.clock_us += (ticks * 1000000 + COUNTER_HZ - 1) // COUNTER_HZ
+            self.cpu.remaining = 0
+            self.idle_timer_wakes += 1
+        super().wait(uc, address, size, _)
+
+    def launch(self, booted=False, terminal=True, service=False):
         """Boot the embedded shell and optionally open the terminal tile."""
         if not booted:
             self.boot(cores=1)
         start, end = self.image.symbols['terminal_image'], self.image.symbols['terminal_image_end']
         self.app = self.call('process_create', start, end - start, 1)
         assert self.app
-        self.start('task_run')
+        if service:
+            self.start('task_run_with_service', self.image.symbols['event_service'], 8000)
+        else:
+            self.start('task_run')
         self.step()
         if terminal:
             self.tap(75, 66)
@@ -97,7 +111,7 @@ class TerminalMachine(CpuMachine):
         self.step()
 
     def step(self):
-        """Finish the pending frame wait and run one application step."""
+        """Finish the pending event wait and run one application step."""
         assert self.run(until=lambda: self.parked, cores=1, rounds=200000) is None, 'terminal exited'
 
     def command(self, text):
@@ -109,6 +123,25 @@ class TerminalMachine(CpuMachine):
 class TerminalTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls): cls.image = Image(sys.argv[1])
+
+    def test_idle_timer_services_devices_and_wakes_home_on_input(self):
+        m = TerminalMachine(self.image)
+        m.model_idle_timer = True
+        polls = []
+
+        def poll(*_):
+            polls.append(m.idle_timer_wakes)
+            if m.idle_timer_wakes >= 2 and all(wake < 2 for wake in polls[:-1]):
+                m.touches.extend(((1, 185, 66), (3, 185, 66)))
+            return 0
+
+        m.stub('pi4_drivers_poll', poll)
+        m.launch(terminal=False, service=True)
+        m.step()
+        self.assertEqual(m.rows[7].strip(), 'Files')
+        self.assertGreaterEqual(m.idle_timer_wakes, 2)
+        self.assertIn(('irq', 1), {(kind, origin) for _, kind, origin, _ in m.entries})
+
 
     def test_embedded_program_is_a_separately_linked_user_image(self):
         start, end = self.image.symbols['terminal_image'], self.image.symbols['terminal_image_end']
