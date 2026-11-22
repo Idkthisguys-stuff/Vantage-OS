@@ -8,6 +8,9 @@
 
 static uint64_t l1[MMU_TABLE_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t l2[MMU_KERNEL_ENTRIES][512] __attribute__((aligned(4096)));
+#if VANTAGE_USB
+static uint64_t pcie_l2[MMU_TABLE_ENTRIES] __attribute__((aligned(4096)));
+#endif
 
 extern unsigned char __smp_boot_start[];
 extern volatile uint32_t secondary_mmu_ready;
@@ -29,6 +32,9 @@ void mmu_init(uintptr_t fbStart, uint32_t fbSize) {
     if (control & 5) mm_halt("[ERR] Live MMU tables cannot be rebuilt\n");
 
     mmu_populate_tables(l1, l2, fbStart, fbSize, (uintptr_t)__smp_boot_start);
+#if VANTAGE_USB
+    mmu_populate_pcie_tables(l1, pcie_l2);
+#endif
     /* The tables are populated with caches off and remain immutable. */
     __asm__ volatile("dsb sy" ::: "memory");
     mmu_enable_shared();
