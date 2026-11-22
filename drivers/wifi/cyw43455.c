@@ -7,6 +7,11 @@
 #define ENUM_BASE 0x18000000U
 #define EROM_BYTES 4096U
 #define CLOCK_CSR 0x1000eU
+enum {
+    SDPCM_VERSION = 4, SDIO_FRAME_INDICATION = 0x40, SDIO_HOST_MAILBOX = 0x80,
+    MAILBOX_DEVICE_READY = 0x02, MAILBOX_FIRMWARE_READY = 0x08,
+    MAILBOX_FIRMWARE_HALTED = 0x10
+};
 
 static uint32_t le32(const unsigned char* p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -141,15 +146,15 @@ static int core_reset(Wifi* w, uint32_t wrap, uint32_t before, uint32_t after) {
     return write32(w, wrap + CORE_IO, CORE_CLOCK | after);
 }
 
-static int erom_word(Wifi* w, uint32_t base, unsigned int* offset, uint32_t* value) {
-    if (*offset >= EROM_BYTES) return HW_PROTOCOL;
-    int result = read32(w, base + *offset, value);
-    *offset += 4;
+static int erom_word(Wifi* w, uint32_t* value) {
+    if (w->erom_offset >= EROM_BYTES) return HW_PROTOCOL;
+    int result = read32(w, w->erom_base + w->erom_offset, value);
+    if (result == HW_OK) w->erom_offset += 4;
     return result;
 }
 
 static int chip_probe(Wifi* w) {
-    uint32_t value, erom;
+    uint32_t value;
     w->boot_stage = "chip ID";
     int result = read32(w, ENUM_BASE, &value);
     if (result != HW_OK) return result;
@@ -157,13 +162,14 @@ static int chip_probe(Wifi* w) {
     if (w->chip != 0x4345 || w->revision != 6 || (value >> 28) != 1) return HW_UNSUPPORTED;
 
     w->boot_stage = "core enumeration";
-    result = read32(w, ENUM_BASE + 0xfc, &erom);
+    result = read32(w, ENUM_BASE + 0xfc, &w->erom_base);
     if (result != HW_OK) return result;
+    uint32_t erom = w->erom_base;
     if ((erom & 3) || erom < ENUM_BASE || erom > 0x18200000U - EROM_BYTES) return HW_PROTOCOL;
-    unsigned int core = 0, core_revision = 0, ended = 0, offset = 0;
+    unsigned int core = 0, core_revision = 0, ended = 0;
     /* The enumeration ROM terminates at END. Do not read later words. */
-    while (offset < EROM_BYTES) {
-        result = erom_word(w, erom, &offset, &value);
+    while (w->erom_offset < EROM_BYTES) {
+        result = erom_word(w, &value);
         if (result != HW_OK) return result;
         unsigned int type = value & 15U;
         if (type == 15) { ended = 1; break; }
@@ -171,29 +177,31 @@ static int chip_probe(Wifi* w) {
         if (type == 1) {
             core = (value >> 8) & 0xfffU;
             uint32_t descriptor;
-            result = erom_word(w, erom, &offset, &descriptor);
+            result = erom_word(w, &descriptor);
             if (result != HW_OK) return result;
             if ((descriptor & 15U) != 1) return HW_PROTOCOL;
             core_revision = descriptor >> 24;
         } else if ((type & ~8U) == 5) {
-            uint32_t descriptor;
+            uint32_t address_high = 0;
             if (type & 8) {
-                result = erom_word(w, erom, &offset, &descriptor);
+                result = erom_word(w, &address_high);
                 if (result != HW_OK) return result;
-                if (descriptor) return HW_UNSUPPORTED;
             }
             unsigned int size_type = (value >> 4) & 3U;
             if (size_type == 3) {
-                result = erom_word(w, erom, &offset, &descriptor);
+                uint32_t descriptor;
+                result = erom_word(w, &descriptor);
                 if (result != HW_OK) return result;
                 if (descriptor & 8U) {
-                    result = erom_word(w, erom, &offset, &descriptor);
+                    result = erom_word(w, &descriptor);
                     if (result != HW_OK) return result;
                 }
             }
-            if (size_type > 1) continue;
+            /* A region outside our backplane window can coexist with the
+             * required registers. Consume its full descriptor before skipping. */
+            if (address_high || size_type > 1) continue;
             uint32_t address = value & 0xfffff000U;
-            if (address < ENUM_BASE || address >= 0x18200000U) return HW_PROTOCOL;
+            if (address < ENUM_BASE || address >= 0x18200000U) continue;
             unsigned int kind = (value >> 6) & 3U;
             if (core == 0x83e && kind == 0 && !w->arm) w->arm = address;
             if (core == 0x83e && kind >= 2 && !w->arm_wrap) w->arm_wrap = address;
@@ -218,9 +226,12 @@ static int chip_probe(Wifi* w) {
 }
 
 static int fifo(Wifi* w, int write, unsigned char* data, unsigned int bytes) {
+    /* Function 2 exposes the frame FIFO through the ChipCommon window. */
+    int result = window(w, ENUM_BASE);
+    if (result != HW_OK) return result;
     while (bytes) {
         unsigned int count = bytes > 512 ? 512 : bytes;
-        int result = w->bus.transfer(w->bus.context, 2, 0, 0, write, data, count);
+        result = w->bus.transfer(w->bus.context, 2, 0x8000U, write, write, data, count);
         if (result != HW_OK) return result;
         data += count; bytes -= count;
     }
@@ -323,44 +334,70 @@ static void event(Wifi* w, const unsigned char* p, unsigned int bytes) {
     }
 }
 
+static int reject_frame(Wifi* w, const char* why) {
+    if (w->state == 2) {
+        w->boot_frame_error = why;
+        for (unsigned int i = 0; i < 3; i++) w->boot_frame_header[i] = le32(w->rx + 4 * i);
+    }
+    return HW_PROTOCOL;
+}
+
 static int pump(Wifi* w) {
     uint32_t interrupts, mailbox;
     if (read32(w, w->sdregs + 0x20, &interrupts) != HW_OK) return HW_IO;
+    if (w->state == 2) {
+        w->boot_observed = 1;
+        w->boot_interrupts |= interrupts;
+    }
     w->host_flow = !!(interrupts & 16U);
     if (interrupts && write32(w, w->sdregs + 0x20, interrupts) != HW_OK) return HW_IO;
-    if (interrupts & 128U) {
+    if (interrupts & SDIO_HOST_MAILBOX) {
         if (read32(w, w->sdregs + 0x4c, &mailbox) != HW_OK || write32(w, w->sdregs + 0x40, 2) != HW_OK) return HW_IO;
-        if ((mailbox & 0x88U) && ((mailbox >> 16) & 255U) != 4) return HW_UNSUPPORTED;
-        if (mailbox & 0x88U) w->protocol_ready = 1;
+        if (w->state == 2) w->boot_mailbox = mailbox;
+        if (mailbox & MAILBOX_FIRMWARE_HALTED) return HW_IO;
+        if (mailbox & (MAILBOX_DEVICE_READY | MAILBOX_FIRMWARE_READY)) {
+            if (((mailbox >> 16) & 255U) != SDPCM_VERSION) return HW_UNSUPPORTED;
+            w->protocol_ready = 1;
+        }
     }
-    uint8_t low, high;
-    if (reg8(w, 1, 0x1001b, 0, &low) != HW_OK || reg8(w, 1, 0x1001c, 0, &high) != HW_OK) return HW_IO;
-    if (!low && !high) return 0;
+    if (!(interrupts & SDIO_FRAME_INDICATION)) {
+        uint8_t low, high;
+        if (reg8(w, 1, 0x1001b, 0, &low) != HW_OK || reg8(w, 1, 0x1001c, 0, &high) != HW_OK) return HW_IO;
+        if (!low && !high) return 0;
+    }
     if (fifo(w, 0, w->rx, 12) != HW_OK) return HW_IO;
     unsigned int length = le16(w->rx), complement = le16(w->rx + 2);
-    if (!length) return 0;
-    if ((length ^ complement) != 0xffffU || length < 12 || length > sizeof(w->rx) ||
-        w->rx[7] < 12 || w->rx[7] > length || w->rx[4] != w->rx_sequence) return HW_PROTOCOL;
+    if (!length && !complement) return 0;
+    if ((length ^ complement) != 0xffffU || length < 12 || length > sizeof(w->rx))
+        return reject_frame(w, "invalid size/checksum");
+    if (length > 12 && (w->rx[7] < 12 || w->rx[7] > length))
+        return reject_frame(w, "invalid payload offset");
+    if (w->rx_synced && w->rx[4] != w->rx_sequence) return reject_frame(w, "unexpected receive sequence");
     if (length > 12 && fifo(w, 0, w->rx + 12, (length - 12 + 3U) & ~3U) != HW_OK) return HW_IO;
-    w->rx_sequence++;
-    if ((uint8_t)(w->rx[9] - w->tx_sequence) > 64U) return HW_PROTOCOL;
-    w->tx_window = w->rx[9]; w->flow_mask = w->rx[8];
+    w->rx_synced = 1;
+    w->rx_sequence = (uint8_t)(w->rx[4] + 1U);
+    /* Keep the last usable credit when the firmware advertises a stale window. */
+    if ((uint8_t)(w->rx[9] - w->tx_sequence) <= 64U) w->tx_window = w->rx[9];
+    w->flow_mask = w->rx[8];
+    if (length == 12) return HW_OK; /* Credit update with no payload. */
     unsigned int channel = w->rx[5] & 15U, offset = w->rx[7];
     unsigned char* p = w->rx + offset;
     unsigned int bytes = length - offset;
     if (channel == 0) {
-        if (bytes < 16) return HW_PROTOCOL;
+        if (bytes < 16) return reject_frame(w, "short control frame");
         if ((le32(p + 8) >> 16) != (w->control_id & 65535U)) return HW_OK;
-        if (le32(p) != w->control_command) return HW_PROTOCOL;
+        if (le32(p) != w->control_command) return reject_frame(w, "unexpected control command");
         w->control_status = le32(p + 12) | (le32(p + 8) & 1U);
         w->control_length = w->control_set || w->control_status ? 0 : le32(p + 4);
-        if (w->control_length > bytes - 16 || w->control_length > sizeof(w->control)) return HW_PROTOCOL;
+        if (w->control_length > bytes - 16 || w->control_length > sizeof(w->control))
+            return reject_frame(w, "invalid control length");
         memcpy(w->control, p + 16, w->control_length);
         w->control_ready = 1;
     } else if (channel == 1 || channel == 2) {
-        if (bytes < 4 || (p[0] >> 4) != 2 || (p[2] & 15U) != 0) return HW_PROTOCOL;
+        if (bytes < 4 || (p[0] >> 4) != 2 || (p[2] & 15U) != 0)
+            return reject_frame(w, "invalid network header");
         unsigned int skip = 4U + (unsigned int)p[3] * 4U;
-        if (skip > bytes) return HW_PROTOCOL;
+        if (skip > bytes) return reject_frame(w, "invalid network offset");
         p += skip; bytes -= skip;
         if (channel == 1) event(w, p, bytes);
         else if (bytes >= 14 && bytes <= WIFI_FRAME_MAX && w->connected && w->link && (w->keyed || w->open)) {
@@ -461,7 +498,7 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
         set8(w, 1, CLOCK_CSR, 0x21) != HW_OK || bus->delay(bus->context, 65) != HW_OK) return fail(w, HW_TIMEOUT);
     int result = chip_probe(w);
     if (result != HW_OK) return fail(w, result);
-    w->boot_stage = "firmware upload and startup";
+    w->boot_stage = "firmware upload";
     if (w->sd_revision >= 12) {
         uint8_t sleep;
         if (reg8(w, 1, 0x1001f, 0, &sleep) != HW_OK || set8(w, 1, 0x1001f, sleep | 1U) != HW_OK)
@@ -471,6 +508,7 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
     if (write32(w, RAM_BASE + w->ram_bytes - 4, 0) != HW_OK ||
         backplane(w, RAM_BASE, (void*)f->firmware, (unsigned int)f->firmware_bytes, 1) != HW_OK)
         return fail(w, HW_IO);
+    w->boot_stage = "firmware readback";
     /* Read back every downloaded byte before releasing the radio CPU. */
     for (unsigned int offset = 0; offset < f->firmware_bytes; offset += 512) {
         unsigned int count = (unsigned int)f->firmware_bytes - offset;
@@ -478,6 +516,7 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
         if (backplane(w, RAM_BASE + offset, w->rx, count, 0) != HW_OK ||
             memcmp(w->rx, f->firmware + offset, count)) return fail(w, HW_IO);
     }
+    w->boot_stage = "NVRAM upload and readback";
     uint32_t nvram_start = RAM_BASE + w->ram_bytes - 4 - (uint32_t)nvram_bytes;
     uint32_t words = (uint32_t)nvram_bytes / 4;
     if (backplane(w, nvram_start, w->nvram, (unsigned int)nvram_bytes, 1) != HW_OK ||
@@ -489,13 +528,15 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
         if (backplane(w, nvram_start + offset, w->rx, count, 0) != HW_OK ||
             memcmp(w->rx, w->nvram + offset, count)) return fail(w, HW_IO);
     }
+    w->boot_stage = "radio CPU release";
     uint32_t token;
     if (read32(w, RAM_BASE + w->ram_bytes - 4, &token) != HW_OK || token != (words | ((~words & 65535U) << 16)) ||
         write32(w, w->sdregs + 0x20, ~0U) != HW_OK || !le32(f->firmware) ||
         write32(w, 0, le32(f->firmware)) != HW_OK || core_reset(w, w->arm_wrap, 0x20, 0) != HW_OK)
         return fail(w, HW_IO);
+    w->boot_stage = "SDIO function 2 enable";
     if (set8(w, 1, CLOCK_CSR, 0x10) != HW_OK || wait8(w, 1, CLOCK_CSR, 128, 128, 1000000) != HW_OK ||
-        set8(w, 1, CLOCK_CSR, 2) != HW_OK || write32(w, w->sdregs + 0x48, 4U << 16) != HW_OK ||
+        set8(w, 1, CLOCK_CSR, 0x12) != HW_OK || write32(w, w->sdregs + 0x48, SDPCM_VERSION << 16) != HW_OK ||
         set8(w, 0, 2, 6) != HW_OK || wait8(w, 0, 3, 6, 6, 1000000) != HW_OK ||
         write32(w, w->sdregs + 0x24, 0xf0) != HW_OK || set8(w, 0, 4, 7) != HW_OK ||
         set8(w, 1, 0x10008, 0x60) != HW_OK || set8(w, 1, 0x1001d, 0xd0) != HW_OK)
@@ -503,13 +544,18 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
     uint8_t device;
     if (reg8(w, 1, 0x10009, 0, &device) != HW_OK || set8(w, 1, 0x10009, device | 16U) != HW_OK)
         return fail(w, HW_IO);
+    w->boot_stage = "SDPCM ready mailbox";
     uint32_t ready_start = bus->time_us(bus->context);
     for (unsigned int attempt = 0; !w->protocol_ready; attempt++) {
         result = pump(w);
         if (result < 0) return fail(w, result);
-        if (attempt == 100000 || bus->time_us(bus->context) - ready_start >= 1000000U)
+        if (w->protocol_ready) break;
+        if (attempt == 100000 || bus->time_us(bus->context) - ready_start >= 1000000U) {
+            w->boot_ram_tail_valid = read32(w, RAM_BASE + w->ram_bytes - 4, &w->boot_ram_tail) == HW_OK;
             return fail(w, HW_TIMEOUT);
+        }
     }
+    w->boot_stage = "CLM upload";
     for (size_t offset = 0; offset < f->clm_bytes;) {
         unsigned char chunk[1040] = {0};
         unsigned int count = (unsigned int)(f->clm_bytes - offset);
@@ -521,6 +567,7 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
         if (result != HW_OK) return fail(w, result);
         offset += count;
     }
+    w->boot_stage = "country configuration";
     unsigned char country[12] = {0}, applied_country[12] = {0}, status[4] = {0};
     country[0] = country[8] = (unsigned char)f->country[0];
     country[1] = country[9] = (unsigned char)f->country[1]; put32(country + 4, (uint32_t)f->country_revision);
@@ -530,8 +577,10 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
         variable(w, "country", 0, NULL, 0, applied_country, sizeof(applied_country), &actual) != HW_OK || actual != 12 ||
         applied_country[0] != country[0] || applied_country[1] != country[1] ||
         applied_country[8] != country[8] || applied_country[9] != country[9] ||
-        (f->country_revision >= 0 && le32(applied_country + 4) != (uint32_t)f->country_revision) ||
-        var_int(w, "bus:txglom", 0) != HW_OK || command_int(w, 86, 0) != HW_OK ||
+        (f->country_revision >= 0 && le32(applied_country + 4) != (uint32_t)f->country_revision))
+        return fail(w, HW_IO);
+    w->boot_stage = "radio settings";
+    if (var_int(w, "bus:txglom", 0) != HW_OK || command_int(w, 86, 0) != HW_OK ||
         command_int(w, 20, 1) != HW_OK || var_int(w, "roam_off", 1) != HW_OK) return fail(w, HW_IO);
     /* Keep the radio powered while unassociated so scans can run; select
      * active probing for scans. */

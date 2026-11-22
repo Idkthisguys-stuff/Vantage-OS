@@ -21,13 +21,22 @@ up to 16 results and replaces them on the next scan. The regular kernel and
 the desktop simulator show Bluetooth as unavailable. The simulator exercises
 Home navigation without a host-radio dependency.
 
-The driver tries the controller's ROM configuration at 115200 baud and
-hardware flow control. Its current scope is HCI startup and legacy BLE
-advertising discovery. Test with a known advertising device on the target
-Pi before relying on it. Watch UART for startup failures and record the Pi
-revision and firmware version. If the controller requires a vendor patch,
-firmware provisioning and upload are the next board-specific step. Pairing,
-GATT connections, Classic profiles and file transfer are later protocol work.
+The driver starts at 115200 baud with hardware flow control. For a board
+that needs the Cypress RAM patch, review the license using
+`python tools/bluetooth_firmware.py fetch`, then cache and embed the pinned
+Pi 4 patch:
+
+```sh
+python tools/bluetooth_firmware.py fetch --accept-license
+python tools/build.py --bluetooth 1 --bluetooth-patchram out/bluetooth-firmware/BCM4345C0.hcd
+```
+
+The kernel checks the controller's ROM identity before applying the patch
+and uses the patched controller for legacy BLE advertising discovery.
+Test with a known advertising device on the target Pi. Watch UART for
+startup failures and record the Pi revision and firmware version.
+Pairing, GATT connections, Classic profiles and file transfer are later
+protocol work.
 
 ## App-facing ABI
 

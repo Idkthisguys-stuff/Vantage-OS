@@ -11,7 +11,7 @@ typedef struct {
     unsigned char registers[0x200000], ram[0x80000], fn0[512], fn1[0x10020], reset[4];
     unsigned char incoming[32][WIFI_PACKET_MAX], outgoing[WIFI_PACKET_MAX];
     unsigned int incoming_bytes[32], head, queued, offset, sent;
-    uint32_t clock, window;
+    uint32_t clock, window, erom_end;
     unsigned int sequence, uploads, released, country, commands, joins, scans, wsec, wpa_auth, mpc, join_iovars;
     unsigned char ssid[36], country_data[12];
     int owner, mode, reject_wpa, stale_events, no_join_events, deauth_join, scan_set, missing, reject_join_iovar;
@@ -184,6 +184,22 @@ static int direct(void* context, unsigned int fn, uint32_t address, int write, u
     }
     if (write) {
         registers[address] = *value;
+        if (!fn && address == 2 && (*value & 4U)) {
+            CHECK(radio.released == 1 && get32(bp(SD + 0x48, 4)) == 0x40000U);
+            if (radio.mode != 5) {
+                put32(bp(SD + 0x20, 4), 0x80U);
+                put32(bp(SD + 0x4c, 4), radio.mode == 6 ? 0x40010U : 0x40002U);
+            }
+            if (radio.mode == 7 || radio.mode == 8) {
+                const unsigned char empty = 0;
+                radio.sequence = 255;
+                enqueue(0, &empty, 0);
+                radio.incoming[0][7] = 0;
+                radio.incoming[0][9] = 254;
+                if (radio.mode == 8) radio.incoming[0][2] ^= 1;
+                put32(bp(SD + 0x20, 4), 0xc0U);
+            }
+        }
         if (fn && address >= 0x1000a && address <= 0x1000c)
             radio.window = ((uint32_t)radio.fn1[0x1000a] << 8) | ((uint32_t)radio.fn1[0x1000b] << 16) |
                            ((uint32_t)radio.fn1[0x1000c] << 24);
@@ -202,22 +218,20 @@ static int transfer(void* context, unsigned int fn, uint32_t address, int increm
         CHECK(increment && (address & 0x8000));
         uint32_t absolute = (radio.window & ~0x7fffU) | (address & 0x7fffU);
         if (!write && absolute >= ENUM + 0x100000U && absolute < ENUM + 0x101000U &&
-            (absolute >= ENUM + 0x100040U || bytes != 4)) return HW_IO;
+            (absolute >= radio.erom_end || bytes != 4)) return HW_IO;
         if (radio.mode == 3 && absolute == ENUM + 0x100008U) return HW_TIMEOUT;
         unsigned char* target = bp(absolute, bytes);
         if (write) {
             if (absolute == SD + 0x20) memset(target, 0, bytes);
             else memcpy(target, memory, bytes);
             if (absolute >= 0x198000U && absolute < 0x218000U) radio.uploads++;
-            if (absolute == WRAP + 0x408 && get32(target) == 1) {
-                radio.released++; put32(bp(SD + 0x20, 4), 128); put32(bp(SD + 0x4c, 4), 0x40088);
-            }
+            if (absolute == WRAP + 0x408 && get32(target) == 1) radio.released++;
         } else {
             memcpy(memory, target, bytes);
             if (radio.mode == 2 && absolute == 0x198000U) ((unsigned char*)memory)[0] ^= 1;
         }
     } else {
-        CHECK(fn == 2 && !address && !increment);
+        CHECK(fn == 2 && address == 0x8000U && radio.window == ENUM && increment == write);
         if (write) {
             CHECK(radio.sent + bytes <= sizeof(radio.outgoing));
             memcpy(radio.outgoing + radio.sent, memory, bytes); radio.sent += bytes;
@@ -243,11 +257,20 @@ static void initialize(int mode) {
     const uint32_t bases[] = {ARM, ENUM + 0x1000U, SD};
     const uint32_t wraps[] = {WRAP, ENUM + 0x101000U, ENUM + 0x103000U};
     unsigned int offset = 0;
+    if (mode == 4) {
+        /* A 64-bit alias of the CR4 register range, followed by a region
+         * with an explicit 64-bit size. Continuation words aren't tags. */
+        const uint32_t extra[] = {0x83e01U, 1, ARM | 0x1000U | 0xdU, 1,
+                                  0x2000007dU, 2, 0x1008U, 15};
+        for (unsigned int i = 0; i < sizeof(extra) / sizeof(extra[0]); i++, offset += 4)
+            put32(bp(ENUM + 0x100000U + offset, 4), extra[i]);
+    }
     for (unsigned int i = 0; i < 3; i++) {
         uint32_t words[] = {(cores[i] << 8) | 1U, (12U << 24) | (1U << 14) | 1U, 3, bases[i] | 5U, wraps[i] | 0xc5U};
         for (unsigned int j = 0; j < 5; j++, offset += 4) put32(bp(ENUM + 0x100000U + offset, 4), words[j]);
     }
     put32(bp(ENUM + 0x100000U + offset, 4), 15);
+    radio.erom_end = ENUM + 0x100000U + offset + 4;
 }
 static int boot(void) {
     static const unsigned char firmware[1024] = {1, 2, 3, 4};
@@ -269,7 +292,20 @@ int main(void) {
     CHECK(boot() == HW_TIMEOUT && radio.uploads == 0);
     CHECK(!strcmp(wifi.boot_stage, "core enumeration") &&
           wifi.backplane_failure_address == ENUM + 0x100008U && wifi.backplane_failure == HW_TIMEOUT);
+    initialize(4);
+    CHECK(boot() == HW_OK && wifi.arm == ARM && wifi.arm_wrap == WRAP && radio.released == 1);
+    initialize(5);
+    CHECK(boot() == HW_TIMEOUT && !strcmp(wifi.boot_stage, "SDPCM ready mailbox"));
+    CHECK(wifi.boot_observed && !wifi.boot_interrupts && !wifi.boot_mailbox && wifi.boot_ram_tail_valid);
+    initialize(6);
+    CHECK(boot() == HW_IO && wifi.boot_mailbox == 0x40010U && !radio.commands);
+    initialize(7);
+    CHECK(boot() == HW_OK && radio.country && radio.commands);
+    initialize(8);
+    CHECK(boot() == HW_PROTOCOL && !strcmp(wifi.boot_stage, "SDPCM ready mailbox"));
+    CHECK(wifi.boot_frame_error && wifi.boot_frame_header[0] == 0xfff2000cU);
     initialize(0); CHECK(boot() == HW_OK && wifi.ram_bytes == 0x80000 && radio.released == 1 && radio.country);
+    CHECK(wifi.boot_mailbox == 0x40002U);
     CHECK(wifi_join(&wifi, (const unsigned char*)"test", 4, (const unsigned char*)"testpass", 8) == HW_OK);
     CHECK(wifi.link && wifi.keyed && radio.joins == 1);
     unsigned char frame[65]; memset(frame, 0xa5, sizeof(frame));

@@ -1,6 +1,7 @@
 """Exercise the linked Pi 4 Bluetooth startup using a PL011 and radio model.
 
 Usage: python tests/arm/bluetooth_boot.py enabled.elf disabled.elf -v
+Add --patchram-elf patched.elf to exercise the embedded HCD.
 Use V3D=0, ETHERNET=0, USB=0 and no Wi-Fi assets for both builds.
 """
 import struct
@@ -22,6 +23,9 @@ class Board(Machine):
         self.clock = self.token = 0
         self.gpio, self.uart, self.power, self.commands = {}, {}, [], []
         self.log, self.rx, self.tx = [], deque(), bytearray()
+        self.patch_records = bytearray()
+        self.tx_room = None
+        self.rom_subversion = 0x6119
         self.respond = True
         for base in (GPIO, PL011, TIMER, MAILBOX):
             self.uc.mem_map(base, 0x1000)
@@ -51,9 +55,7 @@ class Board(Machine):
         elif address == PL011:
             result = self.rx.popleft()
         elif address == PL011 + 0x18:
-            result = 0 if self.rx else 0x10
-        elif address in (PL011 + 0xfe0, PL011 + 0xfe4):
-            result = 0x11 if address & 4 == 0 else 0x10
+            result = (0 if self.rx else 0x10) | (0x20 if self.tx_room == 0 else 0)
         elif GPIO <= address < GPIO + 0x1000:
             result = self.gpio.get(address - GPIO, 0)
         else:
@@ -65,15 +67,22 @@ class Board(Machine):
         if GPIO <= address < GPIO + 0x1000:
             self.gpio[address - GPIO] = value
         elif address == PL011:
+            if self.tx_room is not None:
+                assert self.tx_room > 0
+                self.tx_room -= 1
             self.tx.append(value)
             if len(self.tx) >= 4 and len(self.tx) == 4 + self.tx[3]:
                 kind, opcode, _ = struct.unpack('<BHB', self.tx[:4])
                 assert kind == 1 and self.power[-1] == 1
                 self.commands.append(opcode)
+                if opcode in (0xfc4c, 0xfc4e):
+                    self.patch_records.extend(self.tx[1:])
                 self.tx.clear()
                 if self.respond:
-                    self.rx.extend(struct.pack('<BBBBHB', 4, 0x0e, 4, 1, opcode, 0))
-        elif PL011 < address < PL011 + 0x1000:
+                    version = struct.pack('<BHBHH', 9, 0, 9, 0x0f, self.rom_subversion)
+                    extra = version if opcode == 0x1001 else b''
+                    self.rx.extend(struct.pack('<BBBBHB', 4, 0x0e, 4 + len(extra), 1, opcode, 0) + extra)
+        elif PL011 < address < PL011 + 0x200:
             self.uart[address - PL011] = value
         elif address == MAILBOX + 0x8a0:
             self.tag(uc, value)
@@ -118,17 +127,25 @@ class BluetoothBootTests(unittest.TestCase):
     def test_start_uses_uart0_and_radio_enable(self):
         board = Board(self.enabled)
         self.assertIn('Bluetooth HCI initialization started', board.start())
+        board.clock += 2_000_000  # Boot self-tests delay the first driver poll.
         self.assertEqual(board.power, [0, 1])
         self.assertEqual(board.gpio[0x0c] & 0xfff, 0xfff)
         self.assertEqual((board.uart[0x24], board.uart[0x28], board.uart[0x30]), (26, 3, 0xc301))
-        board.poll(8)
+        board.poll(2)
+        self.assertEqual(board.commands, [0x0c03])
+        self.assertEqual(board.status(), (1, 0, 0, 0))
+        board.clock += 100_000
+        board.poll(6)
         self.assertEqual(board.commands, [0x0c03, 0x0c01, 0x2001])
         self.assertEqual(board.status(), (2, 0, 0, 0))
+        self.assertIn('[OK] Bluetooth HCI ready\n', board.log)
 
     def test_scan_reads_an_advertisement_over_uart(self):
         board = Board(self.enabled)
         board.start()
-        board.poll(8)
+        board.poll(2)
+        board.clock += 100_000
+        board.poll(6)
         self.assertEqual(board.call('pi4_bt_scan_start'), 1)
         board.poll(4)
         self.assertEqual(board.commands[-2:], [0x200b, 0x200c])
@@ -154,15 +171,62 @@ class BluetoothBootTests(unittest.TestCase):
         board = Board(self.enabled)
         board.respond = False
         board.start()
+        board.poll()  # Send Reset and start waiting for its response.
         board.clock += 5_000_000
         board.poll()
         self.assertEqual(board.status(), (4, 0, -4, 0))
+        self.assertIn(' queued in UART, flags: ', board.log)
+        board.poll()
+        self.assertEqual(''.join(board.log).count('Bluetooth HCI operation failed (-4)'), 1)
 
     def test_disabled_build_leaves_bluetooth_alone(self):
         board = Board(self.disabled)
         self.assertNotIn('Bluetooth', board.start())
         self.assertFalse(board.power or board.gpio or board.uart or board.commands)
 
+    def test_patchram_with_uart_backpressure(self):
+        if not self.patched:
+            self.skipTest('pass --patchram-elf to test an embedded HCD')
+        board = Board(self.patched)
+        self.assertIn('Bluetooth BCM4345C0 patch available', board.start())
+        address, size = struct.unpack('<QQ', board.uc.mem_read(self.patched.symbols['pi4_bt_patch'], 16))
+        expected_hcd = bytes(board.uc.mem_read(address, size))
+        # Simulate servicing a 16-byte TX FIFO once per frame.
+        for _ in range(5000):
+            board.tx_room = 16
+            board.clock += 16667
+            board.poll()
+            if 'Bluetooth HCI ready' in ''.join(board.log):
+                break
+        self.assertEqual(board.status(), (2, 0, 0, 0), ''.join(board.log))
+        self.assertEqual(board.commands[:3], [0x0c03, 0x1001, 0xfc2e])
+        self.assertEqual(board.commands[-4:], [0xfc4e, 0x0c03, 0x0c01, 0x2001])
+        self.assertEqual(board.patch_records, expected_hcd)
+        self.assertIn('[INFO] Bluetooth patch launch acknowledged\n', board.log)
+        self.assertEqual(board.call('pi4_bt_scan_start'), 1)
+        for _ in range(4):
+            board.tx_room = 16
+            board.poll()
+        self.assertEqual(board.commands[-2:], [0x200b, 0x200c])
+
+    def test_patchram_refuses_other_rom(self):
+        if not self.patched:
+            self.skipTest('pass --patchram-elf to test an embedded HCD')
+        board = Board(self.patched)
+        board.rom_subversion = 0x6606
+        board.start()
+        board.poll(2)
+        board.clock += 100000
+        board.poll(2)
+        self.assertEqual(board.commands, [0x0c03, 0x1001])
+        self.assertEqual(board.status(), (4, 0, -1, 0))
+
 
 if __name__ == '__main__':
-    unittest.main(argv=[sys.argv[0], *sys.argv[3:]])
+    test_args = sys.argv[3:]
+    BluetoothBootTests.patched = None
+    if '--patchram-elf' in test_args:
+        i = test_args.index('--patchram-elf')
+        BluetoothBootTests.patched = Image(test_args[i + 1])
+        del test_args[i:i + 2]
+    unittest.main(argv=[sys.argv[0], *test_args])

@@ -50,7 +50,7 @@ void net_fail(Terminal* t, int error) {
 }
 
 static void wifi_fail(Terminal* t, int error) {
-    if (error == NET_UNAVAILABLE) terminal_write(t, "Wi-Fi unavailable (no radio firmware).\n");
+    if (error == NET_UNAVAILABLE) terminal_write(t, "Wi-Fi unavailable. Check the boot log for details.\n");
     else net_fail(t, error);
 }
 
@@ -142,7 +142,7 @@ static void status(Terminal* t, const char* args) {
     } else terminal_write(t, "Not connected.\n");
     if (active != NET_INTERFACE_WIFI) {
         terminal_write(t, "Wi-Fi: ");
-        if (!s.available) terminal_write(t, s.error ? "stopped after a radio error\n" : "unavailable (no radio firmware)\n");
+        if (!s.available) terminal_write(t, s.error ? "stopped after a radio error\n" : "unavailable\n");
         else if (s.link == NET_LINK_UP) { terminal_write(t, "connected to "); wifi_details(t, &s); }
         else if (s.link == NET_LINK_JOINING) { terminal_write(t, "joining "); net_ssid(t, s.ssid, s.ssid_length); terminal_put(t, '\n'); }
         else if (s.link == NET_LINK_RETRYING) { terminal_write(t, "reconnecting to "); net_ssid(t, s.ssid, s.ssid_length); terminal_put(t, '\n'); }

@@ -37,6 +37,7 @@ def parser():
     p.add_argument('--storage', choices=('0', '1'))
     p.add_argument('--usb', choices=('0', '1'), help='enable the Pi 4 USB controller probe (default 0)')
     p.add_argument('--bluetooth', choices=('0', '1'), help='enable Pi 4 Bluetooth LE discovery (default 0)')
+    p.add_argument('--bluetooth-patchram', help='pinned Pi 4 BCM4345C0 HCD from tools/bluetooth_firmware.py')
     p.add_argument('--storage-validation', choices=('0', '1'))
     p.add_argument('--sd-base-clock-hz', type=int)
     p.add_argument('--storage-partition', type=int, choices=range(4))
@@ -110,7 +111,7 @@ def main(argv=None):
     if a.target != 'kernel':
         if any(getattr(a, key) is not None for key in
                ('v3d', 'wifi', 'ethernet', 'storage', 'usb', 'bluetooth', 'storage_validation', 'sd_base_clock_hz',
-                'storage_partition', 'wifi_firmware_c', 'tls_trust_c', 'prefix', 'make')):
+                'storage_partition', 'wifi_firmware_c', 'bluetooth_patchram', 'tls_trust_c', 'prefix', 'make')):
             p.error('kernel configuration options are only valid for kernel builds')
         build = a.build_dir or ('out/sim' if a.target == 'sim' else 'out/host')
         cmake = shutil.which('cmake')
@@ -137,6 +138,8 @@ def main(argv=None):
         return
     if a.sdl:
         p.error('--sdl is only valid for sim')
+    if (a.bluetooth_patchram or env.get('BT_PATCHRAM')) and (a.bluetooth or env.get('BLUETOOTH')) != '1':
+        p.error('--bluetooth-patchram requires --bluetooth 1')
     dirs = tool_dirs(a.toolchain_dir)
     dirs += tool_dirs(ROOT / '.tools')
     if os.name == 'nt' and env.get('LOCALAPPDATA'):
@@ -170,7 +173,7 @@ def main(argv=None):
             p.error('a POSIX sh is required by GNU make on Windows; set VANTAGE_TOOLCHAIN_DIR')
         cmd.append('SHELL=' + Path(shell).as_posix())
     for option, name in (('v3d', 'V3D'), ('wifi', 'WIFI'), ('ethernet', 'ETHERNET'), ('storage', 'STORAGE'),
-                         ('usb', 'USB'), ('bluetooth', 'BLUETOOTH'),
+                         ('usb', 'USB'), ('bluetooth', 'BLUETOOTH'), ('bluetooth_patchram', 'BT_PATCHRAM'),
                          ('storage_validation', 'STORAGE_VALIDATION'),
                          ('sd_base_clock_hz', 'SD_BASE_CLOCK_HZ'),
                          ('storage_partition', 'STORAGE_PARTITION'),

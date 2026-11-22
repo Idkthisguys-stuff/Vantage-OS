@@ -297,7 +297,7 @@ static void network_tests(void) {
     uint32_t i;
     reset(60, 50);
     since(); command("net");
-    CHECK(seen("Not connected.\nWi-Fi: unavailable (no radio firmware)\nTime: not synced\n> "));
+    CHECK(seen("Not connected.\nWi-Fi: unavailable\nTime: not synced\n> "));
     since(); command("help");
     CHECK(seen("net    Network and Wi-Fi ('net help')\n") && !seen("wifi") && !seen("http"));
     since(); command("net help");
@@ -466,7 +466,7 @@ static void network_tests(void) {
     join_result = NET_UNSUPPORTED;
     since(); command("net join --hidden --open Ghost"); CHECK(seen("Not supported.\n> ") && joined_flags == NET_JOIN_HIDDEN);
     join_result = NET_UNAVAILABLE;
-    since(); command("net join --open X"); CHECK(seen("Wi-Fi unavailable (no radio firmware).\n> "));
+    since(); command("net join --open X"); CHECK(seen("Wi-Fi unavailable. Check the boot log for details.\n> "));
     join_result = 0;
     net_state.link = NET_LINK_JOINING;
     since(); command("net join --open \"Cafe Wi-Fi\"");
@@ -505,7 +505,7 @@ static void network_tests(void) {
     since(); command("net scan"); clock_now += 21000000U; run(); CHECK(seen("Timed out.\n"));
     scan_pending = 0;
     net_state.available = 0;
-    since(); command("net scan"); CHECK(seen("Wi-Fi unavailable (no radio firmware).\n"));
+    since(); command("net scan"); CHECK(seen("Wi-Fi unavailable. Check the boot log for details.\n"));
     net_state.available = 1;
 
     /* Ping. */

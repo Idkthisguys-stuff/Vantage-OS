@@ -43,7 +43,7 @@ typedef struct {
     int state, busy, error, link, keyed, secure, join_error, associated, connected;
     uint32_t chip, revision, arm, arm_wrap, d11_wrap, sdregs, sd_revision, ram_bytes;
     uint32_t window, control_id, control_command, control_length, control_status;
-    uint8_t tx_sequence, rx_sequence, tx_window, flow_mask, mac[6];
+    uint8_t tx_sequence, rx_sequence, rx_synced, tx_window, flow_mask, mac[6];
     int control_ready, control_set, host_flow, protocol_ready;
     int joining, join_result, open, join_missing;
     uint32_t join_start, scan_start;
@@ -60,6 +60,11 @@ typedef struct {
     const char* boot_stage;
     uint32_t backplane_failure_address;
     int backplane_failure;
+    uint32_t erom_base;
+    unsigned int erom_offset;
+    uint32_t boot_observed, boot_interrupts, boot_mailbox, boot_ram_tail, boot_ram_tail_valid;
+    const char* boot_frame_error;
+    uint32_t boot_frame_header[3];
 } Wifi;
 
 WifiBus wifi_sdio_bus(Sdio* host);

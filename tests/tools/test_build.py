@@ -22,11 +22,25 @@ class BuildHelperTests(unittest.TestCase):
     def test_argument_validation(self):
         for args in (['--jobs', '0'], ['--storage-partition', '4'],
                      ['--sd-base-clock-hz', '1'], ['--v3d', 'yes'], ['--ethernet', '2'],
-                     ['test', '--ethernet', '0'], ['test', '--sdl', 'x']):
+                     ['test', '--ethernet', '0'], ['test', '--sdl', 'x'],
+                     ['test', '--bluetooth-patchram', 'patch.hcd'],
+                     ['--bluetooth', '0', '--bluetooth-patchram', 'patch.hcd']):
             result = subprocess.run([sys.executable, str(ROOT / 'tools/build.py'), *args],
                                     capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, args)
             self.assertIn('error:', result.stderr)
+
+    def test_bluetooth_embed_rejects_unpinned_firmware(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'BCM4345C0.hcd'
+            source.write_bytes(b'unverified firmware')
+            output = source.with_suffix('.c')
+            result = subprocess.run([sys.executable, '-B', str(ROOT / 'tools/bluetooth_firmware.py'),
+                                     'embed', '--input', str(source), '--output', str(output)],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('does not match Raspberry Pi firmware pin', result.stderr)
+            self.assertFalse(output.exists())
 
     def test_default_options(self):
         args = build.parser().parse_args([])

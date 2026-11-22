@@ -9,11 +9,25 @@ enum {
 };
 
 enum {
-    HCI_IDLE, HCI_RESET, HCI_EVENT_MASK, HCI_LE_EVENT_MASK,
+    HCI_IDLE, HCI_RESET, HCI_RESET_SETTLING,
+    HCI_READ_VERSION, HCI_DOWNLOAD_MINIDRIVER, HCI_MINIDRIVER_SETTLING,
+    HCI_PATCH_RECORD, HCI_PATCH_SETTLING, HCI_EVENT_MASK, HCI_LE_EVENT_MASK,
     HCI_SCAN_PARAMETERS, HCI_SCAN_ENABLE, HCI_SCAN_ACTIVE, HCI_SCAN_DISABLE
 };
 
+/* Infineon AIROC HCI UART Control Protocol, sections 3.3 and 3.4. */
+enum {
+    BCM_WRITE_RAM = 0xfc4c, BCM_LAUNCH_RAM = 0xfc4e,
+    BCM_COMPANY = 0x000f, BCM4345C0_SUBVERSION = 0x6119
+};
+
 #define COMMAND_US 1000000U
+#define MINIDRIVER_SETTLE_US 50000U
+#define PATCH_SETTLE_US 250000U
+/* FIFO servicing is paced by the platform poll, which can run once per frame. */
+#define PATCH_TIMEOUT_US 180000000U
+#define PATCH_MAX_BYTES (64U * 1024U)
+#define HCD_HEADER 3U
 #define FRAME_US 250000U
 #define SCAN_US 5000000U
 #define POLL_BYTES 256U
@@ -25,7 +39,9 @@ static const struct {
     uint8_t size, next;
     uint8_t data[8];
 } commands[] = {
-    [HCI_RESET] = {0x0c03, 0, HCI_EVENT_MASK, {0}},
+    [HCI_RESET] = {0x0c03, 0, HCI_RESET_SETTLING, {0}},
+    [HCI_READ_VERSION] = {0x1001, 0, HCI_DOWNLOAD_MINIDRIVER, {0}},
+    [HCI_DOWNLOAD_MINIDRIVER] = {0xfc2e, 0, HCI_MINIDRIVER_SETTLING, {0}},
     /* Event mask bits 15 (Hardware Error) and 61 (LE Meta Event). */
     [HCI_EVENT_MASK] = {0x0c01, 8, HCI_LE_EVENT_MASK, {0, 0x80, 0, 0, 0, 0, 0, 0x20}},
     [HCI_LE_EVENT_MASK] = {0x2001, 8, HCI_IDLE, {0x02}},
@@ -37,6 +53,23 @@ static const struct {
 
 static uint16_t read_le16(const uint8_t* data) {
     return (uint16_t)(data[0] | ((uint16_t)data[1] << 8));
+}
+
+static int patch_valid(const BtPatch* patch) {
+    if (!patch->data || patch->size > PATCH_MAX_BYTES) return 0;
+    size_t offset = 0;
+    while (patch->size - offset >= HCD_HEADER) {
+        const uint8_t* record = patch->data + offset;
+        uint16_t opcode = read_le16(record);
+        size_t size = record[2];
+        offset += HCD_HEADER;
+        if (size > patch->size - offset) return 0;
+        if (opcode == BCM_LAUNCH_RAM)
+            return offset > HCD_HEADER && size == 4 && size == patch->size - offset;
+        if (opcode != BCM_WRITE_RAM || size <= 4) return 0;
+        offset += size;
+    }
+    return 0;
 }
 
 static void set_step(BtHci* hci, uint8_t step, uint32_t now) {
@@ -132,17 +165,30 @@ static void command_event(BtHci* hci, uint8_t event, const uint8_t* data,
     }
     hci->command_credits = data[complete ? 0 : 1];
     uint16_t opcode = read_le16(data + (complete ? 1 : 2));
-    if (!hci->command_sent || opcode != commands[hci->step].opcode) return;
+    if (!hci->command_sent || opcode != bt_hci_pending_opcode(hci)) return;
     if (!complete) {
         if (data[0]) fail(hci, BT_PROTOCOL);
         return;
     }
-    if (size != 4 || data[3]) {
+    size_t expected = hci->step == HCI_READ_VERSION ? 12U : 4U;
+    if (size != expected || data[3]) {
         fail(hci, BT_PROTOCOL);
         return;
     }
 
     uint8_t next = commands[hci->step].next;
+    if (hci->step == HCI_READ_VERSION) {
+        /* Read Local Version Information, Bluetooth Core Vol. 2, Part E. */
+        hci->manufacturer = read_le16(data + 8);
+        hci->rom_subversion = read_le16(data + 10);
+        if (hci->manufacturer != BCM_COMPANY || hci->rom_subversion != BCM4345C0_SUBVERSION) {
+            fail(hci, BT_UNAVAILABLE);
+            return;
+        }
+    } else if (hci->step == HCI_PATCH_RECORD) {
+        hci->patch_offset += HCD_HEADER + hci->patch.data[hci->patch_offset + 2];
+        next = opcode == BCM_LAUNCH_RAM ? HCI_PATCH_SETTLING : HCI_PATCH_RECORD;
+    }
     if (next == HCI_IDLE) hci->status.state = BT_READY;
     set_step(hci, next, now);
 }
@@ -205,6 +251,21 @@ static void check_deadlines(BtHci* hci, uint32_t now) {
     uint32_t elapsed = now - hci->step_started;
     if (hci->rx_type && now - hci->frame_started >= FRAME_US) {
         fail(hci, BT_TIMEOUT);
+    } else if (hci->step >= HCI_READ_VERSION && hci->step <= HCI_PATCH_SETTLING &&
+               now - hci->patch_started >= PATCH_TIMEOUT_US) {
+        fail(hci, BT_TIMEOUT);
+    } else if (hci->step == HCI_RESET_SETTLING) {
+        if (elapsed < hci->io.reset_settle_us) return;
+        if (hci->patch_offset < hci->patch.size) {
+            hci->patch_started = now;
+            set_step(hci, HCI_READ_VERSION, now);
+        } else {
+            set_step(hci, HCI_EVENT_MASK, now);
+        }
+    } else if (hci->step == HCI_MINIDRIVER_SETTLING) {
+        if (elapsed >= MINIDRIVER_SETTLE_US) set_step(hci, HCI_PATCH_RECORD, now);
+    } else if (hci->step == HCI_PATCH_SETTLING) {
+        if (elapsed >= PATCH_SETTLE_US) set_step(hci, HCI_RESET, now);
     } else if (hci->step == HCI_SCAN_ACTIVE) {
         if (elapsed >= SCAN_US) set_step(hci, HCI_SCAN_DISABLE, now);
     } else if (hci->step != HCI_IDLE && elapsed >= COMMAND_US) {
@@ -218,10 +279,20 @@ static int transport_error(int result) {
 }
 
 static void send_command(BtHci* hci) {
-    uint16_t opcode = commands[hci->step].opcode;
+    uint16_t opcode = bt_hci_pending_opcode(hci);
     uint8_t size = commands[hci->step].size;
-    uint8_t packet[12] = {H4_COMMAND, (uint8_t)opcode, (uint8_t)(opcode >> 8), size};
-    memcpy(packet + 4, commands[hci->step].data, size);
+    const uint8_t* data = commands[hci->step].data;
+    if (hci->step == HCI_PATCH_RECORD) {
+        const uint8_t* record = hci->patch.data + hci->patch_offset;
+        size = record[2];
+        data = record + HCD_HEADER;
+    }
+    uint8_t packet[4 + 255];
+    packet[0] = H4_COMMAND;
+    packet[1] = (uint8_t)opcode;
+    packet[2] = (uint8_t)(opcode >> 8);
+    packet[3] = size;
+    memcpy(packet + 4, data, size);
     int result = hci->io.send(hci->io.context, packet, 4U + size);
     if (result == BT_OK) {
         hci->command_credits--;
@@ -231,16 +302,23 @@ static void send_command(BtHci* hci) {
     }
 }
 
-int bt_hci_init(BtHci* hci, const BtH4Io* io) {
+int bt_hci_init(BtHci* hci, const BtH4Io* io, const BtPatch* patch) {
     if (!hci) return BT_UNAVAILABLE;
     BtH4Io transport = {0};
+    BtPatch firmware = {0};
     if (io) transport = *io;
+    if (patch) firmware = *patch;
     memset(hci, 0, sizeof(*hci));
     if (!transport.send || !transport.receive || !transport.time_us) {
         hci->status.error = BT_UNAVAILABLE;
         return BT_UNAVAILABLE;
     }
+    if (patch && !patch_valid(&firmware)) {
+        fail(hci, BT_PROTOCOL);
+        return BT_PROTOCOL;
+    }
     hci->io = transport;
+    hci->patch = firmware;
     hci->status.state = BT_BOOTING;
     hci->command_credits = 1;
     set_step(hci, HCI_RESET, hci->io.time_us(hci->io.context));
@@ -251,6 +329,11 @@ void bt_hci_poll(BtHci* hci) {
     if (!hci || hci->status.state == BT_DISABLED || hci->status.state == BT_FAILED) return;
 
     uint32_t now = hci->io.time_us(hci->io.context);
+    /* Boot self-tests can delay servicing Reset after it was queued. */
+    if (!hci->polled) {
+        hci->step_started = now;
+        hci->polled = 1;
+    }
     check_deadlines(hci, now);
     for (unsigned int i = 0; i < POLL_BYTES && hci->status.state != BT_FAILED; i++) {
         uint8_t byte;
@@ -266,9 +349,15 @@ void bt_hci_poll(BtHci* hci) {
 
     now = hci->io.time_us(hci->io.context);
     check_deadlines(hci, now);
-    if (hci->status.state != BT_FAILED && hci->step != HCI_IDLE &&
-        hci->step != HCI_SCAN_ACTIVE && !hci->command_sent && hci->command_credits)
+    if (hci->status.state != BT_FAILED && bt_hci_pending_opcode(hci) &&
+        !hci->command_sent && hci->command_credits)
         send_command(hci);
+}
+
+uint16_t bt_hci_pending_opcode(const BtHci* hci) {
+    if (hci->step == HCI_PATCH_RECORD)
+        return read_le16(hci->patch.data + hci->patch_offset);
+    return commands[hci->step].opcode;
 }
 
 int bt_hci_scan_start(BtHci* hci) {

@@ -171,6 +171,29 @@ void pi4_drivers_start(void) {
                 uart_writeText(wifi.boot_stage);
                 uart_writeText("\n");
             }
+            if (wifi.erom_base) {
+                uart_writeText("[INFO] WLAN EROM base/bytes read: ");
+                uart_writeHex(wifi.erom_base); uart_writeText(" ");
+                uart_writeHex(wifi.erom_offset); uart_writeText("\n");
+            }
+            if (wifi.boot_observed) {
+                uart_writeText("[INFO] WLAN startup interrupts/mailbox: ");
+                uart_writeHex(wifi.boot_interrupts); uart_writeText(" ");
+                uart_writeHex(wifi.boot_mailbox); uart_writeText("\n");
+            }
+            if (wifi.boot_frame_error) {
+                uart_writeText("[INFO] WLAN SDPCM frame rejected: ");
+                uart_writeText(wifi.boot_frame_error);
+                uart_writeText("\n[INFO] WLAN SDPCM header: ");
+                for (unsigned int i = 0; i < 3; i++) {
+                    uart_writeHex(wifi.boot_frame_header[i]);
+                    uart_writeText(i == 2 ? "\n" : " ");
+                }
+            }
+            if (wifi.boot_ram_tail_valid) {
+                uart_writeText("[INFO] WLAN last RAM word: ");
+                uart_writeHex(wifi.boot_ram_tail); uart_writeText("\n");
+            }
             if (wifi.backplane_failure) {
                 uart_writeText("[INFO] WLAN backplane address: ");
                 uart_writeHex(wifi.backplane_failure_address);
@@ -202,16 +225,24 @@ void pi4_drivers_start(void) {
     usb_start();
 #endif
 #if VANTAGE_BLUETOOTH
-    int bt_result = pi4_bt_start(pi4_hardware_ops());
+    const char* bt_stage;
+    int bt_result = pi4_bt_start(pi4_hardware_ops(), &bt_stage);
     if (bt_result == BT_OK) uart_writeText("[INFO] Bluetooth HCI initialization started\n");
-    else report("[WARN] Bluetooth initialization failed (", bt_result);
+    else {
+        report("[WARN] Bluetooth initialization failed (", bt_result);
+        uart_writeText("[INFO] Bluetooth stage: ");
+        uart_writeText(bt_stage);
+        uart_writeText("\n");
+    }
 #endif
 }
 
 void pi4_drivers_poll(void) {
     net_poll();
 #if VANTAGE_BLUETOOTH
-    pi4_bt_poll();
+    int bt_result = pi4_bt_poll();
+    if (bt_result == BT_OK) uart_writeText("[OK] Bluetooth HCI ready\n");
+    else if (bt_result < 0) report("[WARN] Bluetooth HCI operation failed (", bt_result);
 #endif
 }
 

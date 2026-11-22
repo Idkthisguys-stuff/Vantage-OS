@@ -14,7 +14,7 @@ typedef struct {
     int send_result, receive_error;
     unsigned int sends, attempts;
     size_t tx_size, rx_used, rx_size;
-    uint8_t tx[32], rx[1024];
+    uint8_t tx[259], rx[1024];
 } MockH4;
 
 typedef struct {
@@ -78,12 +78,16 @@ static void expect_command(const Fixture* f, unsigned int sends, const uint8_t* 
     CHECK(memcmp(f->mock.tx, data, size) == 0);
 }
 
-static void init(Fixture* f, uint32_t now) {
+static int init_with_patch(Fixture* f, uint32_t now, const BtPatch* patch) {
     memset(f, 0, sizeof(*f));
     f->mock.now = now;
     f->mock.send_result = BT_OK;
-    BtH4Io io = {&f->mock, mock_send, mock_receive, mock_time};
-    CHECK(bt_hci_init(&f->hci, &io) == BT_OK);
+    BtH4Io io = {&f->mock, mock_send, mock_receive, mock_time, 0};
+    return bt_hci_init(&f->hci, &io, patch);
+}
+
+static void init(Fixture* f, uint32_t now) {
+    CHECK(init_with_patch(f, now, NULL) == BT_OK);
     expect_state(f, BT_BOOTING, 0, 0);
     CHECK(f->mock.attempts == 0);
 }
@@ -321,7 +325,7 @@ static void test_errors(void) {
     CHECK(bt_hci_scan_start(&f.hci) == BT_UNAVAILABLE);
     CHECK(bt_hci_device(&f.hci, 0, &device) == BT_UNAVAILABLE);
     CHECK(bt_hci_device(&f.hci, 0, NULL) == BT_PROTOCOL);
-    CHECK(bt_hci_init(&f.hci, NULL) == BT_UNAVAILABLE);
+    CHECK(bt_hci_init(&f.hci, NULL, NULL) == BT_UNAVAILABLE);
     expect_state(&f, BT_DISABLED, 0, BT_UNAVAILABLE);
 
     init(&f, 0);
@@ -357,6 +361,100 @@ static void test_errors(void) {
     expect_state(&f, BT_FAILED, 0, BT_IO);
 }
 
+static const uint8_t test_hcd[] = {
+    0x4c, 0xfc, 5, 0x00, 0x9c, 0x21, 0, 0x55,
+    0x4e, 0xfc, 4, 0xff, 0xff, 0xff, 0xff
+};
+static const BtPatch test_patch = {test_hcd, sizeof(test_hcd)};
+
+static void start_patch(Fixture* f) {
+    CHECK(init_with_patch(f, 0xffff0000U, &test_patch) == BT_OK);
+    bt_hci_poll(&f->hci);
+    expect_command(f, 1, reset, sizeof(reset));
+    complete(f, 0x0c03, 1, 0);
+    const uint8_t read_version[] = {1, 0x01, 0x10, 0};
+    expect_command(f, 2, read_version, sizeof(read_version));
+}
+
+static void version(Fixture* f, uint8_t subversion_low, uint8_t company) {
+    const uint8_t event[] = {4, 0x0e, 12, 1, 0x01, 0x10, 0, 9, 0, 0, 9,
+                             company, 0, subversion_low, 0x61};
+    queue(f, event, sizeof(event));
+    bt_hci_poll(&f->hci);
+}
+
+static void test_patch_upload(void) {
+    Fixture f;
+    start_patch(&f);
+    version(&f, 0x19, 0x0f);
+    const uint8_t minidriver[] = {1, 0x2e, 0xfc, 0};
+    expect_command(&f, 3, minidriver, sizeof(minidriver));
+    complete(&f, 0xfc2e, 1, 0);
+    f.mock.now += 49999;
+    bt_hci_poll(&f.hci);
+    CHECK(f.mock.sends == 3);
+    f.mock.now++;
+    f.mock.send_result = BT_BUSY;
+    bt_hci_poll(&f.hci);
+    CHECK(f.mock.attempts == 4 && f.hci.patch_offset == 0);
+    f.mock.send_result = BT_OK;
+    bt_hci_poll(&f.hci);
+    const uint8_t write_ram[] = {1, 0x4c, 0xfc, 5, 0, 0x9c, 0x21, 0, 0x55};
+    expect_command(&f, 4, write_ram, sizeof(write_ram));
+    complete(&f, 0xfc4e, 1, 0); /* Ignore completions for any other opcode. */
+    CHECK(f.hci.patch_offset == 0);
+    complete(&f, 0xfc4c, 1, 0);
+    const uint8_t launch_ram[] = {1, 0x4e, 0xfc, 4, 0xff, 0xff, 0xff, 0xff};
+    expect_command(&f, 5, launch_ram, sizeof(launch_ram));
+    complete(&f, 0xfc4e, 1, 0);
+    f.mock.now += 249999;
+    bt_hci_poll(&f.hci);
+    CHECK(f.mock.sends == 5);
+    f.mock.now++;
+    bt_hci_poll(&f.hci);
+    expect_command(&f, 6, reset, sizeof(reset));
+    complete(&f, 0x0c03, 1, 0);
+    expect_command(&f, 7, event_mask, sizeof(event_mask));
+    complete(&f, 0x0c01, 1, 0);
+    complete(&f, 0x2001, 1, 0);
+    expect_state(&f, BT_READY, 0, 0);
+    CHECK(bt_hci_scan_start(&f.hci) == BT_OK);
+}
+
+static void test_patch_failures(void) {
+    Fixture f;
+    uint8_t bad_hcd[sizeof(test_hcd) + 1] = {0};
+    memcpy(bad_hcd, test_hcd, sizeof(test_hcd));
+    BtPatch malformed = {bad_hcd, sizeof(bad_hcd)};
+    CHECK(init_with_patch(&f, 0, &malformed) == BT_PROTOCOL); /* Trailing byte. */
+    malformed.size = sizeof(test_hcd) - 1;
+    CHECK(init_with_patch(&f, 0, &malformed) == BT_PROTOCOL);
+    malformed.size = sizeof(test_hcd);
+    bad_hcd[0] = 0x18; /* UART rate changes are outside this format. */
+    CHECK(init_with_patch(&f, 0, &malformed) == BT_PROTOCOL);
+    CHECK(f.mock.attempts == 0);
+
+    start_patch(&f);
+    version(&f, 0x06, 0x0f);
+    expect_state(&f, BT_FAILED, 0, BT_UNAVAILABLE);
+    CHECK(f.mock.sends == 2);
+
+    start_patch(&f);
+    f.mock.now += 1000000;
+    bt_hci_poll(&f.hci);
+    expect_state(&f, BT_FAILED, 0, BT_TIMEOUT);
+    CHECK(f.mock.sends == 2);
+
+    start_patch(&f);
+    version(&f, 0x19, 0x0f);
+    complete(&f, 0xfc2e, 1, 0);
+    f.mock.now += 50000;
+    bt_hci_poll(&f.hci);
+    complete(&f, 0xfc4c, 1, 0x0c);
+    expect_state(&f, BT_FAILED, 0, BT_PROTOCOL);
+    CHECK(f.mock.sends == 4 && f.hci.patch_offset == 0);
+}
+
 int main(void) {
     test_scan();
     test_result_limit();
@@ -364,5 +462,7 @@ int main(void) {
     test_receive_budget();
     test_timeouts();
     test_errors();
+    test_patch_upload();
+    test_patch_failures();
     return 0;
 }
