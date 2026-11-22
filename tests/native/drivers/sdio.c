@@ -2,7 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "line %d: %s\n", __LINE__, #c); exit(1); } } while (0)
-typedef struct { uint32_t regs[64], gpio[64], clock, argument, bytes, index; unsigned char data[512], fn0[768]; int owner, mode, writes; } Model;
+typedef struct {
+    uint32_t regs[64], gpio[64], clock, bytes, index, block_size, buffer_base, ready;
+    unsigned char data[512], fn0[768];
+    int owner, mode, writes;
+} Model;
+static void advance_transfer(Model* m) {
+    CHECK(!(m->regs[0x30 / 4] & m->ready));
+    if (m->index == m->bytes) m->regs[0x30 / 4] |= 2;
+    else if (m->index % m->block_size == 0) m->regs[0x30 / 4] |= m->ready;
+}
 static uint32_t rd(void* context, uintptr_t address) {
     Model* m = context;
     if (address >= 0xfe200000ULL && address < 0xfe200100ULL) return m->gpio[(address - 0xfe200000ULL) / 4];
@@ -11,8 +20,9 @@ static uint32_t rd(void* context, uintptr_t address) {
     if (offset == 0xfc) return 2U << 16;
     if (offset == 0x20) {
         uint32_t value = 0;
-        for (unsigned int i = 0; i < 4 && m->index < m->bytes; i++) value |= (uint32_t)m->data[m->index++] << (i * 8);
-        if (m->index == m->bytes) m->regs[0x30 / 4] |= 2;
+        for (unsigned int i = 0; i < 4 && m->index < m->bytes; i++)
+            value |= (uint32_t)m->data[m->buffer_base + m->index++] << (i * 8);
+        advance_transfer(m);
         return value;
     }
     return m->regs[offset / 4];
@@ -28,8 +38,9 @@ static void wr(void* context, uintptr_t address, uint32_t value) {
     if (offset == 0x30) { m->regs[offset / 4] &= ~value; return; }
     if (offset == 0x2c) { m->regs[offset / 4] = (value & ~(7U << 24)) | ((value & 1) ? 2U : 0U); return; }
     if (offset == 0x20) {
-        for (unsigned int i = 0; i < 4 && m->index < m->bytes; i++) m->data[m->index++] = (unsigned char)(value >> (i * 8));
-        if (m->index == m->bytes) m->regs[0x30 / 4] |= 2;
+        for (unsigned int i = 0; i < 4 && m->index < m->bytes; i++)
+            m->data[m->buffer_base + m->index++] = (unsigned char)(value >> (i * 8));
+        advance_transfer(m);
         return;
     }
     m->regs[offset / 4] = value;
@@ -49,11 +60,21 @@ static void wr(void* context, uintptr_t address, uint32_t value) {
         if (m->mode == 2) response |= 1U << 11;
     }
     if (command == 53) {
-        m->bytes = argument & 511U; if (!m->bytes) m->bytes = 512;
-        CHECK(m->regs[4 / 4] == ((1U << 16) | m->bytes));
-        CHECK(!(argument & (1U << 27)) && !(value & 1U)); /* PIO byte mode, no DMA. */
+        unsigned int function = (argument >> 28) & 7U, count = argument & 511U;
+        unsigned int blocks = argument & (1U << 27) ? count : 1;
+        CHECK(function == 1 || function == 2);
+        unsigned int fbr = function * 256U + 0x10U;
+        unsigned int maximum = m->fn0[fbr] | ((unsigned int)m->fn0[fbr + 1] << 8);
+        m->block_size = argument & (1U << 27) ? maximum : count ? count : 512;
+        if (!(argument & (1U << 27)) && m->block_size > maximum) response = 0x1100;
+        CHECK(blocks && m->regs[4 / 4] == ((blocks << 16) | m->block_size));
+        CHECK((value & 0x23U) == (blocks > 1 ? 0x22U : 0U));
+        m->bytes = blocks * m->block_size;
+        m->buffer_base = function == 1 ? (argument >> 9) & 511U : 0;
+        CHECK(m->bytes + m->buffer_base <= sizeof(m->data));
         m->index = 0;
-        m->regs[0x30 / 4] |= argument & 0x80000000U ? 16U : 32U;
+        m->ready = argument & 0x80000000U ? 16U : 32U;
+        m->regs[0x30 / 4] |= m->ready;
     }
     m->regs[0x10 / 4] = response; m->regs[0x30 / 4] |= 1;
 }
@@ -78,6 +99,11 @@ int main(void) {
     for (unsigned int pin = 34; pin <= 39; pin++) CHECK(((selects >> ((pin % 10) * 3)) & 7U) == 7);
     unsigned char input[512], output[512];
     for (unsigned int i = 0; i < sizeof(input); i++) input[i] = (unsigned char)i;
+    CHECK(sdio_transfer(&host, 1, 0x8000, 1, 1, input, 512) == HW_OK);
+    CHECK(m.regs[8 / 4] == 0x9d000008U && !memcmp(input, m.data, sizeof(input)));
+    memset(output, 0, sizeof(output));
+    CHECK(sdio_transfer(&host, 1, 0x8000, 1, 0, output, 67) == HW_OK);
+    CHECK(m.regs[8 / 4] == 0x15008003U && !memcmp(input, output, 67) && output[67] == 0);
     CHECK(sdio_transfer(&host, 2, 0, 0, 1, input, 512) == HW_OK);
     CHECK(!memcmp(input, m.data, sizeof(input)));
     CHECK(sdio_transfer(&host, 2, 0, 0, 0, output, 511) == HW_OK);

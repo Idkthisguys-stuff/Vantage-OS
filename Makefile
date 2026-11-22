@@ -52,7 +52,7 @@ all: $(BUILD_DIR)/prod/kernel8.img
 FORCE:
 
 $(BUILD_DIR)/build-config: FORCE tools/build_config.py
-	@"$(PYTHON)" tools/build_config.py --output "$@" --cc="$(CC)" --ld="$(LD)" --objcopy="$(OBJCOPY)" --cflags="$(BUILD_CONFIG_FLAGS)" --firmware="$(WIFI_FIRMWARE_C)" --trust="$(TLS_TRUST_C)"
+	@"$(PYTHON)" tools/build_config.py --output "$@" --cc="$(CC)" --ld="$(LD)" --objcopy="$(OBJCOPY)" --cflags="$(BUILD_CONFIG_FLAGS)" --firmware="$(WIFI_FIRMWARE_C)" --trust="$(TLS_TRUST_C)" --bt-patchram="$(BT_PATCHRAM)"
 
 ifeq ($(WIFI),1)
 ifneq ($(strip $(WIFI_FIRMWARE_C)),)
@@ -61,6 +61,14 @@ $(BUILD_DIR)/drivers/wifi/assets.o: $(WIFI_FIRMWARE_C)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 endif
+endif
+
+ifneq ($(strip $(BT_PATCHRAM)),)
+OBJECTS += $(BUILD_DIR)/drivers/bluetooth/patchram.o
+$(BUILD_DIR)/drivers/bluetooth/patchram.c: $(subst $(space),\ ,$(BT_PATCHRAM)) tools/bluetooth_firmware.py $(BUILD_DIR)/build-config
+	@"$(PYTHON)" tools/bluetooth_firmware.py embed --input "$(BT_PATCHRAM)" --output "$@"
+$(BUILD_DIR)/drivers/bluetooth/patchram.o: $(BUILD_DIR)/drivers/bluetooth/patchram.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 endif
 
 $(OBJECTS) $(USER_OBJECTS): $(BUILD_DIR)/build-config Makefile mk/config.mk mk/sources.mk

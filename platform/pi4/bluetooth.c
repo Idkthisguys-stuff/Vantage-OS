@@ -15,8 +15,6 @@
 #define UART_IRQ_MASK 0x38U
 #define UART_IRQ_CLEAR 0x44U
 #define UART_DMA 0x48U
-#define UART_ID0 0xfe0U
-#define UART_ID1 0xfe4U
 #define UART_BUSY (1U << 3)
 #define UART_RX_EMPTY (1U << 4)
 #define UART_TX_FULL (1U << 5)
@@ -30,6 +28,11 @@
 
 static BtHci controller;
 static int32_t startup_error;
+static size_t uart_tx_used;
+
+#if VANTAGE_BT_PATCHRAM
+extern const BtPatch pi4_bt_patch;
+#endif
 
 static void uart_write(const HwOps* io, unsigned int reg, uint32_t value) {
     io->write(io->context, UART0 + reg, value);
@@ -41,14 +44,12 @@ static uint32_t uart_read(const HwOps* io, unsigned int reg) {
 
 static int send_packet(void* context, const uint8_t* data, size_t length) {
     const HwOps* io = context;
-    uint32_t start = io->time_us(io->context);
-    for (size_t i = 0; i < length; i++) {
-        uint32_t elapsed = io->time_us(io->context) - start;
-        if (elapsed >= 20000U ||
-            hw_wait(io, UART0 + UART_FLAGS, UART_TX_FULL, 0, 20000U - elapsed) != HW_OK)
-            return BT_TIMEOUT;
-        uart_write(io, UART_DATA, data[i]);
+    /* Resume at the first unwritten byte on the next poll if the FIFO fills. */
+    while (uart_tx_used < length) {
+        if (uart_read(io, UART_FLAGS) & UART_TX_FULL) return BT_BUSY;
+        uart_write(io, UART_DATA, data[uart_tx_used++]);
     }
+    uart_tx_used = 0;
     return BT_OK;
 }
 
@@ -77,12 +78,14 @@ static int set_radio_power(const HwOps* io, uint32_t enabled) {
     return BT_OK;
 }
 
-static int radio_start(const HwOps* io) {
+static int radio_start(const HwOps* io, const char** stage) {
+    *stage = "hardware ownership";
     if (!hw_ops_valid(io) || !io->property || !io->owned(io->context))
         return BT_UNAVAILABLE;
-    if ((uart_read(io, UART_ID0) & 0xffU) != 0x11U ||
-        (uart_read(io, UART_ID1) & 0xffU) != 0x10U) return BT_UNAVAILABLE;
 
+    /* BCM2711 UART0 has a short register window without the generic
+     * PrimeCell ID offsets at the end of a 4 KiB slot. */
+    *stage = "UART0 clock";
     uint32_t rate[2] = { UART_CLOCK_ID, 0 };
     int result = io->property(io->context, TAG_CLOCK_RATE, rate, 2);
     if (result == HW_TIMEOUT) return BT_TIMEOUT;
@@ -90,10 +93,12 @@ static int radio_start(const HwOps* io) {
     uint64_t divisor = ((uint64_t)rate[1] * 4 + UART_BAUD / 2) / UART_BAUD;
     if (divisor < 64 || divisor > 0x3fffffU) return BT_PROTOCOL;
 
+    *stage = "controller power-off";
     result = set_radio_power(io, 0);
     if (result != BT_OK) return result;
     if (hw_delay(io, 5000U) != HW_OK) return BT_TIMEOUT;
     /* Disable transmission before draining an old boot UART configuration. */
+    *stage = "UART0 setup";
     uart_write(io, UART_CONTROL, 0);
     if (hw_wait(io, UART0 + UART_FLAGS, UART_BUSY, 0, 20000U) != HW_OK) return BT_TIMEOUT;
     uart_write(io, UART_IRQ_MASK, 0);
@@ -108,6 +113,7 @@ static int radio_start(const HwOps* io) {
         gpio_function(pin, 7);  /* ALT3, UART0 CTS/RTS/TX/RX. */
     }
     uart_write(io, UART_CONTROL, UART_H4_CONTROL);
+    *stage = "controller power-on";
     result = set_radio_power(io, 1);
     if (result != BT_OK) return result;
     if (hw_delay(io, 120000U) != HW_OK) return BT_TIMEOUT;
@@ -116,18 +122,52 @@ static int radio_start(const HwOps* io) {
     for (unsigned int i = 0; i < 64 && !(uart_read(io, UART_FLAGS) & UART_RX_EMPTY); i++)
         (void)uart_read(io, UART_DATA);
     uart_write(io, UART_ERRORS, 0xff);
-    BtH4Io transport = { (void*)io, send_packet, receive_byte, time_us_cb };
-    return bt_hci_init(&controller, &transport);
+    *stage = "HCI transport";
+    BtH4Io transport = { (void*)io, send_packet, receive_byte, time_us_cb, 100000U };
+    uart_tx_used = 0;
+#if VANTAGE_BT_PATCHRAM
+    *stage = "BCM4345C0 patch validation";
+    int result_init = bt_hci_init(&controller, &transport, &pi4_bt_patch);
+    if (result_init == BT_OK) uart_writeText("[INFO] Bluetooth BCM4345C0 patch available\n");
+    return result_init;
+#else
+    return bt_hci_init(&controller, &transport, NULL);
+#endif
 }
 
-int pi4_bt_start(const HwOps* io) {
-    int result = radio_start(io);
+int pi4_bt_start(const HwOps* io, const char** stage) {
+    int result = radio_start(io, stage);
     startup_error = result == BT_OK ? 0 : result;
     return result;
 }
 
-void pi4_bt_poll(void) {
-    if (!startup_error) bt_hci_poll(&controller);
+int pi4_bt_poll(void) {
+    if (startup_error) return 0;
+    unsigned int previous = controller.status.state;
+    size_t patch_offset = controller.patch_offset;
+    bt_hci_poll(&controller);
+    if (patch_offset != controller.patch_offset && controller.patch_offset == controller.patch.size)
+        uart_writeText("[INFO] Bluetooth patch launch acknowledged\n");
+    if (previous == controller.status.state) return 0;
+    if (controller.status.state == BT_FAILED) {
+        uart_writeText("[INFO] Bluetooth HCI opcode: ");
+        uart_writeHex(bt_hci_pending_opcode(&controller));
+        uart_writeText(controller.command_sent ? " queued in UART, flags: " :
+                       uart_tx_used ? " partially queued in UART, flags: " : " not sent, UART flags: ");
+        uart_writeHex(uart_read(controller.io.context, UART_FLAGS));
+        uart_writeText("\n");
+        if (controller.patch.size) {
+            uart_writeText("[INFO] Bluetooth ROM manufacturer/subversion, HCD bytes acknowledged: ");
+            uart_writeHex(controller.manufacturer);
+            uart_writeText(" ");
+            uart_writeHex(controller.rom_subversion);
+            uart_writeText(" ");
+            uart_writeHex((uint32_t)controller.patch_offset);
+            uart_writeText("\n");
+        }
+        return controller.status.error;
+    }
+    return previous == BT_BOOTING && controller.status.state == BT_READY ? BT_OK : 0;
 }
 
 void pi4_bt_status(BtStatus* status) {

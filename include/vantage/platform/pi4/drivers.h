@@ -19,8 +19,9 @@ int pi4_ethernet_start(const HwOps* io, const NetLink** link);
 int pi4_rng_start(const HwOps* io);
 
 /* Core 0 owns UART0 and the Bluetooth HCI state. */
-int pi4_bt_start(const HwOps* io);
-void pi4_bt_poll(void);
+int pi4_bt_start(const HwOps* io, const char** stage);
+/* Reports transitions to HCI-ready (BT_OK) or failed (negative). */
+int pi4_bt_poll(void);
 void pi4_bt_status(BtStatus* status);
 int pi4_bt_scan_start(void);
 int pi4_bt_device(uint32_t index, BtDevice* device);

@@ -5,6 +5,7 @@
 #define BASE 0xfe300000ULL
 #define GPIO 0xfe200000ULL
 #define ERROR_MASK 0xffff8000U
+static const uint16_t function_block_size[8] = {0, 64, 512};
 
 static uint32_t rd(Sdio* h, unsigned int offset) { return h->io->read(h->io->context, BASE + offset); }
 static void wr(Sdio* h, unsigned int offset, uint32_t value) { h->io->write(h->io->context, BASE + offset, value); }
@@ -122,7 +123,7 @@ int sdio_init(Sdio* h, const HwOps* io) {
     if (direct(h, 0, 7, 1, &value) != HW_OK) return h->error;
     wr(h, 0x28, rd(h, 0x28) | 2U);
     for (unsigned int function = 1; function <= 2; function++) {
-        unsigned int bytes = function == 1 ? 64U : 512U;
+        unsigned int bytes = function_block_size[function];
         value = (uint8_t)bytes;
         if (direct(h, 0, function * 256 + 0x10, 1, &value) != HW_OK) return h->error;
         value = (uint8_t)(bytes >> 8);
@@ -153,6 +154,32 @@ int sdio_direct(Sdio* h, unsigned int function, uint32_t address, int write, uin
     return result;
 }
 
+static int transfer_data(Sdio* h, unsigned int function, uint32_t address, int increment,
+                         int write, unsigned char* buffer, unsigned int size, unsigned int blocks) {
+    unsigned int count = blocks ? blocks : 1;
+    wr(h, 0x04, (count << 16) | size);
+    uint32_t argument = (write ? 1U << 31 : 0) | (function << 28) |
+                        (blocks ? 1U << 27 : 0) | (increment ? 1U << 26 : 0) |
+                        (address << 9) | ((blocks ? blocks : size) & 511U);
+    uint32_t flags = (2U << 16) | (3U << 19) | (1U << 21) | (write ? 0U : 16U);
+    if (blocks > 1) flags |= (1U << 5) | (1U << 1); /* Multiple blocks, counted, no auto-stop. */
+    int result = command(h, 53, argument, flags, NULL);
+    for (unsigned int block = 0; block < count && result == HW_OK; block++, buffer += size) {
+        result = interrupt(h, write ? 16U : 32U);
+        if (result != HW_OK) return result;
+        for (unsigned int offset = 0; offset < size; offset += 4) {
+            uint32_t value = 0;
+            if (!write) value = rd(h, 0x20);
+            for (unsigned int j = 0; j < 4 && offset + j < size; j++) {
+                if (write) value |= (uint32_t)buffer[offset + j] << (8 * j);
+                else buffer[offset + j] = (unsigned char)(value >> (8 * j));
+            }
+            if (write) wr(h, 0x20, value);
+        }
+    }
+    return result == HW_OK ? interrupt(h, 2) : result;
+}
+
 int sdio_transfer(Sdio* h, unsigned int function, uint32_t address, int increment,
                    int write, void* data, unsigned int bytes) {
     if (!h || !h->io || !data || !bytes || bytes > 512 || function > 7 || address > 0x1ffffU ||
@@ -161,25 +188,15 @@ int sdio_transfer(Sdio* h, unsigned int function, uint32_t address, int incremen
     if (h->state != 1) return HW_OFF;
     if (h->busy) return HW_BUSY;
     h->busy = 1;
-    wr(h, 0x04, (1U << 16) | bytes);
-    uint32_t argument = (write ? 1U << 31 : 0) | (function << 28) |
-                        (increment ? 1U << 26 : 0) | (address << 9) | (bytes & 511U);
-    uint32_t flags = (2U << 16) | (3U << 19) | (1U << 21) | (write ? 0U : 16U);
-    int result = command(h, 53, argument, flags, NULL);
-    if (result == HW_OK) result = interrupt(h, write ? 16U : 32U);
-    if (result == HW_OK) {
-        unsigned char* buffer = data;
-        for (unsigned int offset = 0; offset < bytes; offset += 4) {
-            uint32_t value = 0;
-            if (!write) value = rd(h, 0x20);
-            for (unsigned int j = 0; j < 4 && offset + j < bytes; j++) {
-                if (write) value |= (uint32_t)buffer[offset + j] << (8 * j);
-                else buffer[offset + j] = (unsigned char)(value >> (8 * j));
-            }
-            if (write) wr(h, 0x20, value);
-        }
-        result = interrupt(h, 2);
-    }
+    /* Bulk WLAN data uses the function's programmed block size. A short
+     * tail uses byte mode so it can't write beyond the requested range. */
+    unsigned int size = function_block_size[function];
+    unsigned int blocks = size ? bytes / size : 0;
+    unsigned int bulk = blocks * size;
+    int result = blocks ? transfer_data(h, function, address, increment, write, data, size, blocks) : HW_OK;
+    if (result == HW_OK && bulk < bytes)
+        result = transfer_data(h, function, address + (increment ? bulk : 0), increment, write,
+                               (unsigned char*)data + bulk, bytes - bulk, 0);
     h->busy = 0;
     return result;
 }

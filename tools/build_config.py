@@ -10,6 +10,7 @@ def main():
     for name in ('cc', 'ld', 'objcopy', 'cflags', 'firmware'):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--trust', default='', help='TLS trust anchor C file')
+    parser.add_argument('--bt-patchram', default='', help='Bluetooth BCM4345C0 HCD input')
     args = vars(parser.parse_args())
     output = args.pop('output')
     content = json.dumps(args, sort_keys=True, indent=2) + '\n'
