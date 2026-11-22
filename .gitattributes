@@ -6,3 +6,7 @@
 *.gif binary
 *.ico binary
 *.webp binary
+*.dat binary
+*.elf binary
+*.dtb binary
+*.dtbo binary
