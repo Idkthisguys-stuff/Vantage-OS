@@ -1,4 +1,5 @@
 #include <vantage/arch/mmu.h>
+#include <vantage/abi/syscall.h>
 #include <vantage/kernel/platform.h>
 #include <vantage/user.h>
 #include <stdio.h>
@@ -8,6 +9,7 @@ static uint64_t level2[4][512];
 static union {
     uint64_t words[64];
     TouchEvent touch;
+    TouchContact contact;
     KeyEvent key;
     TextRow row;
     ConsoleInfo info;
@@ -32,11 +34,9 @@ void fb_wait_frame(void) {}
 uint32_t time_us(void) { return 123456; }
 uint32_t net_port_random(void) { return 4; }
 int net_entropy(void* data, unsigned int bytes) { (void)data; (void)bytes; return NET_UNAVAILABLE; }
-uint32_t touch_read(TouchEvent* event) {
+uint32_t touch_read(TouchContact* contact) {
     reads++;
-    event->type = TOUCH_EVENT_DOWN;
-    event->x = 12;
-    event->y = 34;
+    *contact = (TouchContact){ {TOUCH_EVENT_DOWN, 12, 34}, 5 };
     return 1;
 }
 void canvas_set_color(uint32_t color) { (void)color; }
@@ -116,6 +116,13 @@ int main(void) {
     if (reads || kernel_event.type != TOUCH_EVENT_NONE || kernel_event.x != 91) return 1;
     if (handle_sys_call(1, (uint64_t)start) != 1 || reads != 1 ||
         user_mem.touch.x != 12) return 1;
+
+    if (handle_sys_call(SYS_TOUCH_CONTACT_READ, end - sizeof(TouchEvent)) || reads != 1) return 1;
+    if (handle_sys_call(SYS_TOUCH_READ, end - sizeof(TouchEvent)) != 1 || reads != 2) return 1;
+    if (handle_sys_call(SYS_TOUCH_CONTACT_READ, start + 1) || reads != 2) return 1;
+    if (handle_sys_call(SYS_TOUCH_CONTACT_READ, start) != 1 || reads != 3 ||
+        user_mem.contact.event.type != TOUCH_EVENT_DOWN || user_mem.contact.event.x != 12 ||
+        user_mem.contact.event.y != 34 || user_mem.contact.id != 5) return 1;
 
     args->x = 12; args->y = 34; args->r = 5;
     handle_sys_call(4, (uint64_t)(uintptr_t)&kernel_event);

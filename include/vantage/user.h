@@ -45,6 +45,7 @@ uint32_t sys_task_yield(void);
 uint32_t sys_task_exit(int status);
 
 uint32_t sys_touch_read(TouchEvent* event);
+uint32_t sys_touch_contact_read(TouchContact* contact);
 
 // DISPLAY SYSCALLS
 void sys_canvas_set_color(uint32_t color);

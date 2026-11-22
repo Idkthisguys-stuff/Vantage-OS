@@ -48,8 +48,9 @@ class TerminalMachine(CpuMachine):
 
     def touch(self, pointer, *_):
         event = self.touches.pop(0) if self.touches else (0, 0, 0)
-        self.uc.mem_write(pointer, struct.pack('<Iii', *event))
-        return bool(event[0])
+        event_type, x, y, *ids = event
+        self.uc.mem_write(pointer, struct.pack('<IiiI', event_type, x, y, ids[0] if ids else 0))
+        return bool(event_type)
 
     def text_row(self, pointer, *_):
         row, length, fg, bg, cursor, text = struct.unpack('<5I96s', self.uc.mem_read(pointer, 116))
@@ -149,6 +150,19 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(m.interject('process_info', m.app, 0x7bff000), OK)
         self.assertEqual(struct.unpack('<QI', m.uc.mem_read(0x7bff000, 12))[1], 2)   # Still live.
 
+    def test_two_contacts_type_and_keep_independent_pressed_state(self):
+        m = TerminalMachine(self.image)
+        m.launch()
+        m.command('clear')
+        # Hold H while a second finger taps E and drags off L.
+        m.touches.extend(((1, 286, 661, 2), (1, 124, 611, 6), (3, 124, 611, 6),
+                          (1, 425, 661, 6), (2, 0, 500, 6), (3, 425, 661, 6)))
+        m.step()
+        self.assertEqual(m.rows[0], '> e')
+        m.touches.append((3, 286, 661, 2))
+        m.step()
+        self.assertEqual(m.rows[0], '> eh')
+
     def test_delete_hold_delay_repeat_release_drag_and_clock_wrap(self):
         m = TerminalMachine(self.image)
         m.launch()
@@ -188,7 +202,7 @@ class TerminalTests(unittest.TestCase):
         # Without a calling process there is no address space to resolve against.
         m = TerminalMachine(self.image)
         m.boot(cores=1)
-        for call in (1, 4, 6, 7, 8, 10, 11):
+        for call in (1, 4, 6, 7, 8, 10, 11, 13):
             for pointer in (0, self.image.symbols['__kernel_stack_top'] - 256, USER_BASE, USER_BASE + 4096,
                             USER_END - 256):
                 with self.subTest(call=call, pointer=hex(pointer)):
