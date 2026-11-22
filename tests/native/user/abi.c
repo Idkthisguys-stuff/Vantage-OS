@@ -37,5 +37,8 @@ _Static_assert(sizeof(NetResolve) == 264 && offsetof(NetResolve, name) == 8, "re
 _Static_assert(sizeof(NetSocketCall) == 1064 && offsetof(NetSocketCall, handle) == 8 &&
                offsetof(NetSocketCall, port) == 20 && offsetof(NetSocketCall, length) == 24 &&
                offsetof(NetSocketCall, state) == 32 && offsetof(NetSocketCall, data) == 40, "socket ABI");
+_Static_assert(SYS_BT_STATUS == 64 && SYS_BT_SCAN_START == 65 && SYS_BT_DEVICE == 66, "Bluetooth syscall IDs");
+_Static_assert(sizeof(BtStatus) == 16 && sizeof(BtDeviceCall) == 52 &&
+               offsetof(BtDevice, rssi) == 8 && offsetof(BtDevice, name) == 12, "Bluetooth ABI");
 
 int main(void) { return 0; }

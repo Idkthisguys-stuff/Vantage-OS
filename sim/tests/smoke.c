@@ -22,6 +22,18 @@ static int check_pixel(SDL_Renderer* renderer, int x, int y, uint32_t expected) 
     return 1;
 }
 
+static int push_click(int x, int y) {
+    SDL_Event event;
+    SDL_zero(event);
+    event.type = SDL_MOUSEBUTTONDOWN;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.x = x;
+    event.button.y = y;
+    if (SDL_PushEvent(&event) != 1) return 0;
+    event.type = SDL_MOUSEBUTTONUP;
+    return SDL_PushEvent(&event) == 1;
+}
+
 int main(int argc, char* argv[]) {
     SDL_Event event;
     SDL_Window* window;
@@ -189,7 +201,18 @@ int main(int argc, char* argv[]) {
     if (!check_pixel(renderer, 30, 66, RGB(30, 61, 67)) ||
         !check_pixel(renderer, 140, 66, RGB(30, 61, 67)) ||
         !check_pixel(renderer, 250, 66, RGB(30, 61, 67)) ||
-        !check_pixel(renderer, 360, 66, RGB(13, 24, 29))) return 1;
+        !check_pixel(renderer, 350, 66, RGB(13, 24, 29)) ||
+        !check_pixel(renderer, 360, 66, RGB(30, 61, 67))) return 1;
+
+    if (!push_click(405, 66)) return 1;
+    home_app_step();
+    if (!check_pixel(renderer, 30, 60, RGB(30, 61, 67)) ||
+        !check_pixel(renderer, 360, 66, RGB(13, 24, 29)) ||
+        !check_pixel(renderer, 30, 200, RGB(13, 24, 29))) return 1;
+    if (!push_click(40, 50)) return 1;
+    home_app_step();
+    if (!check_pixel(renderer, 360, 66, RGB(30, 61, 67))) return 1;
+
     SDL_zero(event);
     event.type = SDL_KEYDOWN;
     event.key.keysym.sym = SDLK_RETURN;

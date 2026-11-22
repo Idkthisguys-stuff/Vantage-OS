@@ -81,6 +81,11 @@ PLATFORM_SOURCES := \
     platform/pi4/storage.c \
     platform/pi4/timer.c
 
+ifeq ($(BLUETOOTH),1)
+DRIVER_SOURCES += drivers/bluetooth/hci.c
+PLATFORM_SOURCES += platform/pi4/bluetooth.c
+endif
+
 # The terminal is a separate EL0 program: linked on its own at user addresses
 # and embedded into the kernel as a flat image, never linked against it.
 USER_SOURCES := \
@@ -99,7 +104,7 @@ USER_ASM_SOURCES := \
 # The TLS client's trust anchors when no CA bundle is supplied (TLS_TRUST_C),
 # and the parts of BearSSL it uses; see docs/TLS.md.
 TLS_TRUST_NONE := user/lib/tls_trust_none.c
-BEARSSL_SOURCES := $(addprefix third_party/bearssl/src/, \
+BEARSSL_SOURCES := \
     codec/ccopy.c \
     codec/dec32be.c \
     codec/dec32le.c \
@@ -163,7 +168,7 @@ BEARSSL_SOURCES := $(addprefix third_party/bearssl/src/, \
     symcipher/chacha20_ct.c \
     symcipher/poly1305_ctmul.c \
     symcipher/poly1305_ctmulq.c \
-    x509/x509_minimal.c)
+    x509/x509_minimal.c
 
 C_SOURCES := $(sort $(ARCH_C_SOURCES) $(MEMORY_SOURCES) $(FILESYSTEM_SOURCES) \
     $(NETWORK_SOURCES) $(SCHEDULER_SOURCES) $(UI_SOURCES) $(DRIVER_SOURCES) $(PLATFORM_SOURCES) \

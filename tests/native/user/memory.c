@@ -15,6 +15,8 @@ static union {
     TextRow row;
     ConsoleInfo info;
     ConsoleWrite write;
+    BtStatus bt;
+    BtDeviceCall bt_device;
     struct circle_args circle;
 } user_mem;
 static unsigned int reads, circles, keys, text_rows, buttons;
@@ -165,6 +167,18 @@ int main(void) {
         if (handle_sys_call(10, start) != 3) return 1;
         if (handle_sys_call(12, 0) != 123456) return 1;
     }
+    user_mem.bt = (BtStatus){ .state = BT_SCANNING, .count = 9 };
+    if ((int64_t)handle_sys_call(SYS_BT_STATUS, start + 1) != BT_PROTOCOL ||
+        (int64_t)handle_sys_call(SYS_BT_STATUS, end - 4) != BT_PROTOCOL ||
+        user_mem.bt.count != 9) return 1;
+    if (handle_sys_call(SYS_BT_STATUS, start) != BT_OK || user_mem.bt.state != BT_DISABLED ||
+        user_mem.bt.count || user_mem.bt.error || user_mem.bt.reserved) return 1;
+    if ((int64_t)handle_sys_call(SYS_BT_SCAN_START, 0) != BT_UNAVAILABLE ||
+        (int64_t)handle_sys_call(SYS_BT_SCAN_START, start) != BT_PROTOCOL) return 1;
+    user_mem.bt_device = (BtDeviceCall){ .index = BT_DEVICE_LIMIT };
+    if ((int64_t)handle_sys_call(SYS_BT_DEVICE, start) != BT_PROTOCOL) return 1;
+    user_mem.bt_device.index = 0;
+    if ((int64_t)handle_sys_call(SYS_BT_DEVICE, start) != BT_UNAVAILABLE) return 1;
     puts("PASS: privileged-only kernel mappings, buffer boundaries and syscall pointer checks");
     return 0;
 }

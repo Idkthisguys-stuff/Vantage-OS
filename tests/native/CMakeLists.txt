@@ -61,6 +61,8 @@ vantage_native_test(pi4_usb_test pi4_usb_pcie_probe drivers
   drivers/pi4_usb.c "${ROOT}/drivers/storage/pi4_usb.c" "${ROOT}/drivers/hw/wait.c")
 vantage_native_test(usb_storage_test usb_storage_bulk_only drivers
   drivers/usb_storage.c "${ROOT}/drivers/storage/usb_storage.c" "${ROOT}/drivers/storage/usb_fat32.c")
+vantage_native_test(bluetooth_test bluetooth_hci_discovery drivers
+  drivers/bluetooth.c "${ROOT}/drivers/bluetooth/hci.c")
 vantage_native_test(delays_test delays drivers
   drivers/delays.c "${ROOT}/platform/pi4/timer.c")
 vantage_native_test(touch_driver_test touch_driver drivers

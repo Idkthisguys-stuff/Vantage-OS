@@ -264,15 +264,16 @@ void net_tcp_input(uint32_t source, uint32_t destination, const unsigned char* g
     NetTcp* t = &s->u.tcp;
     if (t->state == TCP_SYN_SENT) { syn_sent(s, g, header, sequence, ack, flags, window); return; }
 
-    uint32_t space = rx_free(t), span = length + ((flags & SYN) ? 1U : 0U) + ((flags & FIN) ? 1U : 0U);
+    uint32_t space = rx_free(t), receive_end = t->rcv_nxt + space;
+    unsigned int span = length + ((flags & SYN) ? 1U : 0U) + ((flags & FIN) ? 1U : 0U);
     int acceptable;
-    if (!span) acceptable = space ? !net_before(sequence, t->rcv_nxt) && net_before(sequence, t->rcv_nxt + space)
+    if (!span) acceptable = space ? !net_before(sequence, t->rcv_nxt) && net_before(sequence, receive_end)
                                   : sequence == t->rcv_nxt;
     else if (!space) acceptable = 0;
     else {
         uint32_t last = sequence + span - 1U;
-        acceptable = (!net_before(sequence, t->rcv_nxt) && net_before(sequence, t->rcv_nxt + space)) ||
-                     (!net_before(last, t->rcv_nxt) && net_before(last, t->rcv_nxt + space));
+        acceptable = (!net_before(sequence, t->rcv_nxt) && net_before(sequence, receive_end)) ||
+                     (!net_before(last, t->rcv_nxt) && net_before(last, receive_end));
     }
     if (!acceptable) {
         if (flags & RST) return;
@@ -314,7 +315,8 @@ void net_tcp_input(uint32_t source, uint32_t destination, const unsigned char* g
     }
     if (flags & FIN) {
         reply = 1;
-        if (!t->fin_received && t->rcv_nxt == end) {
+        /* The FIN itself occupies one sequence number in the receive window. */
+        if (!t->fin_received && t->rcv_nxt == end && net_before(end, receive_end)) {
             t->rcv_nxt++;
             t->fin_received = 1;
             if (t->state == TCP_ESTABLISHED) t->state = TCP_CLOSE_WAIT;

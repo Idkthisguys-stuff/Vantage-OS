@@ -107,23 +107,38 @@ static int wait32(Wifi* w, uint32_t address, uint32_t mask, uint32_t expected) {
     return HW_TIMEOUT;
 }
 
+enum { CORE_IO = 0x408, CORE_RESET = 0x800, CORE_RESET_ASSERTED = 1,
+       CORE_CLOCK = 1, CORE_FORCE_CLOCK = 2 };
+
+static int core_reset_request(Wifi* w, uint32_t address, uint32_t asserted) {
+    int result = write32(w, address, asserted);
+    if (result != HW_OK) return result;
+    return wait32(w, address, CORE_RESET_ASSERTED, asserted);
+}
+
 static int core_disable(Wifi* w, uint32_t wrap, uint32_t before, uint32_t after) {
-    uint32_t reset;
-    if (read32(w, wrap + 0x800, &reset) != HW_OK) return HW_IO;
-    if (!(reset & 1)) {
-        if (write32(w, wrap + 0x408, 3U | before) != HW_OK ||
-            read32(w, wrap + 0x408, &reset) != HW_OK ||
-            write32(w, wrap + 0x800, 1) != HW_OK ||
-            wait32(w, wrap + 0x800, 1, 1) != HW_OK) return HW_IO;
-    }
-    return write32(w, wrap + 0x408, 3U | after);
+    const uint32_t clocks = CORE_CLOCK | CORE_FORCE_CLOCK;
+    const uint32_t reset_reg = wrap + CORE_RESET;
+    const uint32_t io_reg = wrap + CORE_IO;
+    uint32_t state;
+    int result = read32(w, reset_reg, &state);
+    if (result != HW_OK) return result;
+    if (state & CORE_RESET_ASSERTED) return write32(w, io_reg, clocks | after);
+
+    /* Keep the core clocked while requesting a reset. Reading IO control
+     * drains the preceding write on the backplane. */
+    result = write32(w, io_reg, clocks | before);
+    if (result == HW_OK) result = read32(w, io_reg, &state);
+    if (result == HW_OK) result = core_reset_request(w, reset_reg, CORE_RESET_ASSERTED);
+    if (result != HW_OK) return result;
+    return write32(w, io_reg, clocks | after);
 }
 static int core_reset(Wifi* w, uint32_t wrap, uint32_t before, uint32_t after) {
     int result = core_disable(w, wrap, before, after);
+    if (result == HW_OK) result = core_reset_request(w, wrap + CORE_RESET, 0);
+    if (result == HW_OK) result = w->bus.delay(w->bus.context, 40);
     if (result != HW_OK) return result;
-    if (write32(w, wrap + 0x800, 0) != HW_OK || wait32(w, wrap + 0x800, 1, 0) != HW_OK ||
-        w->bus.delay(w->bus.context, 40) != HW_OK) return HW_IO;
-    return write32(w, wrap + 0x408, 1U | after);
+    return write32(w, wrap + CORE_IO, CORE_CLOCK | after);
 }
 
 static int erom_word(Wifi* w, uint32_t base, unsigned int* offset, uint32_t* value) {

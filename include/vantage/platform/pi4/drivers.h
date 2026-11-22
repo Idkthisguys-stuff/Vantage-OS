@@ -1,4 +1,5 @@
 #pragma once
+#include <vantage/abi/bluetooth.h>
 #include <vantage/drivers/wifi.h>
 #include <vantage/kernel/net.h>
 
@@ -16,3 +17,10 @@ const NetLink* pi4_net_link(Wifi* wifi);
 int pi4_ethernet_start(const HwOps* io, const NetLink** link);
 /* Enables the RNG200 and checks that it produces data. */
 int pi4_rng_start(const HwOps* io);
+
+/* Core 0 owns UART0 and the Bluetooth HCI state. */
+int pi4_bt_start(const HwOps* io);
+void pi4_bt_poll(void);
+void pi4_bt_status(BtStatus* status);
+int pi4_bt_scan_start(void);
+int pi4_bt_device(uint32_t index, BtDevice* device);

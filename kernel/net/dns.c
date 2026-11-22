@@ -205,6 +205,7 @@ int net_dns_input(uint32_t source, uint16_t source_port, uint16_t port,
     if (rcode) { finish(e, NET_IO, 0, 0); return 1; }
     memcpy(target, e->name, sizeof(target));
     unsigned int answers = net_get16(m + 6), aliases = 0;
+    uint32_t alias_ttl = DNS_TTL_MAX;
     for (unsigned int i = 0; i < answers; i++) {
         unsigned int next = 0;
         if (!name_at(m, bytes, at, name, &next) || next + 10 > bytes) break;
@@ -214,14 +215,16 @@ int net_dns_input(uint32_t source, uint16_t source_port, uint16_t port,
         unsigned int data = next + 10;
         if (length > bytes - data) break;
         if (class_ == 1 && !differ(name, target)) {
+            if (ttl > 0x7fffffffU) ttl = 0;
             if (type == 1 && length == 4) {
                 uint32_t address = net_get32(m + data);
-                finish(e, 0, address, ttl > 0x7fffffffU ? 0 : ttl);
+                finish(e, 0, address, ttl < alias_ttl ? ttl : alias_ttl);
                 return 1;
             }
             if (type == 5 && ++aliases <= 8) {
                 unsigned int unused;
                 if (!name_at(m, bytes, data, target, &unused)) break;
+                if (ttl < alias_ttl) alias_ttl = ttl;
             }
         }
         at = data + length;

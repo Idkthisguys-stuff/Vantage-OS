@@ -25,7 +25,7 @@ static Wifi wifi;
 extern const WifiFirmware* pi4_wifi_firmware(void);
 #endif
 
-#if VANTAGE_V3D || (VANTAGE_WIFI && VANTAGE_WIFI_ASSETS) || VANTAGE_ETHERNET || VANTAGE_USB
+#if VANTAGE_V3D || (VANTAGE_WIFI && VANTAGE_WIFI_ASSETS) || VANTAGE_ETHERNET || VANTAGE_USB || VANTAGE_BLUETOOTH
 static void report(const char* prefix, int error) {
     char digits[12]; unsigned int used = 0;
     uint32_t value = (uint32_t)(error < 0 ? -(int64_t)error : error);
@@ -201,10 +201,18 @@ void pi4_drivers_start(void) {
 #if VANTAGE_USB
     usb_start();
 #endif
+#if VANTAGE_BLUETOOTH
+    int bt_result = pi4_bt_start(pi4_hardware_ops());
+    if (bt_result == BT_OK) uart_writeText("[INFO] Bluetooth HCI initialization started\n");
+    else report("[WARN] Bluetooth initialization failed (", bt_result);
+#endif
 }
 
 void pi4_drivers_poll(void) {
     net_poll();
+#if VANTAGE_BLUETOOTH
+    pi4_bt_poll();
+#endif
 }
 
 Wifi* pi4_wifi_device(void) {
