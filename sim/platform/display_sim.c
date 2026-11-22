@@ -280,6 +280,7 @@ static void pump_input(void) {
             case SDL_KEYDOWN:
                 if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) key.type = KEY_ENTER;
                 else if (e.key.keysym.sym == SDLK_BACKSPACE) key.type = KEY_BACKSPACE;
+                else if (e.key.keysym.sym == SDLK_ESCAPE) key.type = KEY_HOME;
                 else if ((e.key.keysym.mod & KMOD_CTRL) && e.key.keysym.sym == SDLK_l) key.type = KEY_CLEAR;
                 else if ((e.key.keysym.mod & KMOD_CTRL) && e.key.keysym.sym == SDLK_c) key.type = KEY_CANCEL;
                 if (key.type != KEY_NONE) queue_key(key);

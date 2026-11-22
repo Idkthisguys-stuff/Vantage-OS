@@ -81,6 +81,7 @@ PLATFORM_SOURCES := \
 # and embedded into the kernel as a flat image, never linked against it.
 USER_SOURCES := \
     user/apps/terminal/app.c \
+    user/apps/terminal/home.c \
     user/apps/terminal/net_cmd.c \
     user/apps/terminal/net_get.c \
     user/apps/terminal/net_profiles.c \

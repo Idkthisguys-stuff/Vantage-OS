@@ -59,6 +59,8 @@ uint32_t terminal_editor_selected(const Terminal* terminal, uint32_t row);
 
 void terminal_app_init(void);
 void terminal_app_step(void);
+void terminal_app_open(void);
+uint32_t terminal_app_closed(void);
 
 void terminal_write(Terminal* terminal, const char* text);
 void terminal_put(Terminal* terminal, char character);

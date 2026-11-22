@@ -103,6 +103,10 @@ static void release(uint32_t id) {
     if (--key_holders[key] == 0) dirty_keys |= 1ULL << key;
 }
 
+void keyboard_cancel_touches(void) {
+    for (uint32_t id = 0; id < TOUCH_CONTACTS_MAX; id++) release(id);
+}
+
 uint32_t keyboard_touch(const TouchContact* contact, KeyEvent* event) {
     uint32_t id = contact->id;
     if (!keyboard_columns || id >= TOUCH_CONTACTS_MAX) return 0;
@@ -161,6 +165,12 @@ static uint32_t keyboard_draw_key(uint32_t key) {
     shadow.background = RGB(10, 15, 23);
     shadow.label[0] = 0;
     return sys_canvas_button(&shadow) && sys_canvas_button(&button);
+}
+
+void keyboard_redraw(void) {
+    if (!keyboard_columns) return;
+    panel_dirty = 1;
+    dirty_keys = ALL_KEYS;
 }
 
 uint32_t keyboard_draw(void) {
