@@ -14,7 +14,7 @@ typedef struct {
     uint32_t clock, window;
     unsigned int sequence, uploads, released, country, commands, joins, scans, wsec, wpa_auth, mpc, join_iovars;
     unsigned char ssid[36], country_data[12];
-    int owner, mode, reject_wpa, stale_events, no_join_events, deauth_join, scan_set, missing, reject_join_iovar;
+    int owner, mode, reject_wpa, stale_events, no_join_events, deauth_join, scan_set, missing, reject_join_iovar, reject_txglom;
 } Radio;
 static Radio radio;
 static uint32_t get32(const unsigned char* p) {
@@ -128,6 +128,7 @@ static void transmit(void) {
             CHECK(p[28 + 8] == 'G' && p[28 + 9] == 'B'); radio.country = 1;
             memcpy(radio.country_data, p + 28 + 8, 12);
         }
+        if (!strcmp(name, "bus:txglom") && radio.reject_txglom) put32(response + 12, (uint32_t)-23);
         if (!strcmp(name, "sup_wpa") && radio.reject_wpa) put32(response + 12, 23);
         if (!strcmp(name, "wpa_auth")) radio.wpa_auth = get32(p + 28 + sizeof("wpa_auth"));
         if (!strcmp(name, "mpc")) radio.mpc = get32(p + 28 + sizeof("mpc")) + 1;
@@ -160,6 +161,8 @@ static void transmit(void) {
     else if (command == 127) { put32(response + 16, (uint32_t)-55); bytes = 12; }
     else if (command == 2) CHECK(radio.country);
     else if (command == 268) CHECK(get16(p + 28) == 8 && get16(p + 30) == 1);
+    /* Firmware may pad GET responses to the request buffer length. */
+    if (command == 262 && !strcmp((const char*)p + 28, "clmload_status")) bytes = payload;
     /* SET replies can echo the original length without returning a payload. */
     put32(response + 4, (flags & 2) ? payload : bytes);
     if (radio.mode != 1) enqueue(0, response, bytes + 16);
@@ -249,15 +252,36 @@ static void initialize(int mode) {
     }
     put32(bp(ENUM + 0x100000U + offset, 4), 15);
 }
-static int boot(void) {
+static int boot_with_trace(WifiBootTrace trace) {
     static const unsigned char firmware[1024] = {1, 2, 3, 4};
     static const unsigned char nvram[] = "# fixture\nboardtype=0x1\nregrev=0\n";
     static const unsigned char clm[2051] = {0};
     WifiFirmware f = {firmware, sizeof(firmware), nvram, sizeof(nvram) - 1, clm, sizeof(clm), "GB", 0};
     WifiBus bus = {NULL, direct, transfer, clock_us, delay, owner};
-    return wifi_boot(&wifi, &bus, &f);
+    return trace ? wifi_boot_traced(&wifi, &bus, &f, trace) : wifi_boot(&wifi, &bus, &f);
 }
+static int boot(void) { return boot_with_trace(NULL); }
+
+static unsigned int trace_rejected, trace_skipped;
+static void boot_trace(const char* stage, int result, uint32_t status) {
+    if (!strcmp(stage, "disable TX aggregation (bus:txglom)")) {
+        CHECK(result == HW_IO && status == (uint32_t)-23);
+        trace_rejected++;
+    } else if (!strcmp(stage, "bring radio up skipped after settings rejection")) {
+        CHECK(result == HW_OFF && status == 0);
+        trace_skipped++;
+    } else CHECK(result == HW_OK && status == 0);
+}
+
 int main(void) {
+    initialize(0);
+    radio.reject_txglom = 1;
+    CHECK(boot() == HW_IO && !radio.mpc);
+    initialize(0);
+    radio.reject_txglom = 1;
+    CHECK(boot_with_trace(boot_trace) == HW_IO && radio.mpc && wifi.state == -1);
+    CHECK(trace_rejected == 1 && trace_skipped == 1);
+    CHECK(!strcmp(wifi.boot_stage, "disable TX aggregation (bus:txglom)"));
     unsigned char packed[64] = {0}; size_t packed_size = 0;
     static const unsigned char invalid[] = {'a', '=', '1', 0, 'x'};
     CHECK(wifi_nvram_pack(invalid, sizeof(invalid), packed, sizeof(packed), &packed_size) == HW_INVALID);

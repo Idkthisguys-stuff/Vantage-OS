@@ -38,6 +38,53 @@ static void report(const char* prefix, int error) {
 }
 #endif
 
+#if VANTAGE_RADIO_DIAGNOSTICS && VANTAGE_WIFI && VANTAGE_WIFI_ASSETS
+static void wifi_trace(const char* stage, int result, uint32_t firmware_status) {
+    uart_writeText("[RADIO] WLAN ");
+    uart_writeText(stage);
+    uart_writeText(" firmware_status=");
+    uart_writeHex(firmware_status);
+    report(" result (", result);
+}
+static void radio_wifi_scan(void) {
+    uart_writeText("[RADIO] WLAN scan start\n");
+    int result = wifi_scan_start(&wifi);
+    if (result == HW_OK) {
+        uint32_t start = wifi.bus.time_us(wifi.bus.context);
+        while (wifi_scan_status(&wifi) == HW_BUSY &&
+               wifi.bus.time_us(wifi.bus.context) - start < 16000000U) {
+            result = wifi_poll(&wifi);
+            if (result < 0) break;
+        }
+        if (result >= 0) {
+            result = wifi_scan_status(&wifi);
+            if (result == HW_BUSY) result = HW_TIMEOUT;
+        }
+    }
+    report("[RADIO] WLAN scan result (", result);
+    if (result == HW_OK) report("[RADIO] WLAN access points (", (int)wifi.bss_count);
+}
+#endif
+
+#if VANTAGE_BLUETOOTH && VANTAGE_RADIO_DIAGNOSTICS
+static void radio_bt_scan(void) {
+    uart_writeText("[RADIO] BT BLE scan start\n");
+    int result = pi4_bt_scan_start();
+    if (result == BT_OK) {
+        const HwOps* io = pi4_hardware_ops();
+        uint32_t start = io->time_us(io->context);
+        BtStatus status;
+        do {
+            pi4_bt_poll();
+            pi4_bt_status(&status);
+        } while (status.state == BT_SCANNING && io->time_us(io->context) - start < 9000000U);
+        if (status.state != BT_READY) result = status.error ? status.error : BT_TIMEOUT;
+        else report("[RADIO] BT devices (", (int)status.count);
+    }
+    report("[RADIO] BT BLE scan result (", result);
+}
+#endif
+
 #if VANTAGE_V3D
 static V3d gpu;
 static RenderBackend gpu_backend;
@@ -165,15 +212,25 @@ void pi4_drivers_start(void) {
 #endif
     if (pi4_rng_start(pi4_hardware_ops()) == HW_OK) uart_writeText("[OK] Hardware RNG ready\n");
     else uart_writeText("[WARN] Hardware RNG unavailable; network identifiers use a weak timer-based generator\n");
+#if VANTAGE_RADIO_DIAGNOSTICS
+    uart_writeText("[RADIO] CA 7 diagnostic batch start\n");
+#endif
     const NetLink* wifi_link = NULL;
 #if VANTAGE_WIFI && VANTAGE_WIFI_ASSETS
     int wifi_result = sdio_init(&sdio, pi4_hardware_ops());
     if (wifi_result == HW_OK) {
         WifiBus bus = wifi_sdio_bus(&sdio);
+#if VANTAGE_RADIO_DIAGNOSTICS
+        wifi_result = wifi_boot_traced(&wifi, &bus, pi4_wifi_firmware(), wifi_trace);
+#else
         wifi_result = wifi_boot(&wifi, &bus, pi4_wifi_firmware());
+#endif
         if (wifi_result == HW_OK) {
             wifi_link = pi4_net_link(&wifi);
             uart_writeText("[OK] CYW43455 firmware ready; use 'net join' to connect\n");
+#if VANTAGE_RADIO_DIAGNOSTICS
+            radio_wifi_scan();
+#endif
         } else {
             report("[ERR] CYW43455 firmware initialization failed (", wifi_result);
             if (wifi.boot_stage) {
@@ -213,8 +270,17 @@ void pi4_drivers_start(void) {
 #endif
 #if VANTAGE_BLUETOOTH
     int bt_result = pi4_bt_start(pi4_hardware_ops());
-    if (bt_result == BT_OK) uart_writeText("[INFO] Bluetooth HCI initialization started\n");
-    else report("[WARN] Bluetooth initialization failed (", bt_result);
+    if (bt_result == BT_OK) {
+#if VANTAGE_RADIO_DIAGNOSTICS
+        uart_writeText("[OK] Bluetooth HCI ready\n");
+        radio_bt_scan();
+#else
+        uart_writeText("[INFO] Bluetooth HCI initialization started\n");
+#endif
+    } else report("[WARN] Bluetooth initialization failed (", bt_result);
+#endif
+#if VANTAGE_RADIO_DIAGNOSTICS
+    uart_writeText("[RADIO] CA 7 diagnostic batch complete\n");
 #endif
 }
 
