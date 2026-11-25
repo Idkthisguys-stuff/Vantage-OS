@@ -8,6 +8,24 @@ PYTHON ?= python
 BEARSSL_DIR ?=
 FIRMWARE_DIR ?= out/pi4-firmware
 
+WIFI_COUNTRY ?=
+WIFI_REGREV  ?= -1
+WIFI_BLOB    ?= $(FIRMWARE_DIR)/brcmfmac43455-sdio-raspberrypi-4-model-b
+
+ifneq ($(WIFI),0)
+ifeq ($(strip $(WIFI_FIRMWARE_C)),)
+ifneq ($(strip $(WIFI_COUNTRY)),)
+WIFI_FIRMWARE_C := $(BUILD_DIR)/wifi/wifi-assets.c
+$(WIFI_FIRMWARE_C): $(WIFI_BLOB).bin $(WIFI_BLOB).txt $(WIFI_BLOB).clm_blob tools/embed_wifi.py
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/embed_wifi.py --firmware "$(WIFI_BLOB).bin" --nvram "$(WIFI_BLOB).txt" \
+		--clm "$(WIFI_BLOB).clm_blob" --country $(WIFI_COUNTRY) --regrev $(WIFI_REGREV) --output $@
+else
+$(warning WIFI_COUNTRY not set: Wi-Fi assets will not be embedded and the radio will be skipped)
+endif
+endif
+endif
+
 include mk/config.mk
 include mk/sources.mk
 include tools/bearssl-pin.mk
@@ -137,13 +155,14 @@ partition: all
 	mcopy -i card-copy.img@@4194304 firmware/config.txt ::config.txt
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/start4.elf" ::start4.elf
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/fixup4.dat" ::fixup4.dat
-	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio.raspberrypi,4-model-b.clm_blob" ::brcmfmac43455-sdio.raspberrypi,4-model-b.clm_blob
+	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio-raspberrypi-4-model-b.clm_blob" ::brcmfmac43455-sdio-raspberrypi-4-model-b.clm_blob
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/BCM4345C0.hcd" ::BCM4345C0.hcd
-	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio.raspberrypi,4-model-b" ::brcmfmac43455-sdio.raspberrypi,4-model-b
-	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio.raspberrypi,4-model-b.bin" ::brcmfmac43455-sdio.raspberrypi,4-model-b.bin
+	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio-raspberrypi-4-model-b.txt" ::brcmfmac43455-sdio-raspberrypi-4-model-b.txt
+	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio-raspberrypi-4-model-b.bin" ::brcmfmac43455-sdio-raspberrypi-4-model-b.bin
 	mmd -i card-copy.img@@4194304 ::overlays
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/overlays/vc4-fkms-v3d.dtbo" ::overlays/vc4-fkms-v3d.dtbo
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/COPYING.linux" "$(FIRMWARE_DIR)/LICENCE.broadcom" ::
 
 	$(PYTHON) tools/storage_image.py format --image card-copy.img --partition 1 --confirm-format
 	$(PYTHON) tools/storage_image.py inspect --image card-copy.img --partition 1
+	
