@@ -10,3 +10,6 @@
 *.elf binary
 *.dtb binary
 *.dtbo binary
+*.blob binary
+*.hcd binary
+*.bin binary
