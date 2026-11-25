@@ -6,10 +6,10 @@
 #include <vantage/kernel/canvas.h>
 #include <vantage/kernel/platform.h>
 #include <vantage/kernel/files.h>
+#include <vantage/kernel/events.h>
 #include <vantage/kernel/net.h>
 #include <vantage/kernel/user_access.h>
-#include <vantage/drivers/key.h>
-#include <vantage/drivers/touch.h>
+#include <vantage/kernel/usb_media.h>
 
 #ifndef VANTAGE_SIM
 #include <vantage/platform/pi4/io.h>
@@ -69,12 +69,13 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
         return 0;
     }
     if (!task_services_allowed()) {
-        if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_DIRECTORY_LONG)
+        if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_USB_FILES)
             return (uint64_t)(int64_t)FILE_UNAVAILABLE;
         if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
             return (uint64_t)(int64_t)NET_UNAVAILABLE;
         if (syscall_id >= SYS_BT_STATUS && syscall_id <= SYS_BT_DEVICE)
             return (uint64_t)(int64_t)BT_UNAVAILABLE;
+        if (syscall_id == SYS_EVENT_WAIT) return (uint64_t)(int64_t)-1;
         return 0;
     }
 #endif
@@ -85,10 +86,20 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
 #endif
     if (syscall_id >= SYS_FILE_OPEN && syscall_id <= SYS_FILE_DIRECTORY_LONG)
         return (uint64_t)handle_file_call(syscall_id, (uintptr_t)arg0, owner);
+    if (syscall_id == SYS_USB_FILES) {
+        UsbFileCall call;
+        if (!fetch(&call, arg0, sizeof(call), 4) || !writable(arg0, sizeof(call), 4))
+            return (uint64_t)(int64_t)FILE_BAD;
+        int result = usb_media_call(owner, &call);
+        if (!result && !user_copy_out((uintptr_t)arg0, &call, sizeof(call))) result = FILE_BAD;
+        return (uint64_t)(int64_t)result;
+    }
     if (syscall_id >= SYS_NET_STATUS && syscall_id <= SYS_NET_RANDOM)
         return (uint64_t)handle_net_call(syscall_id, (uintptr_t)arg0, owner);
     if (syscall_id >= SYS_BT_STATUS && syscall_id <= SYS_BT_DEVICE)
         return (uint64_t)(int64_t)bluetooth_call(syscall_id, arg0);
+    if (syscall_id == SYS_EVENT_WAIT)
+        return (uint64_t)(int64_t)event_wait((uint32_t)arg0, (uint32_t)(arg0 >> 32));
     if (syscall_id == SYS_TOUCH_READ || syscall_id == SYS_TOUCH_CONTACT_READ) {
         TouchContact contact = {0};
         const void* payload = &contact.event;
@@ -98,7 +109,7 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
             size = sizeof(contact);
         }
         if (!writable(arg0, size, sizeof(uint32_t))) return 0;
-        uint32_t result = touch_read(&contact);
+        uint32_t result = event_read_touch(&contact);
         return user_copy_out((uintptr_t)arg0, payload, size) ? result : 0;
     }
     else if (syscall_id == SYS_CANVAS_SET_COLOR) {
@@ -128,7 +139,7 @@ uint64_t handle_sys_call(uint64_t syscall_id, uint64_t arg0) {
     else if (syscall_id == SYS_KEY_READ) {
         KeyEvent event;
         if (!writable(arg0, sizeof(event), sizeof(uint32_t))) return 0;
-        uint32_t result = key_read(&event);
+        uint32_t result = event_read_key(&event);
         return user_copy_out((uintptr_t)arg0, &event, sizeof(event)) ? result : 0;
     }
     else if (syscall_id == SYS_CANVAS_TEXT_ROW) {

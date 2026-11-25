@@ -81,6 +81,10 @@ void terminal_app_open(void) {
 
 uint32_t terminal_app_closed(void) { return closed; }
 
+uint32_t terminal_app_needs_frame(void) {
+    return terminal.job.type != NULL || keyboard_repeat_pending();
+}
+
 static void close_app(void) {
     terminal.edit_touch = ~0U;
     keyboard_cancel_touches();

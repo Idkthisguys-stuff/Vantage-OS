@@ -35,7 +35,7 @@ def parser():
     p.add_argument('--wifi', choices=('0', '1'))
     p.add_argument('--ethernet', choices=('0', '1'))
     p.add_argument('--storage', choices=('0', '1'))
-    p.add_argument('--usb', choices=('0', '1'), help='enable the Pi 4 USB controller probe (default 0)')
+    p.add_argument('--usb', choices=('0', '1'), help='enable Pi 4 USB input and read-only mass storage (default 0)')
     p.add_argument('--bluetooth', choices=('0', '1'), help='enable Pi 4 Bluetooth LE discovery (default 0)')
     p.add_argument('--bluetooth-patchram', help='pinned Pi 4 BCM4345C0 HCD from tools/bluetooth_firmware.py')
     p.add_argument('--storage-validation', choices=('0', '1'))

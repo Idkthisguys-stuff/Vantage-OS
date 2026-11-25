@@ -80,6 +80,35 @@ class MailboxMachine(Machine):
         self.buffer_accesses += 1
 
 
+class CursorMachine(MailboxMachine):
+    pitch = 3208
+    base_color = 0x00333333
+
+    def __init__(self, image):
+        super().__init__(image)
+        self.cursor = None
+        self.set32('fbPitch', self.pitch)
+        self.call('render_init', image.symbols['renderer'], 0x6400000, 800, 480)
+        address = image.symbols['pi4_usb_cursor']
+        self.uc.hook_add(UC_HOOK_CODE, self.read_cursor, begin=address, end=address)
+
+    def read_cursor(self, uc, address, size, _):
+        if self.cursor is not None:
+            for reg, coordinate in zip((regs.UC_ARM64_REG_X0, regs.UC_ARM64_REG_X1), self.cursor):
+                uc.mem_write(uc.reg_read(reg), struct.pack('<i', coordinate))
+        uc.reg_write(regs.UC_ARM64_REG_X0, self.cursor is not None)
+        uc.reg_write(regs.UC_ARM64_REG_PC, uc.reg_read(regs.UC_ARM64_REG_X30))
+
+    def present(self, uc, address, size, _):
+        page = uc.reg_read(regs.UC_ARM64_REG_X1)
+        uc.mem_write(page, struct.pack('<I', self.base_color) * (self.pitch // 4 * 480))
+        super().present(uc, address, size, _)
+
+    def scanout_pixel(self, x, y):
+        page = 0x6000000 + self.get32('visiblePage') * self.pitch * 480
+        return struct.unpack('<I', self.uc.mem_read(page + y * self.pitch + x * 4, 4))[0]
+
+
 class DisplayMailboxTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -159,6 +188,35 @@ class DisplayMailboxTests(unittest.TestCase):
         m.call_timeout_us = 180_000_000
         m.call_instruction_limit = 200_000_000
         self.assertEqual(m.call('mbox_call', 8), 0)
+
+    def test_cursor_refreshes_completed_frame_and_clips_to_scanout(self):
+        if 'fb_cursor_poll' not in self.image.symbols:
+            self.skipTest('requires a USB-enabled build')
+        m = CursorMachine(self.image)
+        m.cursor = (479, 799)
+        m.call('fb_cursor_poll')
+        self.assertEqual(m.writes, [])
+        m.call('fb_swap')
+        self.assertEqual(m.scanout_pixel(799, 0), 0)
+        self.assertEqual(m.scanout_pixel(800, 0), m.base_color)
+
+        m.cursor = (100, 150)
+        m.step = 1000
+        m.call('fb_cursor_poll')
+        self.assertEqual(len(m.writes), 1)
+        m.call('put_pixel', 479, 0, 0x00ffffff)
+        m.step = 20000
+        m.call('fb_cursor_poll')
+        self.assertEqual(len(m.writes), 1)
+        m.call('fb_swap')
+        self.assertEqual(m.scanout_pixel(150, 379), 0)
+        self.assertEqual(m.scanout_pixel(152, 378), 0x00ffffff)
+        self.assertEqual(m.scanout_pixel(799, 0), m.base_color)
+
+        m.cursor = None
+        m.call('fb_cursor_poll')
+        self.assertEqual(len(m.writes), 3)
+        self.assertEqual(m.scanout_pixel(150, 379), m.base_color)
 
 
 if __name__ == '__main__':

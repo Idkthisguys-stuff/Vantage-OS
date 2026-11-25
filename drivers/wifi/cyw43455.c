@@ -431,6 +431,7 @@ static int control(Wifi* w, uint32_t command, int set, const void* input, unsign
                     void* output, unsigned int capacity, unsigned int* output_bytes) {
     unsigned int payload = input_bytes > capacity ? input_bytes : capacity;
     if (payload > sizeof(w->control) || (input_bytes && !input) || (capacity && !output)) return HW_INVALID;
+    w->control_status = 0;
     int result = credit(w, 0);
     if (result != HW_OK) return fail(w, result);
     memset(w->tx, 0, (payload + 28 + 3U) & ~3U);
@@ -454,7 +455,16 @@ static int control(Wifi* w, uint32_t command, int set, const void* input, unsign
     if (!w->control_ready) return fail(w, HW_TIMEOUT);
     erase(w->rx, sizeof(w->rx));
     if (w->control_status) { erase(w->control, sizeof(w->control)); return HW_IO; }
-    if (!set && w->control_length > capacity) { erase(w->control, sizeof(w->control)); return HW_NO_SPACE; }
+    if (!set && w->control_length > capacity) {
+        /* clmload_status is a fixed-width value. Firmware may return the
+         * entire request buffer with padding following those four bytes. */
+        if (command != 262 || capacity != 4 || input_bytes != sizeof("clmload_status") ||
+            memcmp(input, "clmload_status", sizeof("clmload_status")) || w->control_length != payload) {
+            erase(w->control, sizeof(w->control));
+            return HW_NO_SPACE;
+        }
+        w->control_length = capacity;
+    }
     if (!set && w->control_length) memcpy(output, w->control, w->control_length);
     if (output_bytes) *output_bytes = set ? 0 : w->control_length;
     erase(w->control, sizeof(w->control));
@@ -483,6 +493,10 @@ static int command_int(Wifi* w, uint32_t command, uint32_t value) {
 }
 
 int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
+    return wifi_boot_traced(w, bus, f, NULL);
+}
+
+int wifi_boot_traced(Wifi* w, const WifiBus* bus, const WifiFirmware* f, WifiBootTrace trace) {
     if (!w || !bus || !bus->direct || !bus->transfer || !bus->time_us || !bus->delay || !bus->owned ||
         !bus->owned(bus->context) || !f || !f->firmware || f->firmware_bytes < 4 || f->firmware_bytes > 1048576 ||
         !f->clm || !f->clm_bytes || f->clm_bytes > 262144 || f->country[2] ||
@@ -572,26 +586,46 @@ int wifi_boot(Wifi* w, const WifiBus* bus, const WifiFirmware* f) {
     country[0] = country[8] = (unsigned char)f->country[0];
     country[1] = country[9] = (unsigned char)f->country[1]; put32(country + 4, (uint32_t)f->country_revision);
     unsigned int actual = 0;
-    if (variable(w, "clmload_status", 0, NULL, 0, status, 4, &actual) != HW_OK || actual != 4 || le32(status) ||
-        variable(w, "country", 1, country, sizeof(country), NULL, 0, NULL) != HW_OK ||
-        variable(w, "country", 0, NULL, 0, applied_country, sizeof(applied_country), &actual) != HW_OK || actual != 12 ||
-        applied_country[0] != country[0] || applied_country[1] != country[1] ||
+    const char* rejected_setting = NULL;
+#define BOOT_CONTROL(stage, operation, required) do { \
+        w->boot_stage = (stage); \
+        result = (operation); \
+        if (trace) trace(w->boot_stage, result, w->control_status); \
+        if (result != HW_OK) { \
+            if ((required) || !trace || !w->control_status) return fail(w, HW_IO); \
+            if (!rejected_setting) rejected_setting = w->boot_stage; \
+        } \
+    } while (0)
+    BOOT_CONTROL("CLM status", variable(w, "clmload_status", 0, NULL, 0, status, 4, &actual), 1);
+    if (actual != 4 || le32(status)) return fail(w, HW_IO);
+    BOOT_CONTROL("write country", variable(w, "country", 1, country, sizeof(country), NULL, 0, NULL), 1);
+    BOOT_CONTROL("read country", variable(w, "country", 0, NULL, 0, applied_country, sizeof(applied_country), &actual), 1);
+    if (actual != 12 || applied_country[0] != country[0] || applied_country[1] != country[1] ||
         applied_country[8] != country[8] || applied_country[9] != country[9] ||
         (f->country_revision >= 0 && le32(applied_country + 4) != (uint32_t)f->country_revision))
         return fail(w, HW_IO);
-    w->boot_stage = "radio settings";
-    if (var_int(w, "bus:txglom", 0) != HW_OK || command_int(w, 86, 0) != HW_OK ||
-        command_int(w, 20, 1) != HW_OK || var_int(w, "roam_off", 1) != HW_OK) return fail(w, HW_IO);
-    /* Keep the radio powered while unassociated so scans can run; select
-     * active probing for scans. */
-    if (var_int(w, "mpc", 0) != HW_OK || command_int(w, 49, 0) != HW_OK) return fail(w, HW_IO);
+    BOOT_CONTROL("disable TX aggregation (bus:txglom)", var_int(w, "bus:txglom", 0), 0);
+    BOOT_CONTROL("set power management (86)", command_int(w, 86, 0), 0);
+    BOOT_CONTROL("set infrastructure mode (20)", command_int(w, 20, 1), 0);
+    BOOT_CONTROL("disable roaming (roam_off)", var_int(w, "roam_off", 1), 0);
+    /* Keep the radio powered while unassociated and select active probing. */
+    BOOT_CONTROL("keep unassociated radio awake (mpc)", var_int(w, "mpc", 0), 0);
+    BOOT_CONTROL("set active probing (49)", command_int(w, 49, 0), 0);
     unsigned char mask[16] = {0};
     const unsigned int events[] = {0, 5, 6, 11, 12, 16, 46, 69};
     for (unsigned int i = 0; i < sizeof(events) / sizeof(events[0]); i++) mask[events[i] / 8] |= (uint8_t)(1U << (events[i] % 8));
-    if (variable(w, "event_msgs", 1, mask, sizeof(mask), NULL, 0, NULL) != HW_OK ||
-        variable(w, "cur_etheraddr", 0, NULL, 0, w->mac, 6, &actual) != HW_OK || actual != 6 ||
-        (w->mac[0] & 1) || !(w->mac[0] | w->mac[1] | w->mac[2] | w->mac[3] | w->mac[4] | w->mac[5]) ||
-        command_int(w, 2, 1) != HW_OK) return fail(w, HW_IO);
+    BOOT_CONTROL("set event mask (event_msgs)", variable(w, "event_msgs", 1, mask, sizeof(mask), NULL, 0, NULL), 0);
+    BOOT_CONTROL("read MAC address (cur_etheraddr)", variable(w, "cur_etheraddr", 0, NULL, 0, w->mac, 6, &actual), 1);
+    if (actual != 6 || (w->mac[0] & 1) ||
+        !(w->mac[0] | w->mac[1] | w->mac[2] | w->mac[3] | w->mac[4] | w->mac[5]))
+        return fail(w, HW_IO);
+    if (rejected_setting) {
+        trace("bring radio up skipped after settings rejection", HW_OFF, 0);
+        w->boot_stage = rejected_setting;
+        return fail(w, HW_IO);
+    }
+    BOOT_CONTROL("bring radio up (2)", command_int(w, 2, 1), 1);
+#undef BOOT_CONTROL
     erase(w->nvram, sizeof(w->nvram)); w->state = 1; w->error = 0;
     return HW_OK;
 }

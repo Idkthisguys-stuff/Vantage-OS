@@ -40,6 +40,9 @@ typedef struct {
 void net_attach(const NetLink* wifi, const NetLink* ethernet);
 void net_poll(void);
 int net_status(NetStatus* status);
+/* Snapshot without a synchronous radio query. */
+void net_status_cached(NetStatus* status);
+int net_scan_state(void);
 int net_scan(NetScan* request);
 int net_join(const NetJoin* request);
 int net_leave(void);

@@ -1,5 +1,5 @@
 #include <vantage/arch/mmu.h>
-#include <vantage/drivers/pi4_usb.h>
+#include "pi4_usb_internal.h"
 
 /* BCM2711 PCIe register layout and reset timings from the bcm2711 device
  * tree and Broadcom's Linux pcie-brcmstb driver (docs/USB.md). */
@@ -18,8 +18,11 @@
 #define PCIE_LINK_UP 0x30U
 #define PCIE_INBOUND_BAR1 0x402c
 #define PCIE_INBOUND_BAR2 0x4034
+#define PCIE_INBOUND_BAR2_HI 0x4038
 #define PCIE_INBOUND_BAR3 0x403c
 #define PCIE_BAR_SIZE_MASK 0x1fU
+#define PCIE_SCB0_SIZE_MASK (31U << 27)
+#define PCIE_DMA_SHIFTED_BASE 0x200000000ULL
 #define PCIE_OUTBOUND_LO 0x400c
 #define PCIE_OUTBOUND_HI 0x4010
 #define PCIE_OUTBOUND_BASE_LIMIT 0x4070
@@ -38,6 +41,8 @@
 #define PCI_BAR1 0x14
 #define PCI_MEMORY_BASE 0xf8000000U
 
+static int transport_claimed;
+
 static uint32_t read_reg(const HwOps* io, unsigned int offset) {
     return io->read(io->context, PCIE_BASE + offset);
 }
@@ -51,14 +56,28 @@ static void update_reg(const HwOps* io, unsigned int offset, uint32_t mask, uint
     (void)read_reg(io, offset);
 }
 
+static int valid_link(uint32_t status) {
+    return status != 0xffffffffU && (status & PCIE_LINK_UP) == PCIE_LINK_UP;
+}
+
+int pi4_usb_pcie_link(const HwOps* io) {
+    return valid_link(read_reg(io, PCIE_STATUS));
+}
+
 static int link_ready(const HwOps* io, Pi4UsbProbe* probe) {
     uint32_t status = read_reg(io, PCIE_STATUS);
-    if ((status & PCIE_LINK_UP) == PCIE_LINK_UP) return 1;
+    if (valid_link(status)) return 1;
     probe->detail = status;
     return 0;
 }
 
-static int start_link(const HwOps* io, Pi4UsbProbe* probe) {
+static int start_link(const HwOps* io, Pi4UsbProbe* probe, Pi4UsbPcie* pcie) {
+    /* Preserve the firmware's shifted window when present. The BCM2711
+     * legacy window uses PCI address zero, with a 3 GiB usable span. */
+    if (pcie && read_reg(io, PCIE_INBOUND_BAR2_HI) == 2 &&
+        !(read_reg(io, PCIE_INBOUND_BAR2) & ~PCIE_BAR_SIZE_MASK))
+        pcie->dma_base = PCIE_DMA_SHIFTED_BASE;
+
     update_reg(io, PCIE_SW_INIT, PCIE_BRIDGE_RESET | PCIE_PERST,
                PCIE_BRIDGE_RESET | PCIE_PERST);
     if (hw_delay(io, 100) != HW_OK) return HW_TIMEOUT;
@@ -66,20 +85,32 @@ static int start_link(const HwOps* io, Pi4UsbProbe* probe) {
     update_reg(io, PCIE_HARD_DEBUG, PCIE_SERDES_IDDQ, 0);
     if (hw_delay(io, 100) != HW_OK) return HW_TIMEOUT;
 
-    /* Select 128-byte bursts and disable the inbound windows for this probe. */
+    /* Select 128-byte bursts and disable any inbound windows. */
     update_reg(io, PCIE_CONTROL, PCIE_BURST_MASK, PCIE_SCB_ACCESS | PCIE_CFG_READ_UR);
     update_reg(io, PCIE_INBOUND_BAR1, PCIE_BAR_SIZE_MASK, 0);
     update_reg(io, PCIE_INBOUND_BAR2, PCIE_BAR_SIZE_MASK, 0);
     update_reg(io, PCIE_INBOUND_BAR3, PCIE_BAR_SIZE_MASK, 0);
+    if (pcie) {
+        /* SCB0 encodes log2(bytes) - 15. The PCIe BAR needs a power of two,
+         * so round the legacy span up to 4 GiB. The shifted span is 8 GiB. */
+        unsigned int size = pcie->dma_base ? 18 : 17;
+        update_reg(io, PCIE_CONTROL, PCIE_SCB0_SIZE_MASK, size << 27);
+        write_reg(io, PCIE_INBOUND_BAR2_HI, (uint32_t)(pcie->dma_base >> 32));
+        write_reg(io, PCIE_INBOUND_BAR2, size);
+        if (read_reg(io, PCIE_INBOUND_BAR2) != size ||
+            read_reg(io, PCIE_INBOUND_BAR2_HI) != (uint32_t)(pcie->dma_base >> 32) ||
+            (read_reg(io, PCIE_CONTROL) & PCIE_SCB0_SIZE_MASK) != (size << 27))
+            return HW_IO;
+    }
     probe->detail = read_reg(io, PCIE_STATUS);
-    if (!(probe->detail & PCIE_ROOT_PORT)) return HW_UNSUPPORTED;
+    if (probe->detail == 0xffffffffU || !(probe->detail & PCIE_ROOT_PORT)) return HW_UNSUPPORTED;
 
     probe->stage = PI4_USB_LINK;
     update_reg(io, PCIE_SW_INIT, PCIE_PERST, 0);
     if (hw_delay(io, 100000) != HW_OK) return HW_TIMEOUT;
     int result = hw_wait(io, PCIE_BASE + PCIE_STATUS, PCIE_LINK_UP, PCIE_LINK_UP, 100000);
     probe->detail = read_reg(io, PCIE_STATUS);
-    return result;
+    return valid_link(probe->detail) ? result : HW_TIMEOUT;
 }
 
 static void map_outbound_window(const HwOps* io) {
@@ -95,7 +126,7 @@ static void map_outbound_window(const HwOps* io) {
     write_reg(io, 0x20, (pci_limit & 0xfff00000U) | (PCI_MEMORY_BASE >> 16));
 }
 
-static int probe_bar(const HwOps* io, Pi4UsbProbe* probe) {
+static int probe_bar(const HwOps* io, Pi4UsbProbe* probe, Pi4UsbPcie* pcie) {
     const unsigned int endpoint = PCIE_EXT_DATA;
     if (!link_ready(io, probe)) return HW_TIMEOUT;
     write_reg(io, endpoint + PCI_COMMAND, PCI_INTX_DISABLE);
@@ -126,10 +157,11 @@ static int probe_bar(const HwOps* io, Pi4UsbProbe* probe) {
         read_reg(io, endpoint + PCI_BAR1) != 0 ||
         (read_reg(io, PCI_COMMAND) & pci_decode) != PCI_MEMORY ||
         (read_reg(io, endpoint + PCI_COMMAND) & pci_decode) != PCI_MEMORY) return HW_IO;
+    if (pcie) pcie->bar_bytes = (uint32_t)bytes;
     return HW_OK;
 }
 
-static int probe_controller(const HwOps* io, Pi4UsbProbe* probe) {
+static int probe_controller(const HwOps* io, Pi4UsbProbe* probe, Pi4UsbPcie* pcie) {
     const unsigned int endpoint = PCIE_EXT_DATA;
     probe->stage = PI4_USB_ENDPOINT;
     write_reg(io, PCI_COMMAND, PCI_INTX_DISABLE);
@@ -140,11 +172,11 @@ static int probe_controller(const HwOps* io, Pi4UsbProbe* probe) {
     if (probe->detail != VL805_ID ||
         (read_reg(io, endpoint + 0x08) >> 8) != PCI_XHCI_CLASS) return HW_UNSUPPORTED;
 
-    /* Firmware reloading can require inbound DMA. Leave it to the xHCI
-     * transport setup, after it owns the inbound address window. */
     probe->stage = PI4_USB_BAR;
-    int result = probe_bar(io, probe);
-    if (result != HW_OK) return result;
+    return probe_bar(io, probe, pcie);
+}
+
+int pi4_usb_pcie_caps(const HwOps* io, Pi4UsbProbe* probe) {
     probe->stage = PI4_USB_XHCI;
     if (!link_ready(io, probe)) return HW_TIMEOUT;
     probe->detail = io->read(io->context, MMU_PCIE_DEVICE_BASE);
@@ -159,15 +191,59 @@ static int probe_controller(const HwOps* io, Pi4UsbProbe* probe) {
     return HW_OK;
 }
 
-int pi4_usb_probe(const HwOps* io, Pi4UsbProbe* probe) {
+static int probe_pcie(const HwOps* io, Pi4UsbProbe* probe, Pi4UsbPcie* pcie) {
     if (!probe) return HW_INVALID;
     *probe = (Pi4UsbProbe){ .stage = PI4_USB_BRIDGE };
     if (!hw_ops_valid(io) || !io->owned(io->context)) return HW_INVALID;
+    if (transport_claimed) return HW_BUSY;
     probe->detail = read_reg(io, 0);
     if ((probe->detail & 0xffff) != 0x14e4) return HW_UNSUPPORTED;
 
-    int result = start_link(io, probe);
-    if (result == HW_OK) result = probe_controller(io, probe);
-    if (result != HW_OK) update_reg(io, PCIE_SW_INIT, PCIE_PERST, PCIE_PERST);
+    int result = start_link(io, probe, pcie);
+    if (result == HW_OK) result = probe_controller(io, probe, pcie);
+    if (result == HW_OK && !pcie) result = pi4_usb_pcie_caps(io, probe);
+    if (result != HW_OK) {
+        update_reg(io, PCIE_SW_INIT, PCIE_PERST, PCIE_PERST);
+        if (pcie) update_reg(io, PCIE_INBOUND_BAR2, PCIE_BAR_SIZE_MASK, 0);
+    }
     return result;
+}
+
+int pi4_usb_probe(const HwOps* io, Pi4UsbProbe* probe) {
+    return probe_pcie(io, probe, NULL);
+}
+
+int pi4_usb_pcie_open(const HwOps* io, Pi4UsbProbe* probe, Pi4UsbPcie* pcie) {
+    *pcie = (Pi4UsbPcie){0};
+    int result = probe_pcie(io, probe, pcie);
+    if (result == HW_OK) transport_claimed = 1;
+    return result;
+}
+
+int pi4_usb_pcie_enable(const HwOps* io) {
+    if (!pi4_usb_pcie_link(io)) return HW_OFF;
+    uint32_t command = PCI_MEMORY | PCI_MASTER | PCI_INTX_DISABLE;
+    write_reg(io, PCIE_EXT_INDEX, VL805_BDF);
+    if (read_reg(io, PCIE_EXT_DATA + PCI_BAR0) != (PCI_MEMORY_BASE | 4U) ||
+        read_reg(io, PCIE_EXT_DATA + PCI_BAR1) != 0) return HW_IO;
+    write_reg(io, PCI_COMMAND, command);
+    write_reg(io, PCIE_EXT_DATA + PCI_COMMAND, command);
+    uint32_t mask = PCI_MEMORY | PCI_MASTER | PCI_INTX_DISABLE;
+    if (!pi4_usb_pcie_link(io) ||
+        (read_reg(io, PCI_COMMAND) & mask) != command ||
+        (read_reg(io, PCIE_EXT_DATA + PCI_COMMAND) & mask) != command)
+        return HW_IO;
+    return HW_OK;
+}
+
+void pi4_usb_pcie_close(const HwOps* io, int release_claim) {
+    if (pi4_usb_pcie_link(io)) {
+        write_reg(io, PCIE_EXT_INDEX, VL805_BDF);
+        write_reg(io, PCIE_EXT_DATA + PCI_COMMAND, PCI_INTX_DISABLE);
+        (void)read_reg(io, PCIE_EXT_DATA + PCI_COMMAND);
+    }
+    write_reg(io, PCI_COMMAND, PCI_INTX_DISABLE);
+    update_reg(io, PCIE_SW_INIT, PCIE_PERST, PCIE_PERST);
+    update_reg(io, PCIE_INBOUND_BAR2, PCIE_BAR_SIZE_MASK, 0);
+    if (release_claim) transport_claimed = 0;
 }

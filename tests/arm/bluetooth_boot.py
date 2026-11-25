@@ -4,6 +4,7 @@ Usage: python tests/arm/bluetooth_boot.py enabled.elf disabled.elf -v
 Add --patchram-elf patched.elf to exercise the embedded HCD.
 Use V3D=0, ETHERNET=0, USB=0 and no Wi-Fi assets for both builds.
 """
+import os
 import struct
 import sys
 import unittest
@@ -27,6 +28,7 @@ class Board(Machine):
         self.tx_room = None
         self.rom_subversion = 0x6119
         self.respond = True
+        self.stall_cts = self.tx_stalled = False
         for base in (GPIO, PL011, TIMER, MAILBOX):
             self.uc.mem_map(base, 0x1000)
             self.uc.hook_add(UC_HOOK_MEM_READ, self.read, begin=base, end=base + 0xfff)
@@ -55,7 +57,9 @@ class Board(Machine):
         elif address == PL011:
             result = self.rx.popleft()
         elif address == PL011 + 0x18:
-            result = (0 if self.rx else 0x10) | (0x20 if self.tx_room == 0 else 0)
+            result = (0 if self.rx else 0x10) | (8 if self.tx_stalled else 0)
+        elif address in (PL011 + 0xfe0, PL011 + 0xfe4):
+            result = 0x11 if address & 4 == 0 else 0x10
         elif GPIO <= address < GPIO + 0x1000:
             result = self.gpio.get(address - GPIO, 0)
         else:
@@ -78,12 +82,14 @@ class Board(Machine):
                 if opcode in (0xfc4c, 0xfc4e):
                     self.patch_records.extend(self.tx[1:])
                 self.tx.clear()
-                if self.respond:
-                    version = struct.pack('<BHBHH', 9, 0, 9, 0x0f, self.rom_subversion)
-                    extra = version if opcode == 0x1001 else b''
-                    self.rx.extend(struct.pack('<BBBBHB', 4, 0x0e, 4 + len(extra), 1, opcode, 0) + extra)
-        elif PL011 < address < PL011 + 0x200:
+                if self.stall_cts and self.uart[0x30] & (1 << 15) and opcode == 0x0c01:
+                    self.tx_stalled = True
+                elif self.respond:
+                    self.rx.extend(struct.pack('<BBBBHB', 4, 0x0e, 4, 1, opcode, 0))
+        elif PL011 < address < PL011 + 0x1000:
             self.uart[address - PL011] = value
+            if address == PL011 + 0x2c and not value & 0x10:
+                self.tx_stalled = False
         elif address == MAILBOX + 0x8a0:
             self.tag(uc, value)
         else:
@@ -178,6 +184,20 @@ class BluetoothBootTests(unittest.TestCase):
         self.assertIn(' queued in UART, flags: ', board.log)
         board.poll()
         self.assertEqual(''.join(board.log).count('Bluetooth HCI operation failed (-4)'), 1)
+
+    def test_diagnostic_restores_working_flow_control_mode(self):
+        path = os.environ.get('VANTAGE_RADIO_DIAGNOSTIC_ELF')
+        if not path:
+            self.skipTest('set VANTAGE_RADIO_DIAGNOSTIC_ELF to exercise the diagnostics build')
+        board = Board(Image(path))
+        board.stall_cts = True
+        board.call('mmu_init', FRAMEBUFFER, 0x200000)
+        ops = board.call('pi4_hardware_ops')
+        self.assertEqual(board.call('pi4_bt_start', ops), 1)
+        self.assertEqual(board.power, [0, 1, 0, 1, 0, 1])
+        self.assertEqual(board.commands, [0x0c03, 0x0c01, 0x2001, 0x0c03, 0x0c01, 0x0c03, 0x0c01, 0x2001])
+        self.assertIn('BT UART TX stalled on opcode', ''.join(board.log))
+        self.assertEqual(board.status(), (2, 0, 0, 0))
 
     def test_disabled_build_leaves_bluetooth_alone(self):
         board = Board(self.disabled)

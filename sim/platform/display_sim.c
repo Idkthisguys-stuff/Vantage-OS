@@ -307,6 +307,8 @@ uint32_t key_read(KeyEvent* event) {
     return 1;
 }
 
+void sim_event_delay(uint32_t microseconds) { SDL_Delay((microseconds + 999U) / 1000U); }
+
 void fb_wait_frame(void) {
     uint32_t elapsed = time_us() - lastFrame;
 

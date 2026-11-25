@@ -18,7 +18,7 @@ check firmware handoff, real interrupt delivery, the GIC, timer rates, cache or
 TLB behaviour, or speed. See [Verification](#verification) and the
 [acceptance checklist](#physical-acceptance-checklist).
 
-There are no priorities, signals, sleeping or timed wakeups, demand paging,
+There are no priorities, process signals, demand paging,
 `fork`, executable loading from storage, user-created threads or processes, or
 per-user permissions. A single function is not split across cores
 automatically: callers submit independent work.
@@ -81,8 +81,8 @@ be enabled from the kernel's view, or `CNTFRQ_EL0` is zero, `irq_init_core`
 fails: core 0 halts the boot and a secondary parks before it runs any task.
 
 The timer is one-shot. The dispatcher arms `TASK_SLICE_US` (10 ms) before it
-switches to a task and stops the timer when the task returns to it, so an
-idle or dispatching core has no interrupt source. The handler stops the
+switches to a task and stops the timer when the task returns to it. Core 0
+also arms it for the next service or wait deadline when idle. The handler stops the
 level-triggered timer, completes the interrupt in the GIC on the core that
 acknowledged it, and only then calls the scheduler; the task may resume on
 another core. Spurious interrupt IDs are ignored.
@@ -145,15 +145,41 @@ so there is no lock order.
   the context and stack pointer are saved does the dispatcher clear ownership,
   drop the user address space and release the lock. Another core can then
   claim the task, or reclaim its stack and address space.
-- Idle dispatchers sleep in WFE with interrupts masked and no timer armed.
-  Every publication of runnable work (create, wake, preempt, kill) is followed
-  by SEV; the event register covers the window between the check and WFE.
+- Idle dispatchers sleep in WFE. A publication of runnable work sends SEV.
+  With a deadline on core 0, the dispatcher arms the virtual timer and enables
+  IRQs around WFE. The idle timer IRQ sends SEV as well, so an interrupt between
+  unmasking and entering WFE still leaves a wake event.
 - File-handle cleanup, table construction and page freeing happen outside the
   lock, on core 0.
 
 The scheduler does not protect application data. Kernel tasks sharing data
 need their own synchronization and must not yield while holding a lock that
 another task on the same core needs.
+
+## Device events and timed waits
+
+The core 0 dispatcher runs a driver service with an 8 ms target period while
+the built-in application is active. It polls network, Bluetooth and USB input,
+checks keyboard and touch readiness, and publishes events after the device calls
+return. Work on a core runs until it yields or can be preempted, so service and
+wait deadlines can run late under load. The service uses the existing core 0
+driver ownership and never runs in interrupt context.
+
+`sys_event_wait(interests, timeout_us)` accepts `EVENT_KEY`, `EVENT_TOUCH`,
+`EVENT_NETWORK`, `EVENT_BLUETOOTH`, and `EVENT_USB` in any combination. Its result is a
+bitmask of the requested events, zero on timeout, or −1 for invalid arguments.
+A zero timeout queries readiness immediately. A zero interest mask with a
+positive timeout sleeps. The maximum interval is one second. The kernel
+checks pending bits and publishes the blocked state under the scheduler lock.
+The timer makes the dispatcher recheck the deadline, and device notifications
+make matching tasks runnable. Both paths use the same task context switch.
+
+Read keys and touch contacts with the existing input calls after waking.
+Network and Bluetooth notifications can coalesce. Re-read status to get the
+latest values. Home waits for input and the status of the visible view. The
+Console uses shorter deadlines while an operation or on-screen key repeat is
+active. The SDL simulator polls its own input and virtual network during the
+same wait call.
 
 ## Processes
 
@@ -378,8 +404,8 @@ kernel expects the default GIC handoff.
       one replaces the other in the same physical pages.
 - [ ] Cross-core join/exit races never resume a task twice or reuse an active
       stack; cyclic waits and a second waiter are rejected.
-- [ ] Idle workers wake reliably around publication and WFE/SEV races, and
-      idle cores take no timer interrupts.
+- [ ] Idle workers wake reliably around publication and WFE/SEV races. Confirm
+      core 0 wakes for a wait deadline and networking progresses with Home idle.
 - [ ] Core-0 touch/display/file behaviour stays correct under compute load on
       the other cores; remote and movable tasks cannot use those services.
 - [ ] Record pixel correctness and frame times before making any throughput

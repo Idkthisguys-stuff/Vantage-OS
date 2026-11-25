@@ -24,6 +24,8 @@ void task_port_halt(const char* message);
  * IRQs are masked and is withdrawn by stop. Called from the dispatcher. */
 void task_port_slice_start(uint32_t microseconds);
 void task_port_slice_stop(void);
+/* Idle until a publication or timer IRQ, with exceptions masked on return. */
+void task_port_idle_for(uint32_t microseconds);
 /* IRQ mask of the calling context; every other exception stays masked. */
 void task_port_irq_enable(void);
 void task_port_irq_disable(void);

@@ -10,6 +10,9 @@
 #include <vantage/kernel/memory.h>
 
 #include <vantage/platform/pi4/io.h>
+#if VANTAGE_USB
+#include <vantage/platform/pi4/usb_input.h>
+#endif
 
 /* Whole cache lines, exclusively owned by firmware after a submitted timeout. */
 static volatile uint32_t mbox[48] __attribute__((aligned(64)));
@@ -36,6 +39,63 @@ static uint32_t lastSwap;
  * draws into its own surface, so a runtime fallback never has to allocate. */
 static uint32_t* backBuffer;
 static Renderer renderer;
+
+#if VANTAGE_USB
+typedef struct {
+    int x, y;
+    uint32_t visible;
+} Cursor;
+
+static Cursor shown_cursor;
+static uint32_t frame_presented, frame_pending, last_present;
+
+static Cursor read_cursor(void) {
+    Cursor cursor = {0};
+    cursor.visible = pi4_usb_cursor(&cursor.x, &cursor.y);
+    return cursor;
+}
+
+static void draw_cursor(volatile uint32_t* page, Cursor cursor) {
+    static const char shape[][11] = {
+        "#         ",
+        "##        ",
+        "#+#       ",
+        "#++#      ",
+        "#+++#     ",
+        "#++++#    ",
+        "#+++++#   ",
+        "#++++++#  ",
+        "#+++++++# ",
+        "#++++#####",
+        "#++#++#   ",
+        "#+# #++#  ",
+        "##  #++#  ",
+        "#    ##   "
+    };
+    if (!cursor.visible) return;
+    for (unsigned int row = 0; row < sizeof(shape) / sizeof(shape[0]); row++) {
+        uint32_t sx = (uint32_t)cursor.y + row;
+        if (sx >= renderer.width) break;
+        for (unsigned int col = 0; col < sizeof(shape[0]) - 1; col++) {
+            uint32_t x = (uint32_t)cursor.x + col;
+            if (x >= pageHeight) break;
+            char pixel = shape[row][col];
+            /* Canvas to scanout uses the same rotation as put_pixel(). */
+            if (pixel != ' ')
+                page[(size_t)(pageHeight - 1 - x) * (fbPitch / 4) + sx] =
+                    pixel == '#' ? 0x00000000U : 0x00ffffffU;
+        }
+    }
+}
+
+void fb_cursor_poll(void) {
+    if (!frame_presented || frame_pending || display_frozen) return;
+    Cursor cursor = read_cursor();
+    if (cursor.visible == shown_cursor.visible &&
+        (!cursor.visible || (cursor.x == shown_cursor.x && cursor.y == shown_cursor.y))) return;
+    if (time_us() - last_present >= FRAME_US) fb_swap();
+}
+#endif
 
 uint32_t fb_attach_backend(const RenderBackend* backend) {
     if (!backBuffer || !backend) return 0;
@@ -213,10 +273,16 @@ uint32_t* fb_init(uint32_t width, uint32_t height) {
 }
 
 void put_pixel(uint32_t x, uint32_t y, uint32_t color) {
+#if VANTAGE_USB
+    frame_pending = 1;
+#endif
     render_pixel(&renderer, y, 480 - 1 - x, color);
 }
 
 void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
+#if VANTAGE_USB
+    frame_pending = 1;
+#endif
     render_fill(&renderer, y, 480 - x - w, h, w, color);
 }
 
@@ -245,6 +311,10 @@ void fb_swap(void) {
             mm_halt("[ERR] CPU framebuffer retry failed\n");
     }
 
+#if VANTAGE_USB
+    Cursor cursor = read_cursor();
+    draw_cursor((volatile uint32_t*)page, cursor);
+#endif
     __asm__ volatile("dsb sy" ::: "memory");
 
     mbox[0] = 8 * 4;
@@ -266,4 +336,10 @@ void fb_swap(void) {
     }
     visiblePage = drawPage;
     drawPage = (drawPage + 1) % PAGE_COUNT;
+#if VANTAGE_USB
+    shown_cursor = cursor;
+    frame_presented = 1;
+    frame_pending = 0;
+    last_present = time_us();
+#endif
 }

@@ -5,6 +5,8 @@
 #include <vantage/abi/touch.h>
 #include <vantage/abi/console.h>
 #include <vantage/abi/net.h>
+#include <vantage/abi/event.h>
+#include <vantage/abi/usb_files.h>
 
 /* Persistent /ram files. Transfers are bounded to FILE_IO_MAX bytes per call. */
 int64_t sys_file_open(const char* path, uint32_t flags);
@@ -49,6 +51,11 @@ uint64_t sys_task_id(void);
 uint32_t sys_task_yield(void);
 /* Returns 0 when scheduling is unavailable; otherwise does not return. */
 uint32_t sys_task_exit(int status);
+
+/* Wait for any requested event on core 0. Returns ready bits, 0 on timeout
+ * or -1 for invalid arguments. Zero timeout queries without blocking. */
+int sys_event_wait(uint32_t interests, uint32_t timeout_us);
+int sys_usb_files(UsbFileCall* call);
 
 uint32_t sys_touch_read(TouchEvent* event);
 uint32_t sys_touch_contact_read(TouchContact* contact);

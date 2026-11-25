@@ -59,8 +59,19 @@ vantage_native_test(sd_controller_test sd_controller drivers
   drivers/sd_controller.c "${ROOT}/drivers/storage/sd.c")
 vantage_native_test(pi4_usb_test pi4_usb_pcie_probe drivers
   drivers/pi4_usb.c "${ROOT}/drivers/storage/pi4_usb.c" "${ROOT}/drivers/hw/wait.c")
+vantage_native_test(pi4_xhci_test pi4_usb_xhci drivers
+  drivers/pi4_xhci.c "${ROOT}/drivers/storage/pi4_usb.c"
+  "${ROOT}/drivers/storage/pi4_xhci.c" "${ROOT}/drivers/hw/wait.c"
+  "${ROOT}/platform/pi4/usb_disk.c" "${ROOT}/kernel/fs/usb_media.c"
+  "${ROOT}/drivers/storage/usb_fat32.c" "${ROOT}/drivers/storage/usb_storage.c")
 vantage_native_test(usb_storage_test usb_storage_bulk_only drivers
   drivers/usb_storage.c "${ROOT}/drivers/storage/usb_storage.c" "${ROOT}/drivers/storage/usb_fat32.c")
+vantage_native_test(usb_hid_test usb_boot_hid drivers
+  drivers/usb_hid.c "${ROOT}/drivers/input/usb_hid.c")
+vantage_native_test(pi4_usb_input_test pi4_usb_boot_input drivers
+  drivers/pi4_usb_input.c "${ROOT}/platform/pi4/usb_input.c" "${ROOT}/drivers/input/usb_hid.c")
+vantage_native_test(pi4_usb_input_hub_test pi4_usb_hub_input drivers
+  drivers/pi4_usb_input_hub.c "${ROOT}/platform/pi4/usb_input.c" "${ROOT}/drivers/input/usb_hid.c")
 vantage_native_test(bluetooth_test bluetooth_hci_discovery drivers
   drivers/bluetooth.c "${ROOT}/drivers/bluetooth/hci.c")
 vantage_native_test(delays_test delays drivers
@@ -73,6 +84,8 @@ vantage_native_test(gpio_test gpio_pins drivers
   drivers/gpio.c "${ROOT}/platform/pi4/io.c")
 
 set(FILE_SOURCES "${ROOT}/kernel/fs/files.c" "${ROOT}/kernel/fs/storage.c" "${ROOT}/kernel/fs/block_store.c")
+set(USB_MEDIA_SOURCES "${ROOT}/kernel/fs/usb_media.c" "${ROOT}/drivers/storage/usb_fat32.c"
+  "${ROOT}/drivers/storage/usb_storage.c")
 vantage_native_test(files_test persistent_files storage
   fs/files.c ${FILE_SOURCES} "${ROOT}/kernel/fs/file_syscall.c")
 vantage_native_test(storage_test storage_recovery storage
@@ -80,7 +93,7 @@ vantage_native_test(storage_test storage_recovery storage
 vantage_native_test(capacity_test storage_capacity storage
   fs/capacity.c ${FILE_SOURCES} "${ROOT}/kernel/fs/file_syscall.c")
 add_executable(storage_host_test fs/storage_host.c
-  "${ROOT}/sim/platform/storage_host.c" ${FILE_SOURCES})
+  "${ROOT}/sim/platform/storage_host.c" ${FILE_SOURCES} ${USB_MEDIA_SOURCES})
 vantage_test_target(storage_host_test)
 if(MSVC)
   target_compile_definitions(storage_host_test PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -125,6 +138,8 @@ set(NET_SOURCES "${ROOT}/kernel/net/dhcp.c" "${ROOT}/kernel/net/dns.c" "${ROOT}/
   "${ROOT}/kernel/net/sntp.c" "${ROOT}/kernel/net/socket.c" "${ROOT}/kernel/net/tcp.c")
 vantage_native_test(user_memory_test user_memory user
   user/memory.c "${ROOT}/arch/armv8/mmu_tables.c" "${ROOT}/kernel/syscall/dispatch.c"
+  "${ROOT}/kernel/syscall/events.c"
+  ${USB_MEDIA_SOURCES}
   ${FILE_SOURCES} "${ROOT}/kernel/fs/file_syscall.c" ${NET_SOURCES})
 vantage_native_test(net_stack_test network_stack network
   net/stack.c ${NET_SOURCES} "${ROOT}/sim/platform/net_peer.c" "${ROOT}/sim/platform/net_sim.c")

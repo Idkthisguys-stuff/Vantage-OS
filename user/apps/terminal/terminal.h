@@ -16,8 +16,8 @@ typedef void (*TerminalOutputFn)(void* context, char character);
 /* Receives the masked line; text is scrubbed after the call. */
 typedef void (*TerminalSecretFn)(Terminal* terminal, void* state, const char* text);
 
-/* A job runs across frames so the display and Cancel stay live; input is held
- * meanwhile. step runs once per frame. cancel (optional) must end the job. */
+/* A job runs across app steps so the display and Cancel stay live; input is
+ * held meanwhile. cancel (optional) must end the job. */
 typedef struct {
     void (*step)(Terminal* terminal, void* state);
     void (*cancel)(Terminal* terminal, void* state);
@@ -61,6 +61,7 @@ void terminal_app_init(void);
 void terminal_app_step(void);
 void terminal_app_open(void);
 uint32_t terminal_app_closed(void);
+uint32_t terminal_app_needs_frame(void);
 
 void terminal_write(Terminal* terminal, const char* text);
 void terminal_put(Terminal* terminal, char character);

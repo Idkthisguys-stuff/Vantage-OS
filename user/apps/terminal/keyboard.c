@@ -6,9 +6,10 @@
 #define NO_KEY KEYBOARD_KEYS
 #define ALL_KEYS ((1ULL << KEYBOARD_KEYS) - 1)
 
-enum { SHIFT = 29, DELETE = 37, CANCEL = 38, SPACE = 40, ENTER = 42 };
+enum { SHIFT = 29, DELETE = 37, CANCEL = 38, SYMBOLS = 39, SPACE = 40, ENTER = 42 };
 
 static uint32_t keyboard_columns, keyboard_top, keyboard_shift, panel_dirty;
+static uint32_t symbols_enabled, symbols_active;
 static uint64_t dirty_keys;
 static uint32_t point_key[TOUCH_CONTACTS_MAX];
 static uint32_t key_holders[KEYBOARD_KEYS];
@@ -16,6 +17,7 @@ static uint32_t repeat_time[KEYBOARD_KEYS], repeat_delay[KEYBOARD_KEYS];
 
 uint32_t keyboard_init(uint32_t columns, uint32_t rows) {
     keyboard_columns = keyboard_shift = 0;
+    symbols_enabled = symbols_active = 0;
     dirty_keys = panel_dirty = 0;
     for (uint32_t id = 0; id < TOUCH_CONTACTS_MAX; id++) point_key[id] = NO_KEY;
     for (uint32_t key = 0; key < KEYBOARD_KEYS; key++) key_holders[key] = 0;
@@ -28,8 +30,14 @@ uint32_t keyboard_init(uint32_t columns, uint32_t rows) {
     return keyboard_top;
 }
 
+void keyboard_enable_symbols(void) { symbols_enabled = 1; }
+
 static char keyboard_character(uint32_t key) {
     char c;
+    if (symbols_active && key < DELETE && key != SHIFT) {
+        static const char symbols[] = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~0123";
+        return symbols[key - (key > SHIFT)];
+    }
     if (key < 10) return (keyboard_shift ? "!@#$%^&*()" : "1234567890")[key];
     if (key < 20) c = "qwertyuiop"[key - 10];
     else if (key < 29) c = "asdfghjkl"[key - 20];
@@ -55,6 +63,7 @@ static CanvasButton keyboard_button(uint32_t key) {
         const uint32_t edges[] = {0, 150, 250, 700, 800, 1000};
         row = 4; left = edges[key - 38]; right = edges[key - 37];
         if (key == 38) label = "Cancel";
+        else if (key == SYMBOLS && symbols_enabled) label = symbols_active ? "ABC" : "Sym";
         else if (key == 40) label = "Space";
         else if (key == 42) label = "Enter";
     }
@@ -135,13 +144,24 @@ uint32_t keyboard_touch(const TouchContact* contact, KeyEvent* event) {
 
     release(id);
     if (pressed != key || key_holders[key] || repeatable(key)) return 0;
+    if (key == SYMBOLS && symbols_enabled) {
+        symbols_active = !symbols_active;
+        keyboard_shift = 0;
+        dirty_keys = ALL_KEYS;
+        return 0;
+    }
     if (key == SHIFT) {
+        if (symbols_active) return 0;
         keyboard_shift = !keyboard_shift;
         dirty_keys = ALL_KEYS;
         return 0;
     }
     key_event(key, event);
     return 1;
+}
+
+uint32_t keyboard_repeat_pending(void) {
+    return key_holders[DELETE] || key_holders[SPACE];
 }
 
 uint32_t keyboard_repeat(KeyEvent* event) {

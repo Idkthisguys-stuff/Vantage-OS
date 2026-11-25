@@ -19,7 +19,8 @@
 #define UART_RX_EMPTY (1U << 4)
 #define UART_TX_FULL (1U << 5)
 #define UART_FIFO_8N1 ((3U << 5) | (1U << 4))
-#define UART_H4_CONTROL ((1U << 15) | (1U << 14) | (1U << 9) | (1U << 8) | 1U)
+#define UART_CTS_ENABLE (1U << 15)
+#define UART_H4_CONTROL (UART_CTS_ENABLE | (1U << 14) | (1U << 9) | (1U << 8) | 1U)
 #define UART_BAUD 115200U
 #define UART_CLOCK_ID 2U
 #define TAG_CLOCK_RATE 0x00030002U
@@ -32,6 +33,10 @@ static size_t uart_tx_used;
 
 #if VANTAGE_BT_PATCHRAM
 extern const BtPatch pi4_bt_patch;
+#endif
+
+#if VANTAGE_RADIO_DIAGNOSTICS
+static uint32_t diagnostic_rx_bytes;
 #endif
 
 static void uart_write(const HwOps* io, unsigned int reg, uint32_t value) {
@@ -49,7 +54,16 @@ static int send_packet(void* context, const uint8_t* data, size_t length) {
         if (uart_read(io, UART_FLAGS) & UART_TX_FULL) return BT_BUSY;
         uart_write(io, UART_DATA, data[uart_tx_used++]);
     }
-    uart_tx_used = 0;
+#if VANTAGE_RADIO_DIAGNOSTICS
+    uint32_t opcode = (uint32_t)data[1] | ((uint32_t)data[2] << 8);
+    int result = hw_wait(io, UART0 + UART_FLAGS, UART_BUSY, 0, 20000U);
+    uart_writeText(result == HW_OK ? "[RADIO] BT UART sent opcode " : "[RADIO] BT UART TX stalled on opcode ");
+    uart_writeHex(opcode);
+    uart_writeText(" flags=");
+    uart_writeHex(uart_read(io, UART_FLAGS));
+    uart_writeText("\n");
+    if (result != HW_OK) return BT_TIMEOUT;
+#endif
     return BT_OK;
 }
 
@@ -61,6 +75,9 @@ static int receive_byte(void* context, uint8_t* result) {
         uart_write(io, UART_ERRORS, 0xff);
         return BT_IO;
     }
+#if VANTAGE_RADIO_DIAGNOSTICS
+    diagnostic_rx_bytes++;
+#endif
     *result = (uint8_t)data;
     return 1;
 }
@@ -78,8 +95,7 @@ static int set_radio_power(const HwOps* io, uint32_t enabled) {
     return BT_OK;
 }
 
-static int radio_start(const HwOps* io, const char** stage) {
-    *stage = "hardware ownership";
+static int radio_start(const HwOps* io, uint32_t control) {
     if (!hw_ops_valid(io) || !io->property || !io->owned(io->context))
         return BT_UNAVAILABLE;
 
@@ -100,11 +116,11 @@ static int radio_start(const HwOps* io, const char** stage) {
     /* Disable transmission before draining an old boot UART configuration. */
     *stage = "UART0 setup";
     uart_write(io, UART_CONTROL, 0);
+    uart_write(io, UART_LINE, 0);
     if (hw_wait(io, UART0 + UART_FLAGS, UART_BUSY, 0, 20000U) != HW_OK) return BT_TIMEOUT;
     uart_write(io, UART_IRQ_MASK, 0);
     uart_write(io, UART_IRQ_CLEAR, 0x7ffU);
     uart_write(io, UART_DMA, 0);
-    uart_write(io, UART_LINE, 0);
     uart_write(io, UART_INT_DIVISOR, (uint32_t)(divisor >> 6));
     uart_write(io, UART_FRAC_DIVISOR, (uint32_t)(divisor & 63U));
     uart_write(io, UART_LINE, UART_FIFO_8N1);
@@ -112,8 +128,7 @@ static int radio_start(const HwOps* io, const char** stage) {
         gpio_pull(pin, 0);
         gpio_function(pin, 7);  /* ALT3, UART0 CTS/RTS/TX/RX. */
     }
-    uart_write(io, UART_CONTROL, UART_H4_CONTROL);
-    *stage = "controller power-on";
+    uart_write(io, UART_CONTROL, control);
     result = set_radio_power(io, 1);
     if (result != BT_OK) return result;
     if (hw_delay(io, 120000U) != HW_OK) return BT_TIMEOUT;
@@ -135,8 +150,40 @@ static int radio_start(const HwOps* io, const char** stage) {
 #endif
 }
 
-int pi4_bt_start(const HwOps* io, const char** stage) {
-    int result = radio_start(io, stage);
+#if VANTAGE_RADIO_DIAGNOSTICS
+static int diagnostic_start(const HwOps* io, uint32_t control, const char* label) {
+    uart_writeText("[RADIO] BT ");
+    uart_writeText(label);
+    uart_writeText(" start\n");
+    diagnostic_rx_bytes = 0;
+    int result = radio_start(io, control);
+    if (result == BT_OK) {
+        uint32_t start = io->time_us(io->context);
+        while (controller.status.state == BT_BOOTING &&
+               io->time_us(io->context) - start < 4000000U) bt_hci_poll(&controller);
+        if (controller.status.state != BT_READY)
+            result = controller.status.error ? controller.status.error : BT_TIMEOUT;
+    }
+    uart_writeText("[RADIO] BT ");
+    uart_writeText(label);
+    uart_writeText(" result=");
+    uart_writeHex((uint32_t)result);
+    uart_writeText(" rx_bytes=");
+    uart_writeHex(diagnostic_rx_bytes);
+    uart_writeText("\n");
+    return result;
+}
+#endif
+
+int pi4_bt_start(const HwOps* io) {
+#if VANTAGE_RADIO_DIAGNOSTICS
+    int initial = diagnostic_start(io, UART_H4_CONTROL & ~UART_CTS_ENABLE, "CTS disabled");
+    int result = diagnostic_start(io, UART_H4_CONTROL, "CTS enabled");
+    if (result != BT_OK && initial == BT_OK)
+        result = diagnostic_start(io, UART_H4_CONTROL & ~UART_CTS_ENABLE, "restore CTS disabled");
+#else
+    int result = radio_start(io, UART_H4_CONTROL);
+#endif
     startup_error = result == BT_OK ? 0 : result;
     return result;
 }

@@ -19,4 +19,5 @@ uint32_t time_us(void);
 uint32_t user_buffer_valid(uintptr_t buffer, size_t size);
 /* Host backend accounting; not part of the userspace ABI. */
 uint64_t sim_backbuffer_bytes(void);
+void sim_event_delay(uint32_t microseconds);
 #endif

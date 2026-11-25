@@ -74,6 +74,9 @@ int wifi_nvram_pack(const unsigned char* text, size_t bytes, unsigned char* outp
  * Buffers and state must be private kernel memory, retained for driver lifetime.
  * Firmware/NVRAM/CLM must match this board; country is explicit, not guessed. */
 int wifi_boot(Wifi* wifi, const WifiBus* bus, const WifiFirmware* firmware);
+typedef void (*WifiBootTrace)(const char* stage, int result, uint32_t firmware_status);
+int wifi_boot_traced(Wifi* wifi, const WifiBus* bus, const WifiFirmware* firmware,
+                     WifiBootTrace trace);
 /* Services one SDPCM packet and advances a pending join or scan. Returns
  * 1 after a packet, 0 when idle, or a negative HwResult that stops the radio. */
 int wifi_poll(Wifi* wifi);

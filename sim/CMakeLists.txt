@@ -13,10 +13,14 @@ include("${VANTAGE_ROOT}/cmake/VantageTLS.cmake")
 # Share application and kernel services; replace only the platform/transport.
 add_library(vantage_sim_core STATIC
   "${VANTAGE_ROOT}/kernel/syscall/dispatch.c"
+  "${VANTAGE_ROOT}/kernel/syscall/events.c"
   "${VANTAGE_ROOT}/kernel/fs/files.c"
   "${VANTAGE_ROOT}/kernel/fs/storage.c"
   "${VANTAGE_ROOT}/kernel/fs/block_store.c"
   "${VANTAGE_ROOT}/kernel/fs/file_syscall.c"
+  "${VANTAGE_ROOT}/kernel/fs/usb_media.c"
+  "${VANTAGE_ROOT}/drivers/storage/usb_fat32.c"
+  "${VANTAGE_ROOT}/drivers/storage/usb_storage.c"
   "${VANTAGE_ROOT}/kernel/net/dhcp.c"
   "${VANTAGE_ROOT}/kernel/net/dns.c"
   "${VANTAGE_ROOT}/kernel/net/ip.c"
