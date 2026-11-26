@@ -155,10 +155,10 @@ partition: all
 	mcopy -i card-copy.img@@4194304 firmware/config.txt ::config.txt
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/start4.elf" ::start4.elf
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/fixup4.dat" ::fixup4.dat
-	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio-raspberrypi-4-model-b.clm_blob" ::brcmfmac43455-sdio-raspberrypi-4-model-b.clm_blob
-	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/BCM4345C0.hcd" ::BCM4345C0.hcd
-	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio-raspberrypi-4-model-b.txt" ::brcmfmac43455-sdio-raspberrypi-4-model-b.txt
-	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/brcmfmac43455-sdio-raspberrypi-4-model-b.bin" ::brcmfmac43455-sdio-raspberrypi-4-model-b.bin
+	@for f in brcmfmac43455-sdio-raspberrypi-4-model-b.clm_blob brcmfmac43455-sdio-raspberrypi-4-model-b.txt \
+	    brcmfmac43455-sdio-raspberrypi-4-model-b.bin BCM4345C0.hcd; do \
+		if [ -f "$(FIRMWARE_DIR)/$$f" ]; then mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/$$f" ::$$f; fi; \
+	done
 	mmd -i card-copy.img@@4194304 ::overlays
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/overlays/vc4-fkms-v3d.dtbo" ::overlays/vc4-fkms-v3d.dtbo
 	mcopy -i card-copy.img@@4194304 "$(FIRMWARE_DIR)/COPYING.linux" "$(FIRMWARE_DIR)/LICENCE.broadcom" ::

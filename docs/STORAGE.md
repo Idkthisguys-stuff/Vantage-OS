@@ -251,7 +251,7 @@ DTB, ELF and fixup blobs match commit `ab5c7f86283ceb58b7adb269cae1d16092a31bf6`
 [Upstream boot files and notices](https://github.com/raspberrypi/firmware/tree/ab5c7f86283ceb58b7adb269cae1d16092a31bf6/boot)
 
 ```sh
-make partition BUILD_DIR=out FIRMWARE_DIR=/path/to/pi4/boot STORAGE_VALIDATION=1 SD_BASE_CLOCK_HZ=200000000 STORAGE_PARTITION=1
+python3 tools/build.py --build-dir out --wifi-country CA --radio-diagnostics 1 --storage-validation 1 --sd-base-clock-hz 200000000 --storage-partition 1  --image --firmware-dir firmware
 ```
 
 The build requires Python 3 as well as the GNU AArch64 toolchain. Build option

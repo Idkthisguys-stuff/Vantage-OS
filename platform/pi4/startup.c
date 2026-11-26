@@ -232,6 +232,16 @@ void pi4_drivers_start(void) {
             radio_wifi_scan();
 #endif
         } else {
+
+            uart_writeText("[DBG] HW_OK="); uart_writeHex((uint32_t)HW_OK);
+            uart_writeText(" result="); uart_writeHex((uint32_t)wifi_result);
+            uart_writeText(" state="); uart_writeHex((uint32_t)wifi.state);
+            uart_writeText(" error="); uart_writeHex((uint32_t)wifi.error);
+            uart_writeText(" fw="); uart_writeHex((uint32_t)pi4_wifi_firmware()->firmware_bytes);
+            uart_writeText(" nvram="); uart_writeHex((uint32_t)pi4_wifi_firmware()->nvram_bytes);
+            uart_writeText(" clm="); uart_writeHex((uint32_t)pi4_wifi_firmware()->clm_bytes);
+            uart_writeText("\n");
+
             report("[ERR] CYW43455 firmware initialization failed (", wifi_result);
             if (wifi.boot_stage) {
                 uart_writeText("[INFO] WLAN stage: ");

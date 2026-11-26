@@ -456,10 +456,7 @@ static int control(Wifi* w, uint32_t command, int set, const void* input, unsign
     erase(w->rx, sizeof(w->rx));
     if (w->control_status) { erase(w->control, sizeof(w->control)); return HW_IO; }
     if (!set && w->control_length > capacity) {
-        /* clmload_status is a fixed-width value. Firmware may return the
-         * entire request buffer with padding following those four bytes. */
-        if (command != 262 || capacity != 4 || input_bytes != sizeof("clmload_status") ||
-            memcmp(input, "clmload_status", sizeof("clmload_status")) || w->control_length != payload) {
+        if (command != 262 || w->control_length != payload) {
             erase(w->control, sizeof(w->control));
             return HW_NO_SPACE;
         }
