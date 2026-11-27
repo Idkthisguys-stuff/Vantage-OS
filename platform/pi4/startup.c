@@ -333,17 +333,42 @@ void pi4_drivers_poll(void) {
     if (!wifi_reported && wifi.state == -1) {
         wifi_reported = 1;
         report("[ERR] WLAN stopped after boot, driver error (", wifi.error);
+        uart_writeText("[INFO] WLAN scan/join/poll state: scan=");
+        uart_writeHex((uint32_t)wifi.scanning);
+        uart_writeText(" join=");
+        uart_writeHex((uint32_t)wifi.joining);
+        uart_writeText(" rx_seq=");
+        uart_writeHex((uint32_t)wifi.rx_sequence);
+        uart_writeText(" tx_seq=");
+        uart_writeHex((uint32_t)wifi.tx_sequence);
+        uart_writeText(" tx_win=");
+        uart_writeHex((uint32_t)wifi.tx_window);
+        uart_writeText("\n");
         if (wifi.boot_frame_error) {
             uart_writeText("[INFO] WLAN frame rejected: ");
             uart_writeText(wifi.boot_frame_error);
             uart_writeText("\n[INFO] WLAN header: ");
-            for (unsigned int i = 0; i < 3; i++) { uart_writeHex(wifi.boot_frame_header[i]); uart_writeText(" "); }
+            for (unsigned int i = 0; i < 3; i++) {
+                uart_writeHex(wifi.boot_frame_header[i]);
+                uart_writeText(" ");
+            }
             uart_writeText("\n");
         }
         if (wifi.backplane_failure) {
             uart_writeText("[INFO] WLAN backplane address: ");
             uart_writeHex(wifi.backplane_failure_address);
             report(" result (", wifi.backplane_failure);
+        }
+        if (sdio.failure_command || sdio.failure_interrupt) {
+            uart_writeText("[INFO] SDIO cmd/arg/resp/int: ");
+            uart_writeHex(sdio.failure_command);
+            uart_writeText(" ");
+            uart_writeHex(sdio.failure_argument);
+            uart_writeText(" ");
+            uart_writeHex(sdio.failure_response);
+            uart_writeText(" ");
+            uart_writeHex(sdio.failure_interrupt);
+            uart_writeText("\n");
         }
     }
 #endif

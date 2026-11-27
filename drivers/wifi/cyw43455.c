@@ -2,6 +2,7 @@
  * Linux v6.12 brcmfmac (ISC, Copyright 2010/2014 Broadcom Corporation).
  * See docs/licenses/brcmfmac-ISC.txt and docs/HARDWARE.md. */
 #include <vantage/drivers/wifi.h>
+#include <vantage/platform/pi4/io.h>
 
 #define RAM_BASE 0x198000U
 #define ENUM_BASE 0x18000000U
@@ -29,6 +30,16 @@ static void erase(void* memory, size_t bytes) {
     while (bytes--) *p++ = 0;
 }
 static int fail(Wifi* w, int result) {
+    uart_writeText("[DBG] wifi fail res=");
+    uart_writeHex((uint32_t)result);
+    uart_writeText(" cmd=");
+    uart_writeHex(w->control_command);
+    uart_writeText(" set=");
+    uart_writeHex((uint32_t)w->control_set);
+    uart_writeText(" stage=");
+    uart_writeText(w->boot_stage ? w->boot_stage : "none");
+    uart_writeText("\n");
+
     w->state = -1; w->error = result; w->link = w->keyed = w->connected = 0;
     erase(w->tx, sizeof(w->tx)); erase(w->control, sizeof(w->control));
     erase(w->rx, sizeof(w->rx)); erase(w->nvram, sizeof(w->nvram));
@@ -793,9 +804,11 @@ int wifi_scan_start(Wifi* w) {
     params[50] = 2;
     for (unsigned int offset = 52; offset < 68; offset += 4) put32(params + offset, 0xffffffffU);
     w->bss_count = 0; w->scanned = 0; w->scanning = 1;
-    w->scan_start = w->bus.time_us(w->bus.context);
     result = variable(w, "escan", 1, params, sizeof(params), NULL, 0, NULL);
-    if (result != HW_OK) { w->scanning = 0; if (w->state == 1) result = HW_IO; }
+    if (result != HW_OK) {
+        w->scanning = 0;
+        if (w->state == 1 && result > 0) result = HW_IO;
+    }
     w->busy = 0;
     return result;
 }
