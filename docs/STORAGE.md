@@ -250,6 +250,8 @@ copies the Pi 4 DTB, `start4.elf`, `fixup4.dat`, the overlay selected by
 DTB, ELF and fixup blobs match commit `ab5c7f86283ceb58b7adb269cae1d16092a31bf6`.
 [Upstream boot files and notices](https://github.com/raspberrypi/firmware/tree/ab5c7f86283ceb58b7adb269cae1d16092a31bf6/boot)
 
+You can replace CA as the 2 letters in your country. (CA is Canada)
+
 ```sh
 python3 tools/build.py --build-dir out --wifi-country CA --radio-diagnostics 1 --storage-validation 1 --sd-base-clock-hz 200000000 --storage-partition 1  --image --firmware-dir firmware
 ```

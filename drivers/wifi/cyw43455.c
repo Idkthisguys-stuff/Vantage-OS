@@ -335,10 +335,8 @@ static void event(Wifi* w, const unsigned char* p, unsigned int bytes) {
 }
 
 static int reject_frame(Wifi* w, const char* why) {
-    if (w->state == 2) {
-        w->boot_frame_error = why;
-        for (unsigned int i = 0; i < 3; i++) w->boot_frame_header[i] = le32(w->rx + 4 * i);
-    }
+    w->boot_frame_error = why;
+    for (unsigned int i = 0; i < 3; i++) w->boot_frame_header[i] = le32(w->rx + 4 * i);
     return HW_PROTOCOL;
 }
 

@@ -328,6 +328,25 @@ void pi4_drivers_poll(void) {
     if (bt_result == BT_OK) uart_writeText("[OK] Bluetooth HCI ready\n");
     else if (bt_result < 0) report("[WARN] Bluetooth HCI operation failed (", bt_result);
 #endif
+#if VANTAGE_WIFI && VANTAGE_WIFI_ASSETS
+    static int wifi_reported;
+    if (!wifi_reported && wifi.state == -1) {
+        wifi_reported = 1;
+        report("[ERR] WLAN stopped after boot, driver error (", wifi.error);
+        if (wifi.boot_frame_error) {
+            uart_writeText("[INFO] WLAN frame rejected: ");
+            uart_writeText(wifi.boot_frame_error);
+            uart_writeText("\n[INFO] WLAN header: ");
+            for (unsigned int i = 0; i < 3; i++) { uart_writeHex(wifi.boot_frame_header[i]); uart_writeText(" "); }
+            uart_writeText("\n");
+        }
+        if (wifi.backplane_failure) {
+            uart_writeText("[INFO] WLAN backplane address: ");
+            uart_writeHex(wifi.backplane_failure_address);
+            report(" result (", wifi.backplane_failure);
+        }
+    }
+#endif
 }
 
 Wifi* pi4_wifi_device(void) {
