@@ -29,8 +29,13 @@ static void erase(void* memory, size_t bytes) {
     volatile unsigned char* p = memory;
     while (bytes--) *p++ = 0;
 }
+static const char* fail_where;
+static unsigned int dbg_frames, dbg_ctl, dbg_ctl_id, dbg_ctl_cmd, dbg_events,
+                    dbg_credit, dbg_idle, dbg_zero, dbg_int;
 static int fail(Wifi* w, int result) {
-    uart_writeText("[DBG] wifi fail res=");
+    uart_writeText("[DBG] wifi fail where=");
+    uart_writeText(fail_where ? fail_where : "-");
+    uart_writeText(" res=");
     uart_writeHex((uint32_t)result);
     uart_writeText(" cmd=");
     uart_writeHex(w->control_command);
@@ -38,6 +43,10 @@ static int fail(Wifi* w, int result) {
     uart_writeHex((uint32_t)w->control_set);
     uart_writeText(" stage=");
     uart_writeText(w->boot_stage ? w->boot_stage : "none");
+    uart_writeText(" id="); uart_writeHex(w->control_id);
+    uart_writeText(" tx="); uart_writeHex(w->tx_sequence);
+    uart_writeText(" win="); uart_writeHex(w->tx_window);
+    uart_writeText(" rx="); uart_writeHex(w->rx_sequence);
     uart_writeText("\n");
 
     w->state = -1; w->error = result; w->link = w->keyed = w->connected = 0;
@@ -242,7 +251,7 @@ static int fifo(Wifi* w, int write, unsigned char* data, unsigned int bytes) {
     if (result != HW_OK) return result;
     while (bytes) {
         unsigned int count = bytes > 512 ? 512 : bytes;
-        result = w->bus.transfer(w->bus.context, 2, 0x8000U, write, write, data, count);
+        result = w->bus.transfer(w->bus.context, 2, 0x8000U, 0, write, data, count);
         if (result != HW_OK) return result;
         data += count; bytes -= count;
     }
@@ -359,6 +368,7 @@ static int pump(Wifi* w) {
         w->boot_interrupts |= interrupts;
     }
     w->host_flow = !!(interrupts & 16U);
+    dbg_int |= interrupts;
     if (interrupts && write32(w, w->sdregs + 0x20, interrupts) != HW_OK) return HW_IO;
     if (interrupts & SDIO_HOST_MAILBOX) {
         if (read32(w, w->sdregs + 0x4c, &mailbox) != HW_OK || write32(w, w->sdregs + 0x40, 2) != HW_OK) return HW_IO;
@@ -369,14 +379,41 @@ static int pump(Wifi* w) {
             w->protocol_ready = 1;
         }
     }
-    if (!(interrupts & SDIO_FRAME_INDICATION)) {
+    
+    int read_ahead = w->rx_next_length != 0;
+
+    if (read_ahead) {
+        w->rx_next_length = 0;
+    } else if (!(interrupts & SDIO_FRAME_INDICATION)) {
         uint8_t low, high;
-        if (reg8(w, 1, 0x1001b, 0, &low) != HW_OK || reg8(w, 1, 0x1001c, 0, &high) != HW_OK) return HW_IO;
-        if (!low && !high) return 0;
+
+        if (reg8(w, 1, 0x1001b, 0, &low) != HW_OK ||
+            reg8(w, 1, 0x1001c, 0, &high) != HW_OK)
+            return HW_IO;
+
+        if (!low && !high) {
+            dbg_idle++;
+            return 0;
+        }
     }
     if (fifo(w, 0, w->rx, 12) != HW_OK) return HW_IO;
     unsigned int length = le16(w->rx), complement = le16(w->rx + 2);
-    if (!length && !complement) return 0;
+
+    uart_writeText("[DBG] SDPCM channel=");
+    uart_writeHex(w->rx[5] & 0x0F);
+
+    uart_writeText(" sequence=");
+    uart_writeHex(w->rx[4]);
+
+    uart_writeText(" nextlen=");
+    uart_writeHex(w->rx[6]);
+
+    uart_writeText(" frame_length=");
+    uart_writeHex(length);
+
+    uart_writeText("\n");
+
+    if (!length && !complement) { dbg_zero++; return 0; }
     if ((length ^ complement) != 0xffffU || length < 12 || length > sizeof(w->rx))
         return reject_frame(w, "invalid size/checksum");
     if (length > 12 && (w->rx[7] < 12 || w->rx[7] > length))
@@ -385,15 +422,18 @@ static int pump(Wifi* w) {
     if (length > 12 && fifo(w, 0, w->rx + 12, (length - 12 + 3U) & ~3U) != HW_OK) return HW_IO;
     w->rx_synced = 1;
     w->rx_sequence = (uint8_t)(w->rx[4] + 1U);
+    w->rx_next_length = w->rx[6];
     /* Keep the last usable credit when the firmware advertises a stale window. */
     if ((uint8_t)(w->rx[9] - w->tx_sequence) <= 64U) w->tx_window = w->rx[9];
     w->flow_mask = w->rx[8];
-    if (length == 12) return HW_OK; /* Credit update with no payload. */
+    dbg_frames++;
+    if (length == 12) { dbg_credit++; return HW_OK; } /* Credit update with no payload. */
     unsigned int channel = w->rx[5] & 15U, offset = w->rx[7];
     unsigned char* p = w->rx + offset;
     unsigned int bytes = length - offset;
     if (channel == 0) {
         if (bytes < 16) return reject_frame(w, "short control frame");
+        dbg_ctl++; dbg_ctl_id = le32(p + 8) >> 16; dbg_ctl_cmd = le32(p);
         if ((le32(p + 8) >> 16) != (w->control_id & 65535U)) return HW_OK;
         if (le32(p) != w->control_command) return reject_frame(w, "unexpected control command");
         w->control_status = le32(p + 12) | (le32(p + 8) & 1U);
@@ -408,7 +448,7 @@ static int pump(Wifi* w) {
         unsigned int skip = 4U + (unsigned int)p[3] * 4U;
         if (skip > bytes) return reject_frame(w, "invalid network offset");
         p += skip; bytes -= skip;
-        if (channel == 1) event(w, p, bytes);
+        if (channel == 1) { dbg_events++; event(w, p, bytes); }
         else if (bytes >= 14 && bytes <= WIFI_FRAME_MAX && w->connected && w->link && (w->keyed || w->open)) {
             if (w->rx_count == 4) w->dropped++;
             else {
@@ -436,11 +476,33 @@ static void header(Wifi* w, unsigned int bytes, unsigned int channel) {
     w->tx[4] = w->tx_sequence; w->tx[5] = (unsigned char)channel; w->tx[7] = 12;
 }
 
+static void dbg_timeout(Wifi* w) {
+    uint8_t lo = 0, hi = 0;
+    uint32_t ints = 0, mbox = 0;
+    (void)reg8(w, 1, 0x1001b, 0, &lo); (void)reg8(w, 1, 0x1001c, 0, &hi);
+    (void)read32(w, w->sdregs + 0x20, &ints); (void)read32(w, w->sdregs + 0x4c, &mbox);
+    uart_writeText("[DBG] reply wait: frames="); uart_writeHex(dbg_frames);
+    uart_writeText(" ctl="); uart_writeHex(dbg_ctl);
+    uart_writeText(" last_ctl_id="); uart_writeHex(dbg_ctl_id);
+    uart_writeText(" last_ctl_cmd="); uart_writeHex(dbg_ctl_cmd);
+    uart_writeText(" want_id="); uart_writeHex(w->control_id);
+    uart_writeText(" events="); uart_writeHex(dbg_events);
+    uart_writeText(" credit="); uart_writeHex(dbg_credit);
+    uart_writeText(" idle="); uart_writeHex(dbg_idle);
+    uart_writeText(" zero="); uart_writeHex(dbg_zero);
+    uart_writeText(" seen_int="); uart_writeHex(dbg_int);
+    uart_writeText(" int_now="); uart_writeHex(ints);
+    uart_writeText(" pending="); uart_writeHex(lo); uart_writeText(" "); uart_writeHex(hi);
+    uart_writeText(" mbox="); uart_writeHex(mbox);
+    uart_writeText("\n");
+}
+
 static int control(Wifi* w, uint32_t command, int set, const void* input, unsigned int input_bytes,
                     void* output, unsigned int capacity, unsigned int* output_bytes) {
     unsigned int payload = input_bytes > capacity ? input_bytes : capacity;
     if (payload > sizeof(w->control) || (input_bytes && !input) || (capacity && !output)) return HW_INVALID;
     w->control_status = 0;
+    fail_where = "credit";
     int result = credit(w, 0);
     if (result != HW_OK) return fail(w, result);
     memset(w->tx, 0, (payload + 28 + 3U) & ~3U);
@@ -451,17 +513,21 @@ static int control(Wifi* w, uint32_t command, int set, const void* input, unsign
     put32(w->tx + 20, (w->control_id << 16) | (set ? 2U : 0U));
     if (input_bytes) memcpy(w->tx + 28, input, input_bytes);
     if (set && command == 26) w->link = w->keyed = w->associated = w->join_error = 0;
+    fail_where = "send";
     result = fifo(w, 1, w->tx, (payload + 28 + 3U) & ~3U);
     erase(w->tx, sizeof(w->tx));
     if (result != HW_OK) return fail(w, result);
     w->tx_sequence++;
+    fail_where = "reply";
+    dbg_frames = dbg_ctl = dbg_ctl_id = dbg_ctl_cmd = dbg_events = 0;
+    dbg_credit = dbg_idle = dbg_zero = dbg_int = 0;
     uint32_t start = w->bus.time_us(w->bus.context);
     for (unsigned int i = 0; !w->control_ready && i < 100000; i++) {
         result = pump(w);
         if (result < 0) return fail(w, result);
-        if (w->bus.time_us(w->bus.context) - start >= 2500000U) return fail(w, HW_TIMEOUT);
+        if (w->bus.time_us(w->bus.context) - start >= 2500000U) { dbg_timeout(w); return fail(w, HW_TIMEOUT); }
     }
-    if (!w->control_ready) return fail(w, HW_TIMEOUT);
+    if (!w->control_ready) { dbg_timeout(w); return fail(w, HW_TIMEOUT); }
     erase(w->rx, sizeof(w->rx));
     if (w->control_status) { erase(w->control, sizeof(w->control)); return HW_IO; }
     if (!set && w->control_length > capacity) {
@@ -473,6 +539,7 @@ static int control(Wifi* w, uint32_t command, int set, const void* input, unsign
     }
     if (!set && w->control_length) memcpy(output, w->control, w->control_length);
     if (output_bytes) *output_bytes = set ? 0 : w->control_length;
+    fail_where = NULL;
     erase(w->control, sizeof(w->control));
     return HW_OK;
 }
@@ -643,6 +710,12 @@ static int enter(Wifi* w) {
     w->busy = 1;
     return HW_OK;
 }
+
+static int disassociate(Wifi* w) {
+    unsigned char scb[12] = {0};
+    return control(w, 52, 1, scb, sizeof(scb), NULL, 0, NULL);
+}
+
 /* Called with the driver entered. A completed join is verified against the
  * firmware's current SSID before frame transport is authorized. */
 static void join_finish(Wifi* w, int result) {
@@ -651,7 +724,7 @@ static void join_finish(Wifi* w, int result) {
     erase(w->join_ssid, sizeof(w->join_ssid));
     if (result == HW_OK) return;
     w->link = w->keyed = w->connected = 0; w->rx_count = w->rx_head = 0;
-    if (w->state == 1) (void)control(w, 52, 1, NULL, 0, NULL, 0, NULL);
+    if (w->state == 1) (void)disassociate(w);
 }
 
 static void join_progress(Wifi* w) {
@@ -705,14 +778,27 @@ int wifi_join_start(Wifi* w, const unsigned char* ssid, unsigned int ssid_bytes,
     static const unsigned char rsn[] = {0x30, 0x14, 1, 0, 0, 0x0f, 0xac, 4, 1, 0, 0, 0x0f, 0xac, 4,
                                         1, 0, 0, 0x0f, 0xac, 2, 0, 0};
     put32(target, ssid_bytes); memcpy(target + 4, ssid, ssid_bytes);
+    int need_disassoc = (w->associated || w->link || w->connected) ? 1 : 0;
     if (w->open) {
-        /* Explicitly requested: open system authentication without encryption. */
-        if (control(w, 52, 1, NULL, 0, NULL, 0, NULL) != HW_OK || command_int(w, 22, 0) != HW_OK ||
+        if ((need_disassoc ? disassociate(w) : HW_OK) != HW_OK || command_int(w, 22, 0) != HW_OK ||
             command_int(w, 134, 0) != HW_OK || var_int(w, "wpa_auth", 0) != HW_OK ||
             var_int(w, "sup_wpa", 0) != HW_OK) result = HW_IO;
     } else {
         put16(pmk, passphrase_bytes); put16(pmk + 2, 1); memcpy(pmk + 4, passphrase, passphrase_bytes);
-        if (control(w, 52, 1, NULL, 0, NULL, 0, NULL) != HW_OK ||
+        if ((need_disassoc ? disassociate(w) : HW_OK) != HW_OK ||
+            command_int(w, 22, 0) != HW_OK || command_int(w, 134, 4) != HW_OK || var_int(w, "wpa_auth", 128) != HW_OK ||
+            variable(w, "wpaie", 1, rsn, sizeof(rsn), NULL, 0, NULL) != HW_OK || var_int(w, "sup_wpa", 1) != HW_OK ||
+            control(w, 268, 1, pmk, sizeof(pmk), NULL, 0, NULL) != HW_OK) result = HW_IO;
+    }
+
+    if (w->open) {
+        /* Explicitly requested: open system authentication without encryption. */
+        if ((w->associated ? disassociate(w) : HW_OK) != HW_OK || command_int(w, 22, 0) != HW_OK ||
+            command_int(w, 134, 0) != HW_OK || var_int(w, "wpa_auth", 0) != HW_OK ||
+            var_int(w, "sup_wpa", 0) != HW_OK) result = HW_IO;
+    } else {
+        put16(pmk, passphrase_bytes); put16(pmk + 2, 1); memcpy(pmk + 4, passphrase, passphrase_bytes);
+        if ((w->associated ? disassociate(w) : HW_OK) != HW_OK ||
             command_int(w, 22, 0) != HW_OK || command_int(w, 134, 4) != HW_OK || var_int(w, "wpa_auth", 128) != HW_OK ||
             variable(w, "wpaie", 1, rsn, sizeof(rsn), NULL, 0, NULL) != HW_OK || var_int(w, "sup_wpa", 1) != HW_OK ||
             control(w, 268, 1, pmk, sizeof(pmk), NULL, 0, NULL) != HW_OK) result = HW_IO;
@@ -755,7 +841,7 @@ join_done:
     if (result != HW_OK) {
         w->link = w->keyed = w->connected = 0;
         w->join_result = result;
-        if (w->state == 1) (void)control(w, 52, 1, NULL, 0, NULL, 0, NULL);
+        if (w->state == 1) (void)disassociate(w);
     }
     w->busy = 0;
     return result;
@@ -787,7 +873,7 @@ int wifi_join(Wifi* w, const unsigned char* ssid, unsigned int ssid_bytes,
 int wifi_disconnect(Wifi* w) {
     int result = enter(w);
     if (result != HW_OK) return result;
-    result = control(w, 52, 1, NULL, 0, NULL, 0, NULL);
+    result = disassociate(w);
     w->joining = 0; w->join_result = HW_OFF; w->join_missing = 0;
     erase(w->join_ssid, sizeof(w->join_ssid));
     w->link = w->keyed = w->connected = 0; w->rx_count = w->rx_head = 0; w->busy = 0;
@@ -804,6 +890,7 @@ int wifi_scan_start(Wifi* w) {
     params[50] = 2;
     for (unsigned int offset = 52; offset < 68; offset += 4) put32(params + offset, 0xffffffffU);
     w->bss_count = 0; w->scanned = 0; w->scanning = 1;
+    w->scan_start = w->bus.time_us(w->bus.context);
     result = variable(w, "escan", 1, params, sizeof(params), NULL, 0, NULL);
     if (result != HW_OK) {
         w->scanning = 0;

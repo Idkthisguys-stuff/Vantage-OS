@@ -44,6 +44,7 @@ typedef struct {
     uint32_t chip, revision, arm, arm_wrap, d11_wrap, sdregs, sd_revision, ram_bytes;
     uint32_t window, control_id, control_command, control_length, control_status;
     uint8_t tx_sequence, rx_sequence, rx_synced, tx_window, flow_mask, mac[6];
+    uint8_t rx_next_length;
     int control_ready, control_set, host_flow, protocol_ready;
     int joining, join_result, open, join_missing;
     uint32_t join_start, scan_start;
